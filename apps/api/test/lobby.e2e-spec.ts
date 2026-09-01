@@ -88,11 +88,15 @@ describe('Lobby (e2e)', () => {
   });
 
   it('filters by stake and by privacy', async () => {
+    // restrict to this run's tables - the DB may hold seeded/other tables too
+    const ours = (body: any[]): string[] =>
+      body.map((t) => t.name).filter((n: string) => n.endsWith(suffix));
+
     const high = await get('?minBigBlind=40');
-    expect(high.body.map((t: any) => t.name)).toEqual([`mid ${suffix}`]);
+    expect(ours(high.body)).toEqual([`mid ${suffix}`]);
 
     const low = await get('?maxBigBlind=5');
-    expect(low.body.map((t: any) => t.name)).toEqual([`micro ${suffix}`]);
+    expect(ours(low.body)).toEqual([`micro ${suffix}`]);
 
     const withPrivate = await get('?includePrivate=true');
     expect(withPrivate.body.map((t: any) => t.name)).toEqual(

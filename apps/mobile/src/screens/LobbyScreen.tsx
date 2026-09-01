@@ -1,19 +1,157 @@
-import { StyleSheet, Text } from 'react-native';
-import { Screen } from '../components';
+import { useCallback, useMemo, useState } from 'react';
+import { Alert, FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import type { LobbyTableView } from '@river/shared-types';
+import { EmptyState, FilterChip } from '../components';
+import { useLobbyTables, useToggleFavorite, useWaitlist } from '../features/lobby/queries';
+import { useLobbyLive } from '../features/lobby/useLobbyLive';
+import { LobbyTableCard } from '../features/lobby/LobbyTableCard';
 import { colors, spacing, typography } from '../theme/tokens';
+import type { AppStackParams } from '../navigation/types';
 
-/** Placeholder - the live lobby list lands in STEP 7b. */
-export function LobbyScreen(): JSX.Element {
+type Props = NativeStackScreenProps<AppStackParams, 'Lobby'>;
+
+interface StakeBucket {
+  id: string;
+  label: string;
+  match: (bigBlind: number) => boolean;
+}
+
+const STAKE_BUCKETS: StakeBucket[] = [
+  { id: 'micro', label: 'Micro', match: (bb) => bb <= 2 },
+  { id: 'low', label: 'Low', match: (bb) => bb > 2 && bb <= 10 },
+  { id: 'mid', label: 'Mid', match: (bb) => bb > 10 && bb <= 50 },
+  { id: 'high', label: 'High', match: (bb) => bb > 50 },
+];
+
+export function LobbyScreen({ navigation }: Props): JSX.Element {
+  const { data, isLoading, isError, refetch, isRefetching } = useLobbyTables();
+  const favorite = useToggleFavorite();
+  const waitlist = useWaitlist();
+
+  const [bucket, setBucket] = useState<string | null>(null);
+  const [openOnly, setOpenOnly] = useState(false);
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
+
+  const openTable = useCallback(
+    (tableId: string) => navigation.navigate('Table', { tableId }),
+    [navigation],
+  );
+
+  const onSeatAvailable = useCallback(
+    (tableId: string) => {
+      const name = data?.find((t) => t.id === tableId)?.name ?? 'a table';
+      Alert.alert('Seat available', `A seat opened up at ${name}.`, [
+        { text: 'Later', style: 'cancel' },
+        { text: 'Take seat', onPress: () => openTable(tableId) },
+      ]);
+    },
+    [data, openTable],
+  );
+
+  useLobbyLive({ onSeatAvailable });
+
+  const tables = useMemo(() => {
+    if (!data) return [];
+    const selected = STAKE_BUCKETS.find((b) => b.id === bucket);
+    return data.filter((t) => {
+      if (selected && !selected.match(t.bigBlind)) return false;
+      if (openOnly && t.openSeats === 0 && !t.onWaitlist) return false;
+      if (favoritesOnly && !t.isFavorite) return false;
+      return true;
+    });
+  }, [data, bucket, openOnly, favoritesOnly]);
+
+  const onToggleFavorite = useCallback(
+    (t: LobbyTableView) => favorite.mutate({ tableId: t.id, next: !t.isFavorite }),
+    [favorite],
+  );
+  const onToggleWaitlist = useCallback(
+    (t: LobbyTableView) => waitlist.mutate({ tableId: t.id, next: !t.onWaitlist }),
+    [waitlist],
+  );
+
   return (
-    <Screen contentStyle={styles.content}>
-      <Text style={styles.title}>Cash games</Text>
-      <Text style={styles.body}>The live table list is coming in the next build.</Text>
-    </Screen>
+    <SafeAreaView style={styles.safe} edges={['bottom']}>
+      <View style={styles.filters}>
+        <View style={styles.chipRow}>
+          {STAKE_BUCKETS.map((b) => (
+            <FilterChip
+              key={b.id}
+              label={b.label}
+              active={bucket === b.id}
+              onPress={() => setBucket((cur) => (cur === b.id ? null : b.id))}
+            />
+          ))}
+        </View>
+        <View style={styles.chipRow}>
+          <FilterChip label="Open seats" active={openOnly} onPress={() => setOpenOnly((v) => !v)} />
+          <FilterChip
+            label="Favourites"
+            active={favoritesOnly}
+            onPress={() => setFavoritesOnly((v) => !v)}
+          />
+        </View>
+      </View>
+
+      <FlatList
+        data={tables}
+        keyExtractor={(t) => t.id}
+        renderItem={({ item }) => (
+          <LobbyTableCard
+            table={item}
+            onOpen={openTable}
+            onToggleFavorite={onToggleFavorite}
+            onToggleWaitlist={onToggleWaitlist}
+            busy={waitlist.isPending}
+          />
+        )}
+        contentContainerStyle={styles.list}
+        ItemSeparatorComponent={() => <View style={styles.sep} />}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefetching}
+            onRefresh={refetch}
+            tintColor={colors.textSecondary}
+          />
+        }
+        ListEmptyComponent={
+          isLoading ? (
+            <Text style={styles.muted}>Loading tables…</Text>
+          ) : isError ? (
+            <EmptyState
+              title="Couldn't load the lobby"
+              body="Check your connection and try again."
+              actionLabel="Retry"
+              onAction={refetch}
+            />
+          ) : (
+            <EmptyState title="No tables match" body="Clear a filter to see more games." />
+          )
+        }
+      />
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  content: { gap: spacing.sm, justifyContent: 'center', alignItems: 'center' },
-  title: { ...typography.h2, color: colors.textPrimary },
-  body: { ...typography.body, color: colors.textSecondary, textAlign: 'center' },
+  safe: { flex: 1, backgroundColor: colors.bg },
+  filters: {
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  list: { padding: spacing.lg, flexGrow: 1 },
+  sep: { height: spacing.md },
+  muted: {
+    ...typography.body,
+    color: colors.textMuted,
+    textAlign: 'center',
+    paddingVertical: spacing.xxl,
+  },
 });
