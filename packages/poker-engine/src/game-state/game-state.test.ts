@@ -48,6 +48,7 @@ const state = (specs: SeatSpec[], overrides: Partial<GameState> = {}): GameState
   actingSeat: specs[0]?.seat ?? null,
   round: createBettingRound(20, overrides.round?.currentBet ?? 0),
   deck: freshDeck(),
+  collectedPot: 0,
   pots: [],
   actionDeadline: null,
   ...overrides,

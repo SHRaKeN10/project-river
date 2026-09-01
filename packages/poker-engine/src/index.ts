@@ -1,15 +1,16 @@
 /**
  * @river/poker-engine - pure, deterministic Texas Hold'em rules engine.
  *
- * PUBLIC SURFACE (grows through Phase 4):
- *   - RandomProvider abstraction              [done]
- *   - cards / deck / shuffle                  [done]
- *   - hand-evaluator                          [done]
- *   - player / table / betting / action-validator / game-state  [done]
- *   - pot-manager / street-manager / showdown / events          [next]
- *   - reduce(state, action, rng) => { state, events[] }
+ * The only entry point you normally need is `reduce(state, action, rng)`:
  *
- * The engine must never import NestJS, Prisma, React, Socket.IO or any I/O.
+ *   import { initGameState, reduce, CryptoRandomProvider } from '@river/poker-engine';
+ *   let state = initGameState({ tableId, config, players });
+ *   ({ state } = reduce(state, { type: 'START_HAND', handId, handNumber, previousButtonSeat: null },
+ *                       new CryptoRandomProvider()));
+ *
+ * Pure and total - an illegal action produces an ACTION_REJECTED event and no
+ * state change; all randomness comes through the RandomProvider. The engine
+ * never imports NestJS, Prisma, React, Socket.IO or any I/O.
  */
 
 export * from './rng/random-provider';
@@ -22,6 +23,11 @@ export * from './table';
 export * from './betting';
 export * from './action-validator';
 export * from './game-state';
+export * from './pot-manager';
+export * from './street-manager';
+export * from './showdown';
+export * from './events';
+export * from './reducer';
 
 /** Semver of the engine's public contract. */
-export const ENGINE_VERSION = '0.0.0';
+export const ENGINE_VERSION = '0.1.0';

@@ -11,13 +11,13 @@ layouts from any existing poker platform.
 
 ## Monorepo layout
 
-| Path                    | Package               | Description                                                                       |
-| ----------------------- | --------------------- | --------------------------------------------------------------------------------- |
-| `apps/api`              | `@river/api`          | NestJS modular monolith — REST + WebSocket gateway, table manager                 |
-| `apps/mobile`           | `@river/mobile`       | React Native (Expo) app — iOS + Android                                           |
-| `packages/poker-engine` | `@river/poker-engine` | Pure, deterministic Hold'em rules engine (cards/deck/shuffle/hand-evaluator done) |
-| `packages/shared-types` | `@river/shared-types` | Wire contracts & enums shared across all apps                                     |
-| `packages/config`       | `@river/config`       | Shared tsconfig / eslint / jest presets                                           |
+| Path                    | Package               | Description                                                               |
+| ----------------------- | --------------------- | ------------------------------------------------------------------------- |
+| `apps/api`              | `@river/api`          | NestJS modular monolith — REST + WebSocket gateway, table manager         |
+| `apps/mobile`           | `@river/mobile`       | React Native (Expo) app — iOS + Android                                   |
+| `packages/poker-engine` | `@river/poker-engine` | Pure, deterministic Hold'em rules engine — complete for NLHE (`reduce()`) |
+| `packages/shared-types` | `@river/shared-types` | Wire contracts & enums shared across all apps                             |
+| `packages/config`       | `@river/config`       | Shared tsconfig / eslint / jest presets                                   |
 
 Admin dashboard (`apps/admin`, Next.js) lands in Phase 9.
 
@@ -96,14 +96,36 @@ service yet).
 
 ## Poker engine (`@river/poker-engine`)
 
-Pure TypeScript, zero runtime deps. Done so far: `cards` · `deck` · `shuffle`
-(Fisher–Yates over the auditable `RandomProvider`) · `hand-evaluator`
-(`evaluate(5..7 cards) → HandRank`, `compareHandRanks`) · `player` · `table`
-(button/blinds, heads-up rules) · `betting` (min-raise, all-in, incomplete
-raises) · `action-validator` (`validateAction` / `legalActions`) · `game-state`
-(immutable `GameState` + selectors). 176 tests including a `pokersolver` oracle
-cross-check and a 100k-hand distribution simulation. See ADR-0003 / ADR-0004.
-Still to come: `pot-manager`, `street-manager`, `showdown`, `events`, `reduce()`.
+Pure TypeScript, zero runtime deps. **Complete for No-Limit Hold'em.** The one
+entry point is `reduce(state, action, rng) → { state, events[] }` — pure and
+total (illegal actions yield an `ACTION_REJECTED` event, never a throw); all
+randomness via the auditable `RandomProvider`.
+
+```ts
+import { initGameState, reduce, CryptoRandomProvider } from '@river/poker-engine';
+
+let state = initGameState({ tableId, config, players });
+const rng = new CryptoRandomProvider();
+({ state } = reduce(
+  state,
+  { type: 'START_HAND', handId, handNumber: 1, previousButtonSeat: null },
+  rng,
+));
+({ state } = reduce(
+  state,
+  { type: 'PLAYER_ACTION', seat: 3, action: { type: 'RAISE', amount: 60 } },
+  rng,
+));
+// … the last action of an all-in hand emits FLOP/TURN/RIVER + showdown + payouts in one result
+```
+
+Modules: `cards` · `deck` · `shuffle` · `hand-evaluator` · `player` · `table` ·
+`betting` · `action-validator` · `game-state` · `pot-manager` (side pots +
+dead-money refunds) · `street-manager` · `showdown` · `events` · `reducer`.
+
+**224 tests** including a `pokersolver` oracle cross-check, a 100k-hand
+evaluator distribution simulation, and a **~14,000 random full-hand simulation
+that asserts chip conservation after every action**. See ADR-0003 / 0004 / 0005.
 
 ```ts
 import { evaluate, compareHandRanks, parseCards, describeHand } from '@river/poker-engine';

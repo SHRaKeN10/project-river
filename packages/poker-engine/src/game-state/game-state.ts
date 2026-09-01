@@ -44,6 +44,11 @@ export interface GameState {
 
   readonly round: BettingRound;
   readonly deck: DeckState;
+  /** Chips gathered from betting rounds that have already closed. While the
+   * hand is live this holds everything not currently on the table; at
+   * completion the same chips are also broken out into `pots`. */
+  readonly collectedPot: number;
+  /** The resolved main + side pot breakdown. Empty until the hand completes. */
   readonly pots: readonly Pot[];
 
   /** Epoch millis by which the acting player must act, or null. Set by the
@@ -75,9 +80,9 @@ export function contestingPlayers(state: GameState): PlayerState[] {
 }
 
 export function totalPot(state: GameState): number {
-  const inPots = state.pots.reduce((sum, pot) => sum + pot.amount, 0);
   const onTable = state.players.reduce((sum, p) => sum + p.currentBet, 0);
-  return inPots + onTable;
+  const resolved = state.pots.reduce((sum, pot) => sum + pot.amount, 0);
+  return onTable + (resolved > 0 ? resolved : state.collectedPot);
 }
 
 /** Chips a player must add to call the current bet (capped at their stack). */
