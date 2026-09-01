@@ -20,7 +20,8 @@ export type RunnerNotification =
   | { kind: 'events'; events: GameEvent[] }
   | { kind: 'rejected'; userId: string; code: string; reason: string }
   | { kind: 'chat'; message: TableChatMessage }
-  | { kind: 'handComplete' };
+  | { kind: 'handComplete' }
+  | { kind: 'seatVacated' };
 
 export interface TimerScheduler {
   set(fn: () => void, ms: number): unknown;
@@ -46,8 +47,11 @@ export interface RunnerDeps {
   notify: (n: RunnerNotification) => void;
   /** Called after every hand and on seat changes so the DB roster stays current. */
   persistRoster: (runner: TableRunner) => void;
-  /** Called when a seat is freed - the caller credits the stack back to chips. */
+  /** Called when a seat is freed - the caller credits the stack back to chips
+   * and may promote the head of the waitlist. */
   onSeatVacated: (userId: string, stack: number) => void;
+  /** Completed-hand pot total, for the lobby's rolling average. */
+  recordHandStats: (potTotal: number) => void;
 }
 
 interface JoinArgs {
@@ -123,6 +127,14 @@ export class TableRunner {
 
   isEmpty(): boolean {
     return this.roster.size === 0;
+  }
+
+  get seatedCount(): number {
+    return this.roster.size;
+  }
+
+  get handInProgress(): boolean {
+    return this.state.street !== Street.Waiting && this.state.street !== Street.Complete;
   }
 
   rosterSnapshot(): {
@@ -480,6 +492,7 @@ export class TableRunner {
 
   private onHandComplete(): void {
     this.previousButtonSeat = this.state.buttonSeat;
+    this.deps.recordHandStats(this.state.pots.reduce((sum, pot) => sum + pot.amount, 0));
     for (const player of this.state.players) {
       const entry = this.roster.get(player.seatNumber);
       if (!entry) continue;

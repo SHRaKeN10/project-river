@@ -136,6 +136,15 @@ compareHandRanks(alice, bob); // < 0  -> bob wins
 describeHand(bob); // "Three of a Kind, Queens"
 ```
 
+## Lobby (Phase 6)
+
+`GET /api/lobby` (filters: `gameType`, `minBigBlind`/`maxBigBlind`,
+`hasOpenSeat`, `favoritesOnly`, `includePrivate`) · `GET /api/lobby/:id` ·
+`POST|DELETE /api/lobby/:id/favorite` · `POST|DELETE /api/lobby/:id/waitlist`.
+WebSocket: `lobby:subscribe` → `lobby:tables` then live `lobby:update` deltas;
+`waitlist:seatAvailable` to the head of the queue when a seat frees.
+See `docs/architecture/ADR-0007`.
+
 ## Multiplayer tables (Phase 5)
 
 REST: `POST /api/tables` (admin), `GET /api/tables`, `GET /api/tables/:id`,

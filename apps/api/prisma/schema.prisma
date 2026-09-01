@@ -60,6 +60,8 @@ model User {
   verificationTokens   VerificationToken[]
   auditLogs            AuditLog[]          @relation("AuditActor")
   tableSeats           PokerTableSeat[]
+  tableFavorites       TableFavorite[]
+  waitlistEntries      TableWaitlistEntry[]
 
   @@index([status])
 }
@@ -81,12 +83,41 @@ model PokerTable {
   status     PokerTableStatus @default(ACTIVE)
   handNumber Int              @default(0)
   buttonSeat Int?
+  /// Rolling stats for the lobby's "average pot" column.
+  handsPlayed Int             @default(0)
+  potSum     Int              @default(0)
   createdAt  DateTime         @default(now())
   updatedAt  DateTime         @updatedAt
 
-  seats PokerTableSeat[]
+  seats     PokerTableSeat[]
+  favorites TableFavorite[]
+  waitlist  TableWaitlistEntry[]
 
   @@index([status])
+}
+
+model TableFavorite {
+  id        String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String     @db.Uuid
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tableId   String     @db.Uuid
+  table     PokerTable @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  createdAt DateTime   @default(now())
+
+  @@unique([userId, tableId])
+  @@index([userId])
+}
+
+model TableWaitlistEntry {
+  id        String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tableId   String     @db.Uuid
+  table     PokerTable @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  userId    String     @db.Uuid
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime   @default(now())
+
+  @@unique([tableId, userId])
+  @@index([tableId, createdAt])
 }
 
 model PokerTableSeat {

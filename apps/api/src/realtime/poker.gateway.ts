@@ -22,6 +22,7 @@ import {
   type WirePlayerAction,
 } from '@river/shared-types';
 import { ChipsService } from '../chips/chips.service';
+import { LobbyService } from '../lobby/lobby.service';
 import { PrismaService } from '../infra/prisma/prisma.service';
 import { RedisService } from '../infra/redis/redis.service';
 import { TokenService } from '../auth/token.service';
@@ -44,6 +45,7 @@ export class PokerGateway implements OnGatewayInit, OnGatewayConnection, OnGatew
     private readonly tokens: TokenService,
     private readonly manager: TableManager,
     private readonly chips: ChipsService,
+    private readonly lobby: LobbyService,
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
   ) {}
@@ -124,6 +126,7 @@ export class PokerGateway implements OnGatewayInit, OnGatewayConnection, OnGatew
       connected: true,
     });
     runner.setConnected(user.userId, true);
+    void this.lobby.leaveWaitlist(user.userId, parsed.data.tableId).catch(() => undefined);
     await socket.join(ROOM(parsed.data.tableId));
     await this.sendStateTo(socket, runner);
     return { ok: true };

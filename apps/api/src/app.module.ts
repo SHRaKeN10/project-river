@@ -10,6 +10,7 @@ import { AuditModule } from './audit/audit.module';
 import { AuthModule } from './auth/auth.module';
 import { ChipsModule } from './chips/chips.module';
 import { TablesModule } from './tables/tables.module';
+import { LobbyModule } from './lobby/lobby.module';
 import { RealtimeModule } from './realtime/realtime.module';
 
 @Module({
@@ -36,6 +37,7 @@ import { RealtimeModule } from './realtime/realtime.module';
     AuthModule,
     ChipsModule,
     TablesModule,
+    LobbyModule,
     RealtimeModule,
   ],
 })

@@ -57,6 +57,7 @@ function harness(seed = 7) {
     notify: (n) => notifications.push(n),
     persistRoster: () => undefined,
     onSeatVacated: (userId, stack) => vacated.push({ userId, stack }),
+    recordHandStats: () => undefined,
   };
   const runner = new TableRunner(
     meta,

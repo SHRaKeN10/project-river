@@ -118,6 +118,15 @@ export class TableManager implements OnModuleDestroy {
         void this.chips
           .credit(userId, stack)
           .catch((err) => this.logger.error(`credit ${userId}: ${(err as Error).message}`));
+        this.emit(tableId, { kind: 'seatVacated' }, runner);
+      },
+      recordHandStats: (potTotal) => {
+        void this.prisma.pokerTable
+          .update({
+            where: { id: tableId },
+            data: { handsPlayed: { increment: 1 }, potSum: { increment: potTotal } },
+          })
+          .catch((err) => this.logger.warn(`stats ${tableId}: ${(err as Error).message}`));
       },
     });
 
