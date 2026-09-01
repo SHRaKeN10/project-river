@@ -98,9 +98,12 @@ service yet).
 
 Pure TypeScript, zero runtime deps. Done so far: `cards` · `deck` · `shuffle`
 (Fisher–Yates over the auditable `RandomProvider`) · `hand-evaluator`
-(`evaluate(5..7 cards) → HandRank`, `compareHandRanks`). 99 tests including a
-`pokersolver` oracle cross-check and a 100k-hand distribution simulation.
-See `docs/architecture/ADR-0003`.
+(`evaluate(5..7 cards) → HandRank`, `compareHandRanks`) · `player` · `table`
+(button/blinds, heads-up rules) · `betting` (min-raise, all-in, incomplete
+raises) · `action-validator` (`validateAction` / `legalActions`) · `game-state`
+(immutable `GameState` + selectors). 176 tests including a `pokersolver` oracle
+cross-check and a 100k-hand distribution simulation. See ADR-0003 / ADR-0004.
+Still to come: `pot-manager`, `street-manager`, `showdown`, `events`, `reduce()`.
 
 ```ts
 import { evaluate, compareHandRanks, parseCards, describeHand } from '@river/poker-engine';

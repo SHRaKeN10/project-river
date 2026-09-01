@@ -196,7 +196,9 @@ describe('hand-evaluator: properties (fast-check)', () => {
         const ra = evaluate(a);
         const rb = evaluate(b);
         expect(compareHandRanks(ra, ra)).toBe(0);
-        expect(Math.sign(compareHandRanks(ra, rb))).toBe(-Math.sign(compareHandRanks(rb, ra)));
+        // sign(compare(a,b)) + sign(compare(b,a)) === 0 covers both the
+        // strict-order case (1 + -1) and the tie case (0 + 0).
+        expect(Math.sign(compareHandRanks(ra, rb)) + Math.sign(compareHandRanks(rb, ra))).toBe(0);
       }),
     );
   });

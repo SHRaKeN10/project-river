@@ -5,7 +5,8 @@
  *   - RandomProvider abstraction              [done]
  *   - cards / deck / shuffle                  [done]
  *   - hand-evaluator                          [done]
- *   - game-state / betting / action-validator [next]
+ *   - player / table / betting / action-validator / game-state  [done]
+ *   - pot-manager / street-manager / showdown / events          [next]
  *   - reduce(state, action, rng) => { state, events[] }
  *
  * The engine must never import NestJS, Prisma, React, Socket.IO or any I/O.
@@ -16,6 +17,11 @@ export * from './cards';
 export * from './deck';
 export * from './shuffle';
 export * from './hand-evaluator';
+export * from './player';
+export * from './table';
+export * from './betting';
+export * from './action-validator';
+export * from './game-state';
 
 /** Semver of the engine's public contract. */
 export const ENGINE_VERSION = '0.0.0';
