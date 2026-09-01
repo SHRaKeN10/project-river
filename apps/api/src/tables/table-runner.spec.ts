@@ -1,4 +1,4 @@
-import { createTableConfig, fold, SeededRandomProvider } from '@river/poker-engine';
+import { createTableConfig, fold, PlayerStatus, SeededRandomProvider } from '@river/poker-engine';
 import type { GameEvent } from '@river/poker-engine';
 import type { TableMeta } from './table-projection';
 import {
@@ -172,4 +172,104 @@ describe('TableRunner', () => {
     expect(h.runner.seatOf('alice')).toBeNull();
     expect(h.vacated).toEqual([{ userId: 'alice', stack: 1000 }]);
   });
+
+  it('a disconnected player is auto-folded on their timer and the hand continues', () => {
+    const h = harness();
+    h.join('alice', 0);
+    h.join('bob', 1);
+    h.join('cara', 2);
+    h.timers.runPending(); // start the hand
+    expect(h.runner.gameState.street).toBe('PREFLOP');
+
+    const actingSeat = h.runner.gameState.actingSeat!;
+    const actingUser = [...h.runner.rosterEntries.entries()].find(([s]) => s === actingSeat)![1]
+      .userId;
+
+    h.runner.setConnected(actingUser, false); // they drop
+    h.timers.runPending(); // their action timer fires -> TIMEOUT -> fold
+
+    expect(h.eventTypes()).toEqual(expect.arrayContaining(['ACTION_TIMED_OUT', 'PLAYER_FOLDED']));
+    const folded = h.runner.gameState.players.find((p) => p.seatNumber === actingSeat);
+    expect(folded?.status).toBe(PlayerStatus.Folded);
+    expect(h.runner.rosterEntries.get(actingSeat)?.connected).toBe(false);
+    expect(h.rosterTotal()).toBe(3000);
+  });
+
+  it('reconnect restores the connected flag mid-hand', () => {
+    const h = harness();
+    h.join('alice', 0);
+    h.join('bob', 1);
+    h.timers.runPending();
+
+    h.runner.setConnected('alice', false);
+    expect(h.runner.rosterEntries.get(0)?.connected).toBe(false);
+    h.runner.setConnected('alice', true);
+    expect(h.runner.rosterEntries.get(0)?.connected).toBe(true);
+  });
+
+  it('hydrateFromSnapshot reconstructs an in-progress hand that can be played to the end', () => {
+    // play a few actions on the first runner
+    const original = harness();
+    original.join('alice', 0);
+    original.join('bob', 1);
+    original.join('cara', 2);
+    original.timers.runPending();
+    original.runner.submitAction(
+      seatUser(original.runner, original.runner.gameState.actingSeat!),
+      original.runner.gameState.handId,
+      1,
+      { type: 'CALL' },
+    );
+
+    const snapshot = {
+      state: JSON.parse(JSON.stringify(original.runner.gameState)),
+      handNumber: original.runner.lastHandNumber,
+      buttonSeat: original.runner.lastButtonSeat,
+      roster: [...original.runner.rosterEntries.entries()].map(([seatNumber, e]) => ({
+        seatNumber,
+        userId: e.userId,
+        username: e.username,
+        avatarUrl: e.avatarUrl,
+        stack: e.stack,
+        sittingOut: e.sittingOut,
+      })),
+    };
+
+    // rebuild a fresh runner from the snapshot (simulating an API restart)
+    const revived = harness();
+    revived.runner.hydrateFromSnapshot(
+      snapshot,
+      new Map(
+        snapshot.roster.map((r) => [r.userId, { username: r.username, avatarUrl: r.avatarUrl }]),
+      ),
+    );
+
+    expect(revived.runner.gameState.street).toBe(original.runner.gameState.street);
+    expect(revived.runner.gameState.handId).toBe(original.runner.gameState.handId);
+    expect(revived.runner.seatedCount).toBe(3);
+
+    // players reconnect and finish the hand
+    for (const seat of [0, 1, 2]) revived.runner.setConnected(seatUser(revived.runner, seat), true);
+    let guard = 0;
+    while (revived.runner.gameState.street !== 'COMPLETE' && (guard += 1) < 50) {
+      const seat = revived.runner.gameState.actingSeat;
+      if (seat === null) break;
+      const owed =
+        revived.runner.gameState.round.currentBet -
+        (revived.runner.gameState.players.find((p) => p.seatNumber === seat)?.currentBet ?? 0);
+      revived.runner.submitAction(
+        seatUser(revived.runner, seat),
+        revived.runner.gameState.handId,
+        guard + 10,
+        owed > 0 ? { type: 'CALL' } : { type: 'CHECK' },
+      );
+    }
+    expect(revived.runner.gameState.street).toBe('COMPLETE');
+    expect([...revived.runner.rosterEntries.values()].reduce((t, e) => t + e.stack, 0)).toBe(3000);
+  });
 });
+
+function seatUser(runner: TableRunner, seat: number): string {
+  for (const [s, entry] of runner.rosterEntries) if (s === seat) return entry.userId;
+  throw new Error(`no user at seat ${seat}`);
+}

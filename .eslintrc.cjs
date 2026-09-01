@@ -42,6 +42,34 @@ module.exports = {
       },
     },
     {
+      // The poker engine must stay pure: no framework, DB, transport, or UI.
+      files: ['packages/poker-engine/src/**/*.ts'],
+      excludedFiles: ['**/*.test.ts', '**/*.spec.ts', '**/testkit/**'],
+      rules: {
+        'no-restricted-imports': [
+          'error',
+          {
+            patterns: [
+              '@nestjs/*',
+              '@prisma/*',
+              'prisma',
+              '@river/*',
+              'react',
+              'react-native',
+              'react-dom',
+              'socket.io',
+              'socket.io-client',
+              'express',
+              'ioredis',
+              'zod',
+              '@tanstack/*',
+              'zustand',
+            ],
+          },
+        ],
+      },
+    },
+    {
       files: ['apps/mobile/**/*.{ts,tsx}'],
       env: { browser: true, node: true },
       rules: {

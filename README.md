@@ -140,9 +140,13 @@ Modules: `cards` · `deck` · `shuffle` · `hand-evaluator` · `player` · `tabl
 `betting` · `action-validator` · `game-state` · `pot-manager` (side pots +
 dead-money refunds) · `street-manager` · `showdown` · `events` · `reducer`.
 
-**224 tests** including a `pokersolver` oracle cross-check, a 100k-hand
-evaluator distribution simulation, and a **~14,000 random full-hand simulation
-that asserts chip conservation after every action**. See ADR-0003 / 0004 / 0005.
+**258 tests / 24 suites** — a `pokersolver` oracle cross-check (25k hand pairs),
+a 100k-hand evaluator distribution check, deterministic side-pot / split-pot /
+all-in scenario tests, an exhaustive invalid-action matrix, `replayHand`
+determinism (400 hands, byte-identical), and an **~18,600-hand randomized
+simulation** asserting every invariant after every action. Isolation is
+machine-checked (zero runtime deps). Full report:
+`docs/poker-engine-test-report.md`. See ADR-0003 … 0005, 0009.
 
 ```ts
 import { evaluate, compareHandRanks, parseCards, describeHand } from '@river/poker-engine';

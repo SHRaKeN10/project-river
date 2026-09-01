@@ -10,20 +10,26 @@ import { type EngineAction, initGameState, reduce } from './reduce';
 /**
  * Plays thousands of complete, randomly-driven hands and asserts the hard
  * invariants after every action:
- *   - chips are never created or destroyed
- *   - no player's stack goes negative
+ *   - chips are never created or destroyed (checked after EVERY action)
+ *   - no stack ever goes negative
  *   - the hand always terminates
  *   - every completed hand pays out exactly the pot
+ *   - the event stream is well-formed (HAND_STARTED first, HAND_COMPLETED
+ *     last, streets in order, board size matches the street)
  */
 
 const config = createTableConfig({ smallBlind: 5, bigBlind: 10 });
 
-function randomLegalAction(state: GameState, rng: RandomProvider): EngineAction {
-  const seat = state.actingSeat;
-  if (seat === null) throw new Error('no acting seat');
-  const player = state.players.find((p) => p.seatNumber === seat);
-  if (!player) throw new Error('acting seat has no player');
+function chipsInPlay(state: GameState): number {
+  const stacks = state.players.reduce((t, p) => t + p.stack, 0);
+  const onTable = state.players.reduce((t, p) => t + p.currentBet, 0);
+  const uncollected = state.street === Street.Complete ? 0 : state.collectedPot;
+  return stacks + onTable + uncollected;
+}
 
+function randomLegalAction(state: GameState, rng: RandomProvider): EngineAction {
+  const seat = state.actingSeat as number;
+  const player = state.players.find((p) => p.seatNumber === seat)!;
   const ctx: BettingContext = { players: state.players, round: state.round, actingSeat: seat };
   const options = legalActions(ctx, seat);
   const choice = options[rng.nextInt(options.length)];
@@ -54,12 +60,48 @@ function randomLegalAction(state: GameState, rng: RandomProvider): EngineAction 
   }
 }
 
+const STREET_ORDER = [Street.Preflop, Street.Flop, Street.Turn, Street.River] as const;
+const BOARD_BY_STREET_EVENT: Record<string, number> = {
+  FLOP_DEALT: 3,
+  TURN_DEALT: 4,
+  RIVER_DEALT: 5,
+};
+
+function assertEventStream(events: GameEvent[], startStackTotal: number): void {
+  expect(events[0]?.type).toBe('HAND_STARTED');
+  expect(events.at(-1)?.type).toBe('HAND_COMPLETED');
+  expect(events.filter((e) => e.type === 'HAND_STARTED')).toHaveLength(1);
+  expect(events.filter((e) => e.type === 'HAND_COMPLETED')).toHaveLength(1);
+
+  // streets are dealt in order and only once each
+  const dealt = events.filter((e) => e.type in BOARD_BY_STREET_EVENT).map((e) => e.type);
+  const expectedPrefixes = ['FLOP_DEALT', 'TURN_DEALT', 'RIVER_DEALT'];
+  expect(dealt).toEqual(expectedPrefixes.slice(0, dealt.length));
+
+  // payouts (+ any returned bets) exactly account for the money that left stacks
+  const awarded = events
+    .filter((e): e is Extract<GameEvent, { type: 'POT_AWARDED' }> => e.type === 'POT_AWARDED')
+    .reduce((t, e) => t + e.amount, 0);
+  const paidToWinners = events
+    .filter((e): e is Extract<GameEvent, { type: 'POT_AWARDED' }> => e.type === 'POT_AWARDED')
+    .flatMap((e) => e.winners)
+    .reduce((t, w) => t + w.amount, 0);
+  expect(paidToWinners).toBe(awarded);
+
+  const completed = events.at(-1) as Extract<GameEvent, { type: 'HAND_COMPLETED' }>;
+  const finalTotal = completed.results.reduce((t, r) => t + r.stack, 0);
+  expect(finalTotal).toBe(startStackTotal);
+  expect(completed.results.reduce((t, r) => t + r.net, 0)).toBe(0);
+}
+
 function playHand(
   initial: GameState,
   handNo: number,
   buttonSeat: number | null,
   rng: RandomProvider,
 ): { state: GameState; events: GameEvent[] } {
+  const startStackTotal = chipsInPlay(initial);
+
   let result = reduce(
     initial,
     {
@@ -71,6 +113,7 @@ function playHand(
     rng,
   );
   const events = [...result.events];
+  expect(chipsInPlay(result.state)).toBe(startStackTotal);
 
   let steps = 0;
   while (result.state.street !== Street.Complete && result.state.street !== Street.Waiting) {
@@ -82,19 +125,31 @@ function playHand(
     if (result.events.some((e) => e.type === 'ACTION_REJECTED')) {
       throw new Error('random driver produced an illegal action');
     }
+    // chip total is invariant after EVERY action
+    expect(chipsInPlay(result.state)).toBe(startStackTotal);
+    for (const p of result.state.players) expect(p.stack).toBeGreaterThanOrEqual(0);
+    // streets never go backwards
+    expect(STREET_ORDER.indexOf(result.state.street as (typeof STREET_ORDER)[number])).toBeLessThan(
+      5,
+    );
     if ((steps += 1) > 400) throw new Error('hand did not terminate');
+  }
+
+  if (result.state.street === Street.Complete) {
+    assertEventStream(events, startStackTotal);
   }
   return { state: result.state, events };
 }
 
 describe('reduce: full-hand simulation', () => {
-  it('preserves chip totals over 3000 random hands (2-6 players)', () => {
+  it('holds every invariant over ~19,000 random hands (2-6 players)', () => {
     const rng = new SeededRandomProvider(0xc0ffee);
     let handsPlayed = 0;
     let showdowns = 0;
     let foldWins = 0;
+    let buttonMoves = 0;
 
-    for (let seed = 0; seed < 3000; seed += 1) {
+    for (let seed = 0; seed < 4000; seed += 1) {
       const playerCount = 2 + (seed % 5);
       const startStacks: Record<number, number> = {};
       for (let seat = 1; seat <= playerCount; seat += 1) {
@@ -114,27 +169,15 @@ describe('reduce: full-hand simulation', () => {
 
       let button: number | null = null;
       for (let hand = 1; hand <= 6; hand += 1) {
-        const funded = state.players.filter((p) => p.stack > 0).length;
-        if (funded < 2) break;
+        if (state.players.filter((p) => p.stack > 0).length < 2) break;
 
         const { state: next, events } = playHand(state, hand, button, rng);
         state = next;
 
-        // hard invariants
         expect(state.players.reduce((t, p) => t + p.stack, 0)).toBe(totalChips);
-        for (const p of state.players) expect(p.stack).toBeGreaterThanOrEqual(0);
         expect(state.street).toBe(Street.Complete);
 
-        const potAwards = events.filter((e) => e.type === 'POT_AWARDED');
-        const paid = potAwards
-          .flatMap((e) => (e.type === 'POT_AWARDED' ? e.winners : []))
-          .reduce((t, w) => t + w.amount, 0);
-        const potFromEvents = potAwards.reduce(
-          (t, e) => t + (e.type === 'POT_AWARDED' ? e.amount : 0),
-          0,
-        );
-        expect(paid).toBe(potFromEvents);
-
+        if (button !== null && state.buttonSeat !== button) buttonMoves += 1;
         if (events.some((e) => e.type === 'SHOWDOWN_STARTED')) showdowns += 1;
         else foldWins += 1;
 
@@ -144,10 +187,13 @@ describe('reduce: full-hand simulation', () => {
     }
 
     // eslint-disable-next-line no-console
-    console.log(`simulation: ${handsPlayed} hands (${showdowns} showdowns, ${foldWins} fold-wins)`);
-    expect(handsPlayed).toBeGreaterThan(3000);
-    expect(showdowns).toBeGreaterThan(0);
-    expect(foldWins).toBeGreaterThan(0);
+    console.log(
+      `simulation: ${handsPlayed} hands (${showdowns} showdowns, ${foldWins} fold-wins, ${buttonMoves} button moves)`,
+    );
+    expect(handsPlayed).toBeGreaterThan(18_000);
+    expect(showdowns).toBeGreaterThan(1000);
+    expect(foldWins).toBeGreaterThan(1000);
+    expect(buttonMoves).toBeGreaterThan(10_000);
   });
 
   it('is deterministic: the same seed replays identically', () => {

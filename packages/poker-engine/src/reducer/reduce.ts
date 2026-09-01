@@ -1,4 +1,5 @@
-import { freshDeck } from '../deck/deck';
+import { type Card } from '../cards/card';
+import { deckFromCards, freshDeck } from '../deck/deck';
 import {
   type BettingContext,
   betTo,
@@ -66,6 +67,12 @@ export type EngineAction =
       readonly handId: string;
       readonly handNumber: number;
       readonly previousButtonSeat: number | null;
+      /**
+       * Optional explicit 52-card deal order. When omitted, `rng` shuffles a
+       * fresh deck. Supplying it makes a hand fully reproducible - the
+       * application persists `{ deck, actions[] }` and `replayHand` re-runs it.
+       */
+      readonly deck?: readonly Card[];
     }
   | { readonly type: 'PLAYER_ACTION'; readonly seat: number; readonly action: PlayerAction }
   | { readonly type: 'TIMEOUT'; readonly seat: number }
@@ -188,7 +195,7 @@ function startHand(
     collectedPot: 0,
     pots: [],
     players,
-    deck: shuffledDeck(rng),
+    deck: action.deck ? deckFromCards(action.deck) : shuffledDeck(rng),
     round: {
       currentBet: config.bigBlind,
       lastRaiseSize: config.bigBlind,
