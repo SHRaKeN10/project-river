@@ -5,6 +5,9 @@ import { AppConfigService } from './config/app-config.service';
 import { PrismaModule } from './infra/prisma/prisma.module';
 import { RedisModule } from './infra/redis/redis.module';
 import { HealthModule } from './health/health.module';
+import { CommonModule } from './common/common.module';
+import { AuditModule } from './audit/audit.module';
+import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
@@ -24,7 +27,10 @@ import { HealthModule } from './health/health.module';
     }),
     PrismaModule,
     RedisModule,
+    CommonModule,
+    AuditModule,
     HealthModule,
+    AuthModule,
   ],
 })
 export class AppModule {}

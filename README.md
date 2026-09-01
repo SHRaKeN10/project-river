@@ -68,6 +68,32 @@ pnpm --filter @river/api test:e2e   # needs infra up + prisma generate
 pnpm build
 ```
 
+## Auth API (Phase 2)
+
+All under `/api/auth`. See `docs/architecture/ADR-0002-authentication.md`.
+
+```bash
+# register (returns { user, tokens }); auto-logs-in
+curl -sX POST localhost:3000/api/auth/register -H 'content-type: application/json' \
+  -d '{"email":"you@example.com","username":"you","password":"a-good-passphrase"}'
+
+# login
+curl -sX POST localhost:3000/api/auth/login -H 'content-type: application/json' \
+  -d '{"emailOrUsername":"you","password":"a-good-passphrase"}'
+
+# authenticated request
+curl -s localhost:3000/api/auth/me -H "authorization: Bearer <accessToken>"
+
+# rotate the refresh token
+curl -sX POST localhost:3000/api/auth/refresh -H 'content-type: application/json' \
+  -d '{"refreshToken":"<refreshToken>"}'
+```
+
+`refresh` rotates the token every call; replaying an old one revokes the whole
+session. In non-production, `password-reset/request` and
+`email-verification/request` return the raw token as `devToken` (no email
+service yet).
+
 ## Conventions
 
 - Server is the only authority for cards, shuffles, legal actions, winners, pots.

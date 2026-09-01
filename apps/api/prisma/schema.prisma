@@ -1,6 +1,7 @@
 // Project River - database schema.
-// Phase 1 establishes the auth + audit core. Poker tables, hands, hand events
-// and player statistics are added in Phase 5 (see docs/architecture).
+// Phase 1 establishes the auth + audit core. Phase 2 adds email verification /
+// password reset tokens and links RefreshToken to Session (rotation family).
+// Poker tables, hands, hand events and player statistics are added in Phase 5.
 
 generator client {
   provider = "prisma-client-js"
@@ -23,53 +24,87 @@ enum UserStatus {
   DELETED
 }
 
-model User {
-  id           String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  email        String     @unique
-  username     String     @unique
-  passwordHash String
-  role         UserRole   @default(PLAYER)
-  status       UserStatus @default(ACTIVE)
-  avatarUrl    String?
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
-  deletedAt    DateTime?
+enum VerificationPurpose {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+}
 
-  sessions      Session[]
-  refreshTokens RefreshToken[]
-  auditLogs     AuditLog[]     @relation("AuditActor")
+model User {
+  id             String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email          String     @unique
+  username       String     @unique
+  passwordHash   String
+  role           UserRole   @default(PLAYER)
+  status         UserStatus @default(ACTIVE)
+  avatarUrl      String?
+  emailVerifiedAt DateTime?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  deletedAt      DateTime?
+
+  sessions             Session[]
+  refreshTokens        RefreshToken[]
+  verificationTokens   VerificationToken[]
+  auditLogs            AuditLog[]          @relation("AuditActor")
 
   @@index([status])
 }
 
+/// A device/browser login. Refresh tokens are grouped under a session (their
+/// "rotation family"); revoking a session revokes every refresh token issued
+/// under it. This is what "logout" and a future "log out other devices" act on.
 model Session {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId    String   @db.Uuid
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  deviceId  String?
-  userAgent String?
-  ip        String?
-  lastSeenAt DateTime @default(now())
-  createdAt DateTime @default(now())
-  revokedAt DateTime?
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String    @db.Uuid
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceId   String?
+  userAgent  String?
+  ip         String?
+  lastSeenAt DateTime  @default(now())
+  createdAt  DateTime  @default(now())
+  revokedAt  DateTime?
+
+  refreshTokens RefreshToken[]
 
   @@index([userId])
 }
 
+/// Opaque, single-use, rotated on every refresh. `tokenHash` is SHA-256 of the
+/// raw token (the token itself carries 256 bits of entropy, so a slow hash
+/// isn't needed here - unlike passwords). Presenting an already-revoked token
+/// is treated as token theft: the whole session is revoked (see AuthService).
 model RefreshToken {
-  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId       String   @db.Uuid
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tokenHash    String   @unique
-  family       String   @db.Uuid
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String    @db.Uuid
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionId    String    @db.Uuid
+  session      Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  tokenHash    String    @unique
   expiresAt    DateTime
   revokedAt    DateTime?
-  replacedById String?  @db.Uuid
+  replacedById String?   @db.Uuid
   userAgent    String?
   ip           String?
-  createdAt    DateTime @default(now())
+  createdAt    DateTime  @default(now())
 
-  @@index([userId, family])
+  @@index([userId])
+  @@index([sessionId])
+}
+
+/// Single-use tokens for email verification and password reset. Same
+/// hashed-opaque-token pattern as RefreshToken. No email is sent yet in
+/// Phase 2 (see AuthService) - this models the storage/consumption side.
+model VerificationToken {
+  id          String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String              @db.Uuid
+  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  purpose     VerificationPurpose
+  tokenHash   String              @unique
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  createdAt   DateTime            @default(now())
+
+  @@index([userId, purpose])
 }
 
 model AuditLog {
