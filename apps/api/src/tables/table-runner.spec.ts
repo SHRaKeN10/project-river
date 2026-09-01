@@ -53,7 +53,12 @@ function harness(seed = 7) {
     rng: new SeededRandomProvider(seed),
     timers,
     now: () => 1_000_000,
-    config: { actionTimeoutMs: 1000, nextHandDelayMs: 500, startDelayMs: 100 },
+    config: {
+      actionTimeoutMs: 1000,
+      nextHandDelayMs: 500,
+      startDelayMs: 100,
+      disconnectGraceMs: 200,
+    },
     notify: (n) => notifications.push(n),
     persistRoster: () => undefined,
     onSeatVacated: (userId, stack) => vacated.push({ userId, stack }),
@@ -195,6 +200,63 @@ describe('TableRunner', () => {
     expect(h.rosterTotal()).toBe(3000);
   });
 
+  it('puts the acting player on the short grace clock when they drop, and restores it on return', () => {
+    const h = harness(); // actionTimeoutMs 1000, disconnectGraceMs 200, now() = 1_000_000
+    h.join('alice', 0);
+    h.join('bob', 1);
+    h.timers.runPending();
+
+    const actingSeat = h.runner.gameState.actingSeat!;
+    const actingUser = [...h.runner.rosterEntries.entries()].find(([s]) => s === actingSeat)![1]
+      .userId;
+    expect(h.runner.gameState.actionDeadline).toBe(1_000_000 + 1000);
+
+    h.runner.setConnected(actingUser, false);
+    expect(h.runner.gameState.actionDeadline).toBe(1_000_000 + 200); // grace clock
+
+    h.runner.setConnected(actingUser, true);
+    expect(h.runner.gameState.actionDeadline).toBe(1_000_000 + 1000); // full clock back
+  });
+
+  it('re-arms the action timer once a player reconnects after snapshot recovery', () => {
+    const original = harness();
+    original.join('alice', 0);
+    original.join('bob', 1);
+    original.join('cara', 2);
+    original.timers.runPending();
+
+    const snapshot = {
+      state: JSON.parse(JSON.stringify(original.runner.gameState)),
+      handNumber: original.runner.lastHandNumber,
+      previousPositions: original.runner.lastPositions,
+      roster: [...original.runner.rosterEntries.entries()].map(([seatNumber, e]) => ({
+        seatNumber,
+        userId: e.userId,
+        username: e.username,
+        avatarUrl: e.avatarUrl,
+        stack: e.stack,
+        sittingOut: e.sittingOut,
+      })),
+    };
+
+    const revived = harness();
+    revived.runner.hydrateFromSnapshot(
+      snapshot,
+      new Map(
+        snapshot.roster.map((r) => [r.userId, { username: r.username, avatarUrl: r.avatarUrl }]),
+      ),
+    );
+    // recovery deliberately leaves the clock unarmed until someone is back
+    expect(revived.timers.pending).toBe(0);
+
+    const actingSeat = revived.runner.gameState.actingSeat!;
+    const actingUser = snapshot.roster.find((r) => r.seatNumber === actingSeat)!.userId;
+    revived.runner.setConnected(actingUser, true);
+
+    expect(revived.timers.pending).toBeGreaterThan(0);
+    expect(revived.runner.gameState.actionDeadline).not.toBeNull();
+  });
+
   it('reconnect restores the connected flag mid-hand', () => {
     const h = harness();
     h.join('alice', 0);
@@ -224,7 +286,7 @@ describe('TableRunner', () => {
     const snapshot = {
       state: JSON.parse(JSON.stringify(original.runner.gameState)),
       handNumber: original.runner.lastHandNumber,
-      buttonSeat: original.runner.lastButtonSeat,
+      previousPositions: original.runner.lastPositions,
       roster: [...original.runner.rosterEntries.entries()].map(([seatNumber, e]) => ({
         seatNumber,
         userId: e.userId,

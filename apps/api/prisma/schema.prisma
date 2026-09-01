@@ -82,7 +82,12 @@ model PokerTable {
   isPrivate  Boolean          @default(false)
   status     PokerTableStatus @default(ACTIVE)
   handNumber Int              @default(0)
-  buttonSeat Int?
+  /// Last completed hand's positions, kept so the forward-moving big blind
+  /// rotates correctly after a cold restart with no Redis snapshot. All null
+  /// before the table's first hand.
+  buttonSeat     Int?
+  smallBlindSeat Int?
+  bigBlindSeat   Int?
   /// Rolling stats for the lobby's "average pot" column.
   handsPlayed Int             @default(0)
   potSum     Int              @default(0)

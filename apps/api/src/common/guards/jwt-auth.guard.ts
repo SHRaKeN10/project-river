@@ -1,6 +1,7 @@
 import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
+import { SessionBlocklistService } from '../../auth/session-blocklist.service';
 import { TokenService } from '../../auth/token.service';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 
@@ -14,9 +15,10 @@ export class JwtAuthGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
     private readonly tokens: TokenService,
+    private readonly blocklist: SessionBlocklistService,
   ) {}
 
-  canActivate(ctx: ExecutionContext): boolean {
+  async canActivate(ctx: ExecutionContext): Promise<boolean> {
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
       ctx.getHandler(),
       ctx.getClass(),
@@ -28,6 +30,9 @@ export class JwtAuthGuard implements CanActivate {
     if (!token) throw new UnauthorizedException('Missing access token');
 
     const payload = this.tokens.verifyAccessToken(token);
+    if (await this.blocklist.isRevoked(payload.sid)) {
+      throw new UnauthorizedException('Session revoked');
+    }
     req.user = { id: payload.sub, role: payload.role, sessionId: payload.sid };
     return true;
   }

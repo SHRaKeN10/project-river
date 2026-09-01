@@ -75,50 +75,127 @@ export function isHeadsUp(seats: readonly number[]): boolean {
 }
 
 export interface Positions {
+  /** May be an empty seat (a "dead button") when the previous button's seat
+   * emptied - `deadButton` says which. */
   readonly buttonSeat: number;
-  readonly smallBlindSeat: number;
+  /** null = "dead small blind": no small blind is posted this hand. */
+  readonly smallBlindSeat: number | null;
+  /** Always a live player. */
   readonly bigBlindSeat: number;
   /** Seat that acts first pre-flop (UTG; the button in heads-up). */
   readonly firstToActPreflop: number;
+  readonly deadButton: boolean;
+}
+
+/** What the previous hand's positions were - needed for correct rotation. */
+export interface PreviousPositions {
+  readonly buttonSeat: number;
+  readonly smallBlindSeat: number | null;
+  readonly bigBlindSeat: number;
+}
+
+/** Snapshot the button/blind seats of a finished hand into the shape
+ * `START_HAND` needs for the next hand's rotation. */
+export function previousPositionsOf(state: {
+  readonly buttonSeat: number;
+  readonly smallBlindSeat: number | null;
+  readonly bigBlindSeat: number;
+}): PreviousPositions {
+  return {
+    buttonSeat: state.buttonSeat,
+    smallBlindSeat: state.smallBlindSeat,
+    bigBlindSeat: state.bigBlindSeat,
+  };
 }
 
 /**
- * Assigns button and blinds for the next hand.
+ * Assigns button and blinds for the next hand using the **forward-moving big
+ * blind** rule (as used by every major online cash game):
  *
- * Uses the common "moving button" simplification: the button advances to the
- * next eligible seat, the small blind is the next eligible seat after the
- * button, and the big blind the next after that. Full dead-button / dead-small-
- * blind rules are a later refinement (they only matter for exact cash-game
- * fairness across sit-downs).
+ *  - The big blind advances by exactly one live player each hand - so every
+ *    player posts the big blind the same number of times, in order, and no one
+ *    can dodge it by sitting out.
+ *  - The small blind is whoever posted the big blind last hand, if still seated;
+ *    otherwise there is a **dead small blind** (none is posted).
+ *  - The button is whoever posted the small blind last hand, if still seated;
+ *    otherwise the previous button if still seated; otherwise the (empty) seat
+ *    just before the small blind - a **dead button**.
  *
- * Heads-up: the button posts the small blind and acts first pre-flop.
+ * Heads-up: the button is the small blind, acts first pre-flop, and alternates
+ * every hand.
  */
 export function assignPositions(
   seats: readonly number[],
-  previousButtonSeat: number | null,
+  previous: PreviousPositions | null,
+  maxSeats: number,
 ): Positions {
   if (seats.length < 2) {
     throw new Error(`need at least 2 players to start a hand, got ${seats.length}`);
   }
   const ordered = [...seats].sort((a, b) => a - b);
-
-  const buttonSeat =
-    previousButtonSeat === null ? (ordered[0] as number) : nextSeat(previousButtonSeat, ordered);
+  const isOccupied = (seat: number): boolean => ordered.includes(seat);
 
   if (isHeadsUp(ordered)) {
-    const bigBlindSeat = nextSeat(buttonSeat, ordered);
+    const [a, b] = ordered as [number, number];
+    const button =
+      previous === null ? a : previous.buttonSeat === a ? b : previous.buttonSeat === b ? a : a;
+    const bigBlindSeat = button === a ? b : a;
     return {
-      buttonSeat,
-      smallBlindSeat: buttonSeat,
+      buttonSeat: button,
+      smallBlindSeat: button,
       bigBlindSeat,
-      firstToActPreflop: buttonSeat,
+      firstToActPreflop: button,
+      deadButton: false,
     };
   }
 
-  const smallBlindSeat = nextSeat(buttonSeat, ordered);
-  const bigBlindSeat = nextSeat(smallBlindSeat, ordered);
-  const firstToActPreflop = nextSeat(bigBlindSeat, ordered);
-  return { buttonSeat, smallBlindSeat, bigBlindSeat, firstToActPreflop };
+  if (previous === null) {
+    const buttonSeat = ordered[0] as number;
+    const smallBlindSeat = nextSeat(buttonSeat, ordered);
+    const bigBlindSeat = nextSeat(smallBlindSeat, ordered);
+    return {
+      buttonSeat,
+      smallBlindSeat,
+      bigBlindSeat,
+      firstToActPreflop: nextSeat(bigBlindSeat, ordered),
+      deadButton: false,
+    };
+  }
+
+  // forward-moving big blind
+  const bigBlindSeat = nextSeat(previous.bigBlindSeat, ordered);
+
+  // small blind = last hand's big blind, if still seated
+  const smallBlindSeat = isOccupied(previous.bigBlindSeat) ? previous.bigBlindSeat : null;
+
+  // button = last hand's small blind if seated; else last hand's button if
+  // seated; else the (empty) seat just before the small/big blind.
+  const anchor = smallBlindSeat ?? bigBlindSeat;
+  let buttonSeat: number;
+  if (
+    previous.smallBlindSeat !== null &&
+    isOccupied(previous.smallBlindSeat) &&
+    previous.smallBlindSeat !== bigBlindSeat &&
+    previous.smallBlindSeat !== smallBlindSeat
+  ) {
+    buttonSeat = previous.smallBlindSeat;
+  } else if (
+    isOccupied(previous.buttonSeat) &&
+    previous.buttonSeat !== bigBlindSeat &&
+    previous.buttonSeat !== smallBlindSeat
+  ) {
+    buttonSeat = previous.buttonSeat;
+  } else {
+    buttonSeat = (anchor - 1 + maxSeats) % maxSeats;
+  }
+
+  return {
+    buttonSeat,
+    smallBlindSeat,
+    bigBlindSeat,
+    firstToActPreflop: nextSeat(bigBlindSeat, ordered),
+    deadButton: !isOccupied(buttonSeat),
+  };
 }
 
 /** First contesting seat clockwise from the button (post-flop first-to-act). */

@@ -4,7 +4,7 @@ import { legalActions } from '../action-validator';
 import { type GameEvent } from '../events/events';
 import { type GameState, Street } from '../game-state/game-state';
 import { type RandomProvider, SeededRandomProvider } from '../rng/random-provider';
-import { createTableConfig } from '../table/table';
+import { createTableConfig, previousPositionsOf, type PreviousPositions } from '../table/table';
 import { type EngineAction, initGameState, reduce } from './reduce';
 
 /**
@@ -97,7 +97,7 @@ function assertEventStream(events: GameEvent[], startStackTotal: number): void {
 function playHand(
   initial: GameState,
   handNo: number,
-  buttonSeat: number | null,
+  previous: PreviousPositions | null,
   rng: RandomProvider,
 ): { state: GameState; events: GameEvent[] } {
   const startStackTotal = chipsInPlay(initial);
@@ -108,7 +108,7 @@ function playHand(
       type: 'START_HAND',
       handId: `h${handNo}`,
       handNumber: handNo,
-      previousButtonSeat: buttonSeat,
+      previousPositions: previous,
     },
     rng,
   );
@@ -167,21 +167,21 @@ describe('reduce: full-hand simulation', () => {
         })),
       });
 
-      let button: number | null = null;
+      let previous: PreviousPositions | null = null;
       for (let hand = 1; hand <= 6; hand += 1) {
         if (state.players.filter((p) => p.stack > 0).length < 2) break;
 
-        const { state: next, events } = playHand(state, hand, button, rng);
+        const { state: next, events } = playHand(state, hand, previous, rng);
         state = next;
 
         expect(state.players.reduce((t, p) => t + p.stack, 0)).toBe(totalChips);
         expect(state.street).toBe(Street.Complete);
 
-        if (button !== null && state.buttonSeat !== button) buttonMoves += 1;
+        if (previous !== null && state.buttonSeat !== previous.buttonSeat) buttonMoves += 1;
         if (events.some((e) => e.type === 'SHOWDOWN_STARTED')) showdowns += 1;
         else foldWins += 1;
 
-        button = state.buttonSeat;
+        previous = previousPositionsOf(state);
         handsPlayed += 1;
       }
     }

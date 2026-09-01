@@ -5,7 +5,7 @@
  *
  *   import { initGameState, reduce, CryptoRandomProvider } from '@river/poker-engine';
  *   let state = initGameState({ tableId, config, players });
- *   ({ state } = reduce(state, { type: 'START_HAND', handId, handNumber, previousButtonSeat: null },
+ *   ({ state } = reduce(state, { type: 'START_HAND', handId, handNumber, previousPositions: null },
  *                       new CryptoRandomProvider()));
  *
  * Pure and total - an illegal action produces an ACTION_REJECTED event and no

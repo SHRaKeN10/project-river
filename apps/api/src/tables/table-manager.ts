@@ -1,5 +1,10 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
-import { CryptoRandomProvider, createTableConfig, type GameState } from '@river/poker-engine';
+import {
+  CryptoRandomProvider,
+  createTableConfig,
+  type GameState,
+  type PreviousPositions,
+} from '@river/poker-engine';
 import { ChipsService } from '../chips/chips.service';
 import { AppConfigService } from '../config/app-config.service';
 import { PrismaService } from '../infra/prisma/prisma.service';
@@ -19,7 +24,7 @@ type ManagerListener = (
 interface Snapshot {
   state: GameState;
   handNumber: number;
-  buttonSeat: number | null;
+  previousPositions: PreviousPositions | null;
   roster: {
     seatNumber: number;
     userId: string;
@@ -104,6 +109,7 @@ export class TableManager implements OnModuleDestroy {
         actionTimeoutMs: this.config.get('TABLE_ACTION_TIMEOUT_MS'),
         nextHandDelayMs: this.config.get('TABLE_NEXT_HAND_DELAY_MS'),
         startDelayMs: this.config.get('TABLE_START_DELAY_MS'),
+        disconnectGraceMs: this.config.get('TABLE_DISCONNECT_GRACE_MS'),
       },
       notify: (notification) => {
         this.emit(tableId, notification, runner);
@@ -111,7 +117,7 @@ export class TableManager implements OnModuleDestroy {
       },
       persistRoster: (r) => {
         void this.tables
-          .syncSeats(tableId, r.rosterSnapshot(), r.lastHandNumber, r.lastButtonSeat)
+          .syncSeats(tableId, r.rosterSnapshot(), r.lastHandNumber, r.lastPositions)
           .catch((err) => this.logger.error(`syncSeats ${tableId}: ${(err as Error).message}`));
       },
       onSeatVacated: (userId, stack) => {
@@ -163,7 +169,13 @@ export class TableManager implements OnModuleDestroy {
         })),
         userMeta,
         table.handNumber,
-        table.buttonSeat,
+        table.buttonSeat === null
+          ? null
+          : {
+              buttonSeat: table.buttonSeat,
+              smallBlindSeat: table.smallBlindSeat,
+              bigBlindSeat: table.bigBlindSeat ?? table.buttonSeat,
+            },
       );
     }
   }
@@ -183,7 +195,7 @@ export class TableManager implements OnModuleDestroy {
       const snapshot: Snapshot = {
         state: runner.gameState,
         handNumber: runner.lastHandNumber,
-        buttonSeat: runner.lastButtonSeat,
+        previousPositions: runner.lastPositions,
         roster: [...runner.rosterEntries.entries()].map(([seatNumber, e]) => ({
           seatNumber,
           userId: e.userId,

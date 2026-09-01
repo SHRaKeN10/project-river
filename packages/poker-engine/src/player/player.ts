@@ -12,8 +12,6 @@ export enum PlayerStatus {
   AllIn = 'ALL_IN',
   /** Seated but not being dealt in. */
   SittingOut = 'SITTING_OUT',
-  /** Seated, connection lost; auto-folds/checks on timeout until they return. */
-  Disconnected = 'DISCONNECTED',
   /** Busted out (tournament) - seat effectively empty. */
   Eliminated = 'ELIMINATED',
 }

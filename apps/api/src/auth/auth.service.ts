@@ -12,6 +12,7 @@ import { AuditAction, AuditService } from '../audit/audit.service';
 import { RateLimiterService } from '../common/rate-limit/rate-limiter.service';
 import { AppConfigService } from '../config/app-config.service';
 import { PasswordService } from './password.service';
+import { SessionBlocklistService } from './session-blocklist.service';
 import { TokenService } from './token.service';
 
 export interface RequestContext {
@@ -45,6 +46,7 @@ export class AuthService {
     private readonly audit: AuditService,
     private readonly rateLimiter: RateLimiterService,
     private readonly config: AppConfigService,
+    private readonly blocklist: SessionBlocklistService,
   ) {}
 
   // ---------------------------------------------------------------------
@@ -301,10 +303,16 @@ export class AuthService {
     );
     const passwordHash = await this.password.hash(newPassword);
 
+    // Changing the password revokes every session everywhere - standard
+    // practice in case the password was compromised. Capture the live session
+    // ids first so their access tokens can be denylisted too.
+    const liveSessions = await this.prisma.session.findMany({
+      where: { userId: record.userId, revokedAt: null },
+      select: { id: true },
+    });
+
     await this.prisma.$transaction([
       this.prisma.user.update({ where: { id: record.userId }, data: { passwordHash } }),
-      // Changing the password revokes every session everywhere - standard
-      // practice in case the password was compromised.
       this.prisma.session.updateMany({
         where: { userId: record.userId, revokedAt: null },
         data: { revokedAt: new Date() },
@@ -314,6 +322,7 @@ export class AuthService {
         data: { revokedAt: new Date() },
       }),
     ]);
+    await this.blocklist.revokeMany(liveSessions.map((s) => s.id));
 
     await this.audit.log({
       actorUserId: record.userId,
@@ -399,6 +408,8 @@ export class AuthService {
         data: { revokedAt: new Date() },
       }),
     ]);
+    // Kill the access token too, not just refresh - see SessionBlocklistService.
+    await this.blocklist.revoke(sessionId);
   }
 
   private async issueEmailVerificationToken(user: User): Promise<string> {

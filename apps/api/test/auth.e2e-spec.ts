@@ -101,15 +101,24 @@ describe('Auth (e2e)', () => {
     expect(events.length).toBeGreaterThan(0);
   });
 
-  it('logout revokes the session so its refresh token can no longer be used', async () => {
+  it('logout revokes the session so neither its refresh nor its access token still works', async () => {
     const login = await api().post('/api/auth/login').send({ emailOrUsername: username, password });
     const { accessToken, refreshToken } = login.body.tokens;
+
+    // the access token works right now
+    expect(
+      (await api().get('/api/auth/me').set('Authorization', `Bearer ${accessToken}`)).status,
+    ).toBe(200);
 
     const out = await api().post('/api/auth/logout').set('Authorization', `Bearer ${accessToken}`);
     expect(out.status).toBe(204);
 
     const refresh = await api().post('/api/auth/refresh').send({ refreshToken });
     expect(refresh.status).toBe(401);
+
+    // the still-unexpired access token is now denylisted too
+    const me = await api().get('/api/auth/me').set('Authorization', `Bearer ${accessToken}`);
+    expect(me.status).toBe(401);
   });
 
   it('password-reset request returns 202 whether or not the email exists', async () => {
@@ -127,6 +136,7 @@ describe('Auth (e2e)', () => {
   it('completes a password reset, kills old sessions, and accepts the new password', async () => {
     const login = await api().post('/api/auth/login').send({ emailOrUsername: username, password });
     const staleRefresh = login.body.tokens.refreshToken as string;
+    const staleAccess = login.body.tokens.accessToken as string;
 
     const reqRes = await api().post('/api/auth/password-reset/request').send({ email });
     const devToken = reqRes.body.devToken as string;
@@ -144,9 +154,12 @@ describe('Auth (e2e)', () => {
       .send({ token: devToken, newPassword });
     expect(replay.status).toBe(401);
 
-    // every pre-reset session is dead
+    // every pre-reset session is dead - refresh and access alike
     expect(
       (await api().post('/api/auth/refresh').send({ refreshToken: staleRefresh })).status,
+    ).toBe(401);
+    expect(
+      (await api().get('/api/auth/me').set('Authorization', `Bearer ${staleAccess}`)).status,
     ).toBe(401);
 
     // old password no longer works, new one does

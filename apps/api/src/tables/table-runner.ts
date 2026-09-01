@@ -5,10 +5,12 @@ import {
   type GameState,
   type PlayerAction,
   PlayerStatus,
+  type PreviousPositions,
   type RandomProvider,
   Street,
   type TableConfig,
   initGameState,
+  previousPositionsOf,
   reduce,
 } from '@river/poker-engine';
 import type { TableChatMessage } from '@river/shared-types';
@@ -37,6 +39,8 @@ export interface RunnerConfig {
   actionTimeoutMs: number;
   nextHandDelayMs: number;
   startDelayMs: number;
+  /** Shorter action clock used while the acting player's socket is gone. */
+  disconnectGraceMs: number;
 }
 
 export interface RunnerDeps {
@@ -91,7 +95,9 @@ export class TableRunner {
   private draining = false;
 
   private handNumber = 0;
-  private previousButtonSeat: number | null = null;
+  /** Positions of the last completed hand - drives the forward-moving big
+   * blind. null until the first hand finishes. */
+  private previousPositions: PreviousPositions | null = null;
   private readonly revealedSeats = new Set<number>();
   private readonly lastSeqByUser = new Map<string, number>();
 
@@ -169,8 +175,9 @@ export class TableRunner {
     return this.handNumber;
   }
 
-  get lastButtonSeat(): number | null {
-    return this.previousButtonSeat;
+  /** Full last-hand positions, for persistence / cold-restart recovery. */
+  get lastPositions(): PreviousPositions | null {
+    return this.previousPositions;
   }
 
   /** Restore full live state (incl. an in-progress hand) from a Redis snapshot. */
@@ -178,7 +185,7 @@ export class TableRunner {
     snapshot: {
       state: GameState;
       handNumber: number;
-      buttonSeat: number | null;
+      previousPositions?: PreviousPositions | null;
       roster: {
         seatNumber: number;
         userId: string;
@@ -192,7 +199,11 @@ export class TableRunner {
   ): void {
     this.state = { ...snapshot.state, actionDeadline: null };
     this.handNumber = snapshot.handNumber;
-    this.previousButtonSeat = snapshot.buttonSeat;
+    // Prefer an explicit record; otherwise recover it from the persisted state
+    // (its button/blind seats still hold the last hand's until the next deal).
+    this.previousPositions =
+      snapshot.previousPositions ??
+      (snapshot.state.buttonSeat >= 0 ? previousPositionsOf(snapshot.state) : null);
     for (const r of snapshot.roster) {
       const meta = usernames.get(r.userId);
       this.roster.set(r.seatNumber, {
@@ -205,15 +216,10 @@ export class TableRunner {
         pendingLeave: false,
       });
     }
-    // An in-progress hand cannot fairly resume with everyone disconnected;
-    // re-arm the action timer only once someone reconnects (handled on CONNECTED).
-    if (
-      this.state.street !== Street.Waiting &&
-      this.state.street !== Street.Complete &&
-      this.state.actingSeat !== null
-    ) {
-      this.armActionTimer();
-    }
+    // Every restored seat starts disconnected. An in-progress hand cannot
+    // fairly resume with nobody watching, so the action timer stays unarmed
+    // until the first client reconnects (see onConnected). If the whole table
+    // is gone for good, TableManager tears the runner down.
   }
 
   /** Restore the roster from a persisted table (after an API restart). */
@@ -226,7 +232,7 @@ export class TableRunner {
     }[],
     usernames: ReadonlyMap<string, { username: string; avatarUrl: string | null }>,
     handNumber: number,
-    buttonSeat: number | null,
+    previous: PreviousPositions | null,
   ): void {
     for (const seat of seats) {
       if (!seat.userId) continue;
@@ -242,7 +248,7 @@ export class TableRunner {
       });
     }
     this.handNumber = handNumber;
-    this.previousButtonSeat = buttonSeat;
+    this.previousPositions = previous;
   }
 
   // --- commands ------------------------------------------------------------
@@ -387,6 +393,23 @@ export class TableRunner {
     const entry = this.roster.get(seat);
     if (!entry || entry.connected === connected) return;
     entry.connected = connected;
+
+    // Keep the acting player's clock in step with their connection: a returning
+    // player gets the full action timeout back; one who just dropped is put on
+    // the short grace clock. Also (re)starts a clock that snapshot recovery
+    // deliberately left unarmed until someone came back.
+    const handLive = this.state.street !== Street.Waiting && this.state.street !== Street.Complete;
+    if (handLive && this.state.actingSeat === seat) {
+      this.armActionTimer();
+    } else if (
+      handLive &&
+      this.state.actingSeat !== null &&
+      this.actionTimer === null &&
+      connected
+    ) {
+      this.armActionTimer();
+    }
+
     this.deps.notify({ kind: 'state' });
   }
 
@@ -459,7 +482,7 @@ export class TableRunner {
       type: 'START_HAND',
       handId: randomUUID(),
       handNumber: this.handNumber,
-      previousButtonSeat: this.previousButtonSeat,
+      previousPositions: this.previousPositions,
     });
   }
 
@@ -491,7 +514,7 @@ export class TableRunner {
   }
 
   private onHandComplete(): void {
-    this.previousButtonSeat = this.state.buttonSeat;
+    this.previousPositions = previousPositionsOf(this.state);
     this.deps.recordHandStats(this.state.pots.reduce((sum, pot) => sum + pot.amount, 0));
     for (const player of this.state.players) {
       const entry = this.roster.get(player.seatNumber);
@@ -521,11 +544,17 @@ export class TableRunner {
     }
     const seat = this.state.actingSeat;
     const handId = this.state.handId;
-    const deadline = this.deps.now() + this.deps.config.actionTimeoutMs;
-    this.state = { ...this.state, actionDeadline: deadline };
+    // A player whose socket is gone gets a much shorter clock so the table
+    // isn't held hostage while they're away.
+    const entry = this.roster.get(seat);
+    const timeoutMs =
+      entry && !entry.connected
+        ? Math.min(this.deps.config.disconnectGraceMs, this.deps.config.actionTimeoutMs)
+        : this.deps.config.actionTimeoutMs;
+    this.state = { ...this.state, actionDeadline: this.deps.now() + timeoutMs };
     this.actionTimer = this.deps.timers.set(() => {
       this.enqueue({ type: 'TIMEOUT', seat, handId });
-    }, this.deps.config.actionTimeoutMs);
+    }, timeoutMs);
   }
 
   private clearActionTimer(): void {

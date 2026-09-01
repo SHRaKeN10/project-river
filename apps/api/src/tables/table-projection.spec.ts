@@ -66,7 +66,7 @@ function midHandState() {
   });
   return reduce(
     fresh,
-    { type: 'START_HAND', handId: 'h-1', handNumber: 1, previousButtonSeat: null },
+    { type: 'START_HAND', handId: 'h-1', handNumber: 1, previousPositions: null },
     new SeededRandomProvider(1),
   ).state;
 }

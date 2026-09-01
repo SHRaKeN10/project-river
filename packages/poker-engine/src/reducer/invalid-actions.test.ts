@@ -123,7 +123,7 @@ describe('invalid actions are rejected without touching state', () => {
       type: 'START_HAND',
       handId: 'x',
       handNumber: 9,
-      previousButtonSeat: null,
+      previousPositions: null,
     });
   });
 

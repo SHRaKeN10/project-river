@@ -33,8 +33,10 @@ export interface GameState {
   readonly config: TableConfig;
 
   readonly street: Street;
+  /** May be an empty seat - a "dead button" (see `assignPositions`). */
   readonly buttonSeat: number;
-  readonly smallBlindSeat: number;
+  /** null = "dead small blind": none was posted this hand. */
+  readonly smallBlindSeat: number | null;
   readonly bigBlindSeat: number;
 
   readonly communityCards: readonly Card[];

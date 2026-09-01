@@ -27,6 +27,9 @@ export const envSchema = z.object({
   TABLE_ACTION_TIMEOUT_MS: z.coerce.number().int().positive().default(25_000),
   TABLE_NEXT_HAND_DELAY_MS: z.coerce.number().int().nonnegative().default(4_000),
   TABLE_START_DELAY_MS: z.coerce.number().int().nonnegative().default(3_000),
+  /** Shorter clock for a player whose socket is gone: their turn auto-resolves
+   * this fast instead of waiting out the full action timeout. */
+  TABLE_DISCONNECT_GRACE_MS: z.coerce.number().int().positive().default(10_000),
 });
 
 export type Env = z.infer<typeof envSchema>;

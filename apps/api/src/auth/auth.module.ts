@@ -6,6 +6,7 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { PasswordService } from './password.service';
+import { SessionBlocklistService } from './session-blocklist.service';
 import { TokenService } from './token.service';
 
 @Module({
@@ -18,12 +19,13 @@ import { TokenService } from './token.service';
     AuthService,
     PasswordService,
     TokenService,
+    SessionBlocklistService,
     // Auth guards are global: every route requires a valid access token
     // unless explicitly marked @Public(). Order matters - JwtAuthGuard must
     // run before RolesGuard so req.user is populated.
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
   ],
-  exports: [TokenService],
+  exports: [TokenService, SessionBlocklistService],
 })
 export class AuthModule {}

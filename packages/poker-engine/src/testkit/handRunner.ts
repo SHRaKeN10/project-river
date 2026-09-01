@@ -4,7 +4,13 @@ import { type GameEvent } from '../events/events';
 import { type GameState, Street } from '../game-state/game-state';
 import { type EngineAction, initGameState, type ReduceResult, reduce } from '../reducer/reduce';
 import { SeededRandomProvider } from '../rng/random-provider';
-import { assignPositions, seatsForNextHand, type TableConfig } from '../table/table';
+import {
+  assignPositions,
+  previousPositionsOf,
+  type PreviousPositions,
+  seatsForNextHand,
+  type TableConfig,
+} from '../table/table';
 
 export interface Seat {
   userId: string;
@@ -22,7 +28,7 @@ export class HandRunner {
 
   private readonly rng = new SeededRandomProvider(12345);
   private handNo = 0;
-  private button: number | null = null;
+  private previousPositions: PreviousPositions | null = null;
 
   constructor(
     readonly config: TableConfig,
@@ -34,16 +40,21 @@ export class HandRunner {
   /** Deal order `dealHoleCards` will use for the *next* hand (SB first). */
   nextDealOrder(): number[] {
     const eligible = seatsForNextHand(this.state.players);
-    const positions = assignPositions(eligible, this.button);
+    const positions = assignPositions(eligible, this.previousPositions, this.config.maxSeats);
     const sorted = [...eligible].sort((a, b) => a - b);
-    const idx = sorted.findIndex((s) => s >= positions.smallBlindSeat);
+    const anchor = positions.smallBlindSeat ?? positions.bigBlindSeat;
+    const idx = sorted.findIndex((s) => s >= anchor);
     const pivot = idx === -1 ? 0 : idx;
     return [...sorted.slice(pivot), ...sorted.slice(0, pivot)];
   }
 
   /** Positions for the next hand (button/blinds/first-to-act). */
   nextPositions() {
-    return assignPositions(seatsForNextHand(this.state.players), this.button);
+    return assignPositions(
+      seatsForNextHand(this.state.players),
+      this.previousPositions,
+      this.config.maxSeats,
+    );
   }
 
   startHand(deck?: readonly Card[]): ReduceResult {
@@ -53,7 +64,7 @@ export class HandRunner {
       type: 'START_HAND',
       handId: `h${this.handNo}`,
       handNumber: this.handNo,
-      previousButtonSeat: this.button,
+      previousPositions: this.previousPositions,
       deck,
     });
   }
@@ -72,7 +83,9 @@ export class HandRunner {
     this.lastEvents = result.events;
     this.events.push(...result.events);
     if (action.type !== 'START_HAND') this.actionsThisHand.push(action);
-    if (this.state.street === Street.Complete) this.button = this.state.buttonSeat;
+    if (this.state.street === Street.Complete) {
+      this.previousPositions = previousPositionsOf(this.state);
+    }
     return result;
   }
 

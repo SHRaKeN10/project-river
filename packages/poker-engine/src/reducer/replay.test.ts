@@ -50,7 +50,7 @@ function recordRandomHand(seed: number, playerCount: number): HandRecord {
 
   state = reduce(
     state,
-    { type: 'START_HAND', handId: 'h1', handNumber: 1, previousButtonSeat: null, deck },
+    { type: 'START_HAND', handId: 'h1', handNumber: 1, previousPositions: null, deck },
     rng,
   ).state;
 
@@ -73,7 +73,7 @@ function recordRandomHand(seed: number, playerCount: number): HandRecord {
     seats,
     handId: 'h1',
     handNumber: 1,
-    previousButtonSeat: null,
+    previousPositions: null,
     deck,
     actions,
   };
@@ -110,7 +110,7 @@ describe('replayHand', () => {
       ],
       handId: 'h1',
       handNumber: 1,
-      previousButtonSeat: null,
+      previousPositions: null,
       // heads-up: SB (seat 0) is dealt first, then BB (seat 1)
       deck: createDeck(),
       actions: [],
@@ -134,7 +134,7 @@ describe('replayHand', () => {
         type: 'START_HAND',
         handId: record.handId,
         handNumber: record.handNumber,
-        previousButtonSeat: null,
+        previousPositions: null,
         deck: record.deck,
       },
       rng,

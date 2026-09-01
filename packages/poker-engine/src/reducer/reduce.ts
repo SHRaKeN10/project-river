@@ -20,6 +20,7 @@ import {
   applyRaise,
 } from '../betting/betting';
 import { type GameEvent } from '../events/events';
+import { compareHandRanks, type HandRank } from '../hand-evaluator/hand-rank';
 import {
   contestingPlayers,
   type GameState,
@@ -36,6 +37,7 @@ import {
 import {
   canAct,
   commitChips,
+  isInHand,
   type PlayerState,
   PlayerActionType,
   PlayerStatus,
@@ -55,6 +57,7 @@ import {
 import {
   assignPositions,
   firstToActPostflop,
+  type PreviousPositions,
   type TableConfig,
   seatsForNextHand,
 } from '../table/table';
@@ -66,7 +69,9 @@ export type EngineAction =
       readonly type: 'START_HAND';
       readonly handId: string;
       readonly handNumber: number;
-      readonly previousButtonSeat: number | null;
+      /** The previous hand's positions, for correct forward-moving-blind
+       * rotation. `null` for a table's very first hand. */
+      readonly previousPositions: PreviousPositions | null;
       /**
        * Optional explicit 52-card deal order. When omitted, `rng` shuffles a
        * fresh deck. Supplying it makes a hand fully reproducible - the
@@ -170,16 +175,36 @@ function startHand(
   const reset = state.players.map(resetForHand);
   const seats = seatsForNextHand(reset);
   if (seats.length < 2) {
-    return { state: { ...state, players: reset, street: Street.Waiting }, events: [] };
+    // Not enough players to deal - go idle, and clear every trace of the last
+    // hand so nothing (stale pot totals, board, betting round) leaks forward.
+    return {
+      state: {
+        ...state,
+        players: reset,
+        street: Street.Waiting,
+        communityCards: [],
+        collectedPot: 0,
+        pots: [],
+        actingSeat: null,
+        actionDeadline: null,
+        round: {
+          currentBet: 0,
+          lastRaiseSize: state.config.bigBlind,
+          lastAggressorSeat: null,
+          minOpen: state.config.bigBlind,
+        },
+      },
+      events: [],
+    };
   }
 
-  const positions = assignPositions(seats, action.previousButtonSeat);
+  const positions = assignPositions(seats, action.previousPositions, state.config.maxSeats);
   const { config } = state;
 
   const players: PlayerState[] = reset.map((p) => ({
     ...p,
     isDealer: p.seatNumber === positions.buttonSeat,
-    isSmallBlind: p.seatNumber === positions.smallBlindSeat,
+    isSmallBlind: positions.smallBlindSeat !== null && p.seatNumber === positions.smallBlindSeat,
     isBigBlind: p.seatNumber === positions.bigBlindSeat,
   }));
 
@@ -220,7 +245,9 @@ function startHand(
     },
   ];
 
-  working = postBlind(working, positions.smallBlindSeat, config.smallBlind, 'SMALL', events);
+  if (positions.smallBlindSeat !== null) {
+    working = postBlind(working, positions.smallBlindSeat, config.smallBlind, 'SMALL', events);
+  }
   working = postBlind(working, positions.bigBlindSeat, config.bigBlind, 'BIG', events);
 
   const dealt = dealHoleCards(working);
@@ -495,11 +522,26 @@ function settleByFold(state: GameState, events: GameEvent[]): ReduceResult {
   const onTable = state.players.reduce((sum, p) => sum + p.currentBet, 0);
   const amount = state.collectedPot + onTable;
 
-  let players = state.players.map((p) => ({ ...p, currentBet: 0 }));
+  let players: PlayerState[];
   if (winner) {
-    players = players.map((p) =>
-      p.seatNumber === winner.seatNumber ? { ...p, stack: p.stack + amount } : p,
-    );
+    players = state.players.map((p) => ({
+      ...p,
+      currentBet: 0,
+      stack: p.seatNumber === winner.seatNumber ? p.stack + amount : p.stack,
+    }));
+  } else {
+    // No eligible winner (only reachable from a corrupted state) - never eat
+    // chips: hand every player back exactly what they still had on the table
+    // plus an equal share of any already-collected pot, remainder left in the
+    // first seat.
+    const share = contenders.length === 0 ? state.players.length : contenders.length;
+    const base = Math.floor(state.collectedPot / share);
+    let remainder = state.collectedPot - base * share;
+    players = state.players.map((p, i) => {
+      const refund = p.currentBet + base + (remainder > 0 && i === 0 ? remainder : 0);
+      if (remainder > 0 && i === 0) remainder = 0;
+      return { ...p, currentBet: 0, stack: p.stack + refund };
+    });
   }
 
   const pots = winner ? [{ amount, eligibleSeats: [winner.seatNumber] }] : [];
@@ -517,7 +559,7 @@ function settleByFold(state: GameState, events: GameEvent[]): ReduceResult {
     ...state,
     players,
     pots,
-    collectedPot: amount,
+    collectedPot: winner ? amount : 0,
     street: Street.Complete,
     actingSeat: null,
     round: { ...state.round, currentBet: 0 },
@@ -561,27 +603,56 @@ function settleByShowdown(
 
   const ranks = evaluateShowdown(collectedAfterRefunds);
   events.push({ type: 'SHOWDOWN_STARTED' });
+
+  // A player mucks rather than expose their cards only when they called a river
+  // bet with chips behind (status ACTIVE) and cannot win or chop any pot they
+  // are eligible for. All-in hands are always tabled, and if at most one player
+  // could still wager then the whole hand was all-in - table everything.
+  const stillWagering = contestingPlayers(collectedAfterRefunds).filter(
+    (p) => p.status !== PlayerStatus.AllIn,
+  ).length;
+  const tableEveryHand = stillWagering <= 1;
+
+  const revealed = new Map<number, HandRank>();
   for (const seat of showdownOrder(collectedAfterRefunds)) {
     const player = getPlayer(collectedAfterRefunds, seat);
     const rank = ranks.get(seat);
-    if (player && rank) {
+    if (!player || !rank) continue;
+
+    const eligiblePots = pots.filter((pot) => pot.eligibleSeats.includes(seat));
+    const canWinSomething = eligiblePots.some((pot) => {
+      let bestShown: HandRank | undefined;
+      for (const [shownSeat, shownRank] of revealed) {
+        if (!pot.eligibleSeats.includes(shownSeat)) continue;
+        if (bestShown === undefined || compareHandRanks(shownRank, bestShown) > 0) {
+          bestShown = shownRank;
+        }
+      }
+      return bestShown === undefined || compareHandRanks(rank, bestShown) >= 0;
+    });
+
+    const mayMuck = player.status === PlayerStatus.Active && !tableEveryHand;
+    if (!mayMuck || canWinSomething || revealed.size === 0) {
+      revealed.set(seat, rank);
       events.push({
         type: 'HAND_REVEALED',
         seat,
         cards: player.holeCards,
         hand: summarizeHand(rank),
       });
+    } else {
+      events.push({ type: 'HAND_MUCKED', seat });
     }
   }
 
   const oddChipOrder = clockwiseFrom(
     firstToActPostflop(
       collectedAfterRefunds.buttonSeat,
-      [...ranks.keys()].sort((a, b) => a - b),
+      [...revealed.keys()].sort((a, b) => a - b),
     ) ?? collectedAfterRefunds.buttonSeat,
-    [...ranks.keys()],
+    [...revealed.keys()],
   );
-  const awards = awardPots(pots, ranks, oddChipOrder);
+  const awards = awardPots(pots, revealed, oddChipOrder);
 
   const payoutBySeat = new Map<number, number>();
   awards.forEach((award, index) => {
@@ -631,14 +702,21 @@ function handCompleted(startState: GameState, endState: GameState): GameEvent {
 function setStatus(state: GameState, seat: number, status: PlayerStatus): ReduceResult {
   const player = getPlayer(state, seat);
   if (!player) return reject(state, seat, 'NO_SUCH_SEAT', `no player at seat ${seat}`);
-  // Mid-hand this only takes effect next hand; if idle, apply immediately.
-  const applyNow = state.street === Street.Waiting || state.street === Street.Complete;
-  const next: PlayerState = applyNow
-    ? { ...player, status }
-    : player.status === PlayerStatus.Active
-      ? player // still owes action this hand
-      : { ...player, status };
-  return { state: { ...state, players: replacePlayer(state.players, next) }, events: [] };
+
+  const idle = state.street === Street.Waiting || state.street === Street.Complete;
+  // A player who is dealt into the live hand (ACTIVE / ALL_IN) or has folded
+  // it still has chips tied up in the pot - their seat status must not be
+  // rewritten until the hand is over. The application layer tracks the intent
+  // (roster `sittingOut`) and it takes effect at the next START_HAND.
+  const boundToHand = !idle && (isInHand(player) || player.status === PlayerStatus.Folded);
+  if (boundToHand) {
+    return reject(state, seat, 'IN_HAND', 'cannot change seat status during a hand');
+  }
+
+  return {
+    state: { ...state, players: replacePlayer(state.players, { ...player, status }) },
+    events: [],
+  };
 }
 
 // ---------------------------------------------------------------------------

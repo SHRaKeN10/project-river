@@ -121,4 +121,55 @@ describe('betting scenarios through the reducer', () => {
     h.autoFinish();
     expect(h.chips()).toBe(4135);
   });
+
+  it('heads-up: a short stack that cannot cover the small blind is all-in and the hand still resolves', () => {
+    const h = new HandRunner(config, [
+      { userId: 'a', seatNumber: 0, stack: 3 }, // less than the SB (5)
+      { userId: 'b', seatNumber: 1, stack: 1000 },
+    ]);
+    h.startHand(
+      buildDeck({
+        order: h.nextDealOrder(),
+        holes: { 0: 'Ac Ad', 1: '2c 7d' }, // short stack wins to keep the math simple
+        board: 'As Kh 9c 4d 3s',
+      }),
+    );
+
+    // seat 0 is button/SB: posts all 3 and is immediately all-in.
+    expect(h.stackOf(0)).toBe(0);
+    expect(h.state.players.find((p) => p.seatNumber === 0)?.status).toBe('ALL_IN');
+    if (h.state.street !== Street.Complete) h.autoFinish();
+
+    expect(h.state.street).toBe(Street.Complete);
+    // main pot is 3 + 3 = 6; seat 1's over-posted blind beyond 3 comes back.
+    expect(h.payoutOf(0)).toBe(6);
+    expect(h.stackOf(0)).toBe(6);
+    expect(h.chips()).toBe(1003);
+    expect(h.stackOf(0) + h.stackOf(1)).toBe(1003);
+  });
+
+  it('heads-up: both blinds exceed a short stack (BB short and all-in)', () => {
+    const h = new HandRunner(config, [
+      { userId: 'a', seatNumber: 0, stack: 1000 },
+      { userId: 'b', seatNumber: 1, stack: 4 }, // BB but only has 4 (< SB 5 < BB 10)
+    ]);
+    h.startHand(
+      buildDeck({
+        order: h.nextDealOrder(),
+        holes: { 0: '2c 7d', 1: 'Ac Ad' },
+        board: 'As Kh 9c 4d 3s',
+      }),
+    );
+
+    // seat 1 is BB, posts all 4 and is immediately all-in.
+    expect(h.state.players.find((p) => p.seatNumber === 1)?.status).toBe('ALL_IN');
+    if (h.state.street !== Street.Complete) h.autoFinish();
+
+    expect(h.state.street).toBe(Street.Complete);
+    // contested pot is 4 + 4 = 8, won by seat 1 (aces); seat 0's excess returns.
+    expect(h.payoutOf(1)).toBe(8);
+    expect(h.stackOf(1)).toBe(8);
+    expect(h.chips()).toBe(1004);
+    expect(h.stackOf(0) + h.stackOf(1)).toBe(1004);
+  });
 });

@@ -1,6 +1,7 @@
 export {
   type TableConfig,
   type Positions,
+  type PreviousPositions,
   createTableConfig,
   validateTableConfig,
   seatsForNextHand,
@@ -8,5 +9,6 @@ export {
   nextSeat,
   isHeadsUp,
   assignPositions,
+  previousPositionsOf,
   firstToActPostflop,
 } from './table';

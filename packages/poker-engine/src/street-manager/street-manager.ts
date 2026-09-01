@@ -21,13 +21,14 @@ export function nextStreet(street: Street): Street {
   }
 }
 
-/** Seats to be dealt into the hand, clockwise starting from the small blind. */
+/** Seats to be dealt into the hand, clockwise starting from the small blind
+ * position (or, on a dead small blind, the empty seat just left of the button). */
 export function dealOrder(state: GameState): number[] {
   const seats = state.players
     .filter(isInHand)
     .map((p) => p.seatNumber)
     .sort((a, b) => a - b);
-  return rotateToStart(seats, state.smallBlindSeat);
+  return rotateToStart(seats, state.smallBlindSeat ?? state.buttonSeat + 1);
 }
 
 /** Deals two hole cards to each player in the hand (one card at a time, twice

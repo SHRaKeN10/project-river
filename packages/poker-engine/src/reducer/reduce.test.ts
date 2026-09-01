@@ -2,7 +2,7 @@ import { call, check, fold, raiseTo, allIn } from '../betting';
 import { type GameEvent } from '../events/events';
 import { type GameState, Street } from '../game-state/game-state';
 import { SeededRandomProvider } from '../rng/random-provider';
-import { createTableConfig } from '../table/table';
+import { createTableConfig, previousPositionsOf, type PreviousPositions } from '../table/table';
 import { type EngineAction, initGameState, reduce } from './reduce';
 
 const config = createTableConfig({ smallBlind: 10, bigBlind: 20 });
@@ -29,10 +29,10 @@ interface Session {
   events: GameEvent[];
 }
 
-const start = (state: GameState, previousButtonSeat: number | null = null): Session => {
+const start = (state: GameState, previousPositions: PreviousPositions | null = null): Session => {
   const res = reduce(
     state,
-    { type: 'START_HAND', handId: 'h1', handNumber: 1, previousButtonSeat },
+    { type: 'START_HAND', handId: 'h1', handNumber: 1, previousPositions },
     rng(),
   );
   return { state: res.state, events: res.events };
@@ -69,7 +69,7 @@ describe('reduce: START_HAND', () => {
   it('refuses to start without two funded players', () => {
     const res = reduce(
       table({ 1: 1000 }),
-      { type: 'START_HAND', handId: 'h', handNumber: 1, previousButtonSeat: null },
+      { type: 'START_HAND', handId: 'h', handNumber: 1, previousPositions: null },
       rng(),
     );
     expect(res.state.street).toBe(Street.Waiting);
@@ -84,7 +84,12 @@ describe('reduce: START_HAND', () => {
 
     const next = reduce(
       s.state,
-      { type: 'START_HAND', handId: 'h2', handNumber: 2, previousButtonSeat: s.state.buttonSeat },
+      {
+        type: 'START_HAND',
+        handId: 'h2',
+        handNumber: 2,
+        previousPositions: previousPositionsOf(s.state),
+      },
       rng(),
     );
     expect(next.state.buttonSeat).toBe(2);

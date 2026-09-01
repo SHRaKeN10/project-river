@@ -25,6 +25,7 @@ import { ChipsService } from '../chips/chips.service';
 import { LobbyService } from '../lobby/lobby.service';
 import { PrismaService } from '../infra/prisma/prisma.service';
 import { RedisService } from '../infra/redis/redis.service';
+import { SessionBlocklistService } from '../auth/session-blocklist.service';
 import { TokenService } from '../auth/token.service';
 import { projectEvent } from '../tables/event-projection';
 import { projectTableState } from '../tables/table-projection';
@@ -43,6 +44,7 @@ export class PokerGateway implements OnGatewayInit, OnGatewayConnection, OnGatew
 
   constructor(
     private readonly tokens: TokenService,
+    private readonly blocklist: SessionBlocklistService,
     private readonly manager: TableManager,
     private readonly chips: ChipsService,
     private readonly lobby: LobbyService,
@@ -56,7 +58,7 @@ export class PokerGateway implements OnGatewayInit, OnGatewayConnection, OnGatew
     await Promise.all([pub.connect().catch(() => undefined), sub.connect().catch(() => undefined)]);
     server.adapter(createAdapter(pub, sub));
 
-    server.use(createWsAuthMiddleware(this.tokens));
+    server.use(createWsAuthMiddleware(this.tokens, this.blocklist));
     this.manager.subscribe((tableId, notification, runner) => {
       void this.handleNotification(tableId, notification, runner);
     });

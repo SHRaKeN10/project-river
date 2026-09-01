@@ -73,7 +73,11 @@ export class TablesService {
       sittingOut: boolean;
     }[],
     handNumber: number,
-    buttonSeat: number | null,
+    previous: {
+      buttonSeat: number;
+      smallBlindSeat: number | null;
+      bigBlindSeat: number;
+    } | null,
   ): Promise<void> {
     await this.prisma.$transaction([
       ...seats.map((seat) =>
@@ -89,7 +93,12 @@ export class TablesService {
       ),
       this.prisma.pokerTable.update({
         where: { id: tableId },
-        data: { handNumber, buttonSeat },
+        data: {
+          handNumber,
+          buttonSeat: previous?.buttonSeat ?? null,
+          smallBlindSeat: previous?.smallBlindSeat ?? null,
+          bigBlindSeat: previous?.bigBlindSeat ?? null,
+        },
       }),
     ]);
   }

@@ -26,7 +26,7 @@ export type GameEvent =
       readonly handId: string;
       readonly handNumber: number;
       readonly buttonSeat: number;
-      readonly smallBlindSeat: number;
+      readonly smallBlindSeat: number | null;
       readonly bigBlindSeat: number;
       readonly players: readonly {
         readonly seat: number;
