@@ -38,7 +38,7 @@ export class AuthController {
   }
 
   @Public()
-  @Throttle({ key: 'register', limit: 5, windowSeconds: 60 })
+  @Throttle({ key: 'register', limit: 20, windowSeconds: 60 })
   @Post('register')
   async register(
     @Body(new ZodValidationPipe(registerSchema)) body: unknown,

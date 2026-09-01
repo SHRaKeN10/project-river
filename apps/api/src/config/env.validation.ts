@@ -22,6 +22,11 @@ export const envSchema = z.object({
         .map((s) => s.trim())
         .filter(Boolean),
     ),
+
+  /** Poker table timing (ms). Kept low in tests. */
+  TABLE_ACTION_TIMEOUT_MS: z.coerce.number().int().positive().default(25_000),
+  TABLE_NEXT_HAND_DELAY_MS: z.coerce.number().int().nonnegative().default(4_000),
+  TABLE_START_DELAY_MS: z.coerce.number().int().nonnegative().default(3_000),
 });
 
 export type Env = z.infer<typeof envSchema>;

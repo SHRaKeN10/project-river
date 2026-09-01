@@ -29,6 +29,16 @@ enum VerificationPurpose {
   PASSWORD_RESET
 }
 
+enum PokerGameType {
+  NLHE
+}
+
+enum PokerTableStatus {
+  ACTIVE
+  PAUSED
+  CLOSED
+}
+
 model User {
   id             String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   email          String     @unique
@@ -38,6 +48,9 @@ model User {
   status         UserStatus @default(ACTIVE)
   avatarUrl      String?
   emailVerifiedAt DateTime?
+  /// Free-to-play game currency. NOT money - no deposits/withdrawals. Refills
+  /// via /api/chips/rebuy when depleted.
+  playChips      Int        @default(10000)
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
   deletedAt      DateTime?
@@ -46,8 +59,50 @@ model User {
   refreshTokens        RefreshToken[]
   verificationTokens   VerificationToken[]
   auditLogs            AuditLog[]          @relation("AuditActor")
+  tableSeats           PokerTableSeat[]
 
   @@index([status])
+}
+
+/// A cash-game table. The live hand state lives in memory in the table's
+/// TableRunner; this row is the durable config + current seat/stack roster
+/// (written back after every hand) so a table survives an API restart.
+model PokerTable {
+  id         String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name       String
+  gameType   PokerGameType    @default(NLHE)
+  smallBlind Int
+  bigBlind   Int
+  ante       Int              @default(0)
+  maxSeats   Int              @default(9)
+  minBuyIn   Int
+  maxBuyIn   Int
+  isPrivate  Boolean          @default(false)
+  status     PokerTableStatus @default(ACTIVE)
+  handNumber Int              @default(0)
+  buttonSeat Int?
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  seats PokerTableSeat[]
+
+  @@index([status])
+}
+
+model PokerTableSeat {
+  id         String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tableId    String      @db.Uuid
+  table      PokerTable  @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  seatNumber Int
+  userId     String?     @db.Uuid
+  user       User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  stack      Int         @default(0)
+  sittingOut Boolean     @default(false)
+  joinedAt   DateTime?
+  updatedAt  DateTime    @updatedAt
+
+  @@unique([tableId, seatNumber])
+  @@index([userId])
 }
 
 /// A device/browser login. Refresh tokens are grouped under a session (their

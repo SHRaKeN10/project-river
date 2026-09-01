@@ -8,6 +8,9 @@ import { HealthModule } from './health/health.module';
 import { CommonModule } from './common/common.module';
 import { AuditModule } from './audit/audit.module';
 import { AuthModule } from './auth/auth.module';
+import { ChipsModule } from './chips/chips.module';
+import { TablesModule } from './tables/tables.module';
+import { RealtimeModule } from './realtime/realtime.module';
 
 @Module({
   imports: [
@@ -31,6 +34,9 @@ import { AuthModule } from './auth/auth.module';
     AuditModule,
     HealthModule,
     AuthModule,
+    ChipsModule,
+    TablesModule,
+    RealtimeModule,
   ],
 })
 export class AppModule {}

@@ -136,6 +136,21 @@ compareHandRanks(alice, bob); // < 0  -> bob wins
 describeHand(bob); // "Three of a Kind, Queens"
 ```
 
+## Multiplayer tables (Phase 5)
+
+REST: `POST /api/tables` (admin), `GET /api/tables`, `GET /api/tables/:id`,
+`GET /api/chips`, `POST /api/chips/rebuy`.
+
+WebSocket (`socket.io`, JWT in the handshake `auth.token`): client sends
+`table:join` / `player:action` / `player:sitOut` / `player:return` /
+`table:chat`; server sends `table:state` (per-viewer — your hole cards only),
+`hand:start` / `hand:update` / `hand:end`, `error`.
+
+One `TableRunner` actor per table (serial command queue — no races) holds the
+authoritative `GameState`; the gateway only ever emits projections. Hands
+auto-start/advance; action timers auto-fold on timeout. `User.playChips` is
+free-to-play currency (not money). See `docs/architecture/ADR-0006`.
+
 ## Conventions
 
 - Server is the only authority for cards, shuffles, legal actions, winners, pots.
