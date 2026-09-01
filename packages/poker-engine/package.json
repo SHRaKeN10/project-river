@@ -23,6 +23,7 @@
     "eslint": "^8.57.1",
     "fast-check": "^3.22.0",
     "jest": "^29.7.0",
+    "pokersolver": "^2.1.4",
     "ts-jest": "^29.2.5",
     "typescript": "^5.6.2"
   }

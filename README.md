@@ -11,13 +11,13 @@ layouts from any existing poker platform.
 
 ## Monorepo layout
 
-| Path                    | Package               | Description                                                       |
-| ----------------------- | --------------------- | ----------------------------------------------------------------- |
-| `apps/api`              | `@river/api`          | NestJS modular monolith — REST + WebSocket gateway, table manager |
-| `apps/mobile`           | `@river/mobile`       | React Native (Expo) app — iOS + Android                           |
-| `packages/poker-engine` | `@river/poker-engine` | Pure, deterministic Hold'em rules engine (no framework deps)      |
-| `packages/shared-types` | `@river/shared-types` | Wire contracts & enums shared across all apps                     |
-| `packages/config`       | `@river/config`       | Shared tsconfig / eslint / jest presets                           |
+| Path                    | Package               | Description                                                                       |
+| ----------------------- | --------------------- | --------------------------------------------------------------------------------- |
+| `apps/api`              | `@river/api`          | NestJS modular monolith — REST + WebSocket gateway, table manager                 |
+| `apps/mobile`           | `@river/mobile`       | React Native (Expo) app — iOS + Android                                           |
+| `packages/poker-engine` | `@river/poker-engine` | Pure, deterministic Hold'em rules engine (cards/deck/shuffle/hand-evaluator done) |
+| `packages/shared-types` | `@river/shared-types` | Wire contracts & enums shared across all apps                                     |
+| `packages/config`       | `@river/config`       | Shared tsconfig / eslint / jest presets                                           |
 
 Admin dashboard (`apps/admin`, Next.js) lands in Phase 9.
 
@@ -93,6 +93,23 @@ curl -sX POST localhost:3000/api/auth/refresh -H 'content-type: application/json
 session. In non-production, `password-reset/request` and
 `email-verification/request` return the raw token as `devToken` (no email
 service yet).
+
+## Poker engine (`@river/poker-engine`)
+
+Pure TypeScript, zero runtime deps. Done so far: `cards` · `deck` · `shuffle`
+(Fisher–Yates over the auditable `RandomProvider`) · `hand-evaluator`
+(`evaluate(5..7 cards) → HandRank`, `compareHandRanks`). 99 tests including a
+`pokersolver` oracle cross-check and a 100k-hand distribution simulation.
+See `docs/architecture/ADR-0003`.
+
+```ts
+import { evaluate, compareHandRanks, parseCards, describeHand } from '@river/poker-engine';
+
+const alice = evaluate(parseCards('As Ah Kd Kc 2d 7h 9s')); // two pair, Aces & Kings
+const bob = evaluate(parseCards('Qs Qh Qd Kc 2d 7h 9s')); // trips
+compareHandRanks(alice, bob); // < 0  -> bob wins
+describeHand(bob); // "Three of a Kind, Queens"
+```
 
 ## Conventions
 
