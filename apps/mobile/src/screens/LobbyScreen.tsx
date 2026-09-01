@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Alert, FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -39,15 +39,20 @@ export function LobbyScreen({ navigation }: Props): JSX.Element {
     [navigation],
   );
 
+  // Keep the latest list in a ref so the socket callback stays referentially
+  // stable (it must not re-subscribe on every live delta).
+  const tablesRef = useRef<LobbyTableView[] | undefined>(undefined);
+  tablesRef.current = data;
+
   const onSeatAvailable = useCallback(
     (tableId: string) => {
-      const name = data?.find((t) => t.id === tableId)?.name ?? 'a table';
+      const name = tablesRef.current?.find((t) => t.id === tableId)?.name ?? 'a table';
       Alert.alert('Seat available', `A seat opened up at ${name}.`, [
         { text: 'Later', style: 'cancel' },
         { text: 'Take seat', onPress: () => openTable(tableId) },
       ]);
     },
-    [data, openTable],
+    [openTable],
   );
 
   useLobbyLive({ onSeatAvailable });
@@ -63,13 +68,15 @@ export function LobbyScreen({ navigation }: Props): JSX.Element {
     });
   }, [data, bucket, openOnly, favoritesOnly]);
 
+  const { mutate: mutateFavorite } = favorite;
+  const { mutate: mutateWaitlist } = waitlist;
   const onToggleFavorite = useCallback(
-    (t: LobbyTableView) => favorite.mutate({ tableId: t.id, next: !t.isFavorite }),
-    [favorite],
+    (t: LobbyTableView) => mutateFavorite({ tableId: t.id, next: !t.isFavorite }),
+    [mutateFavorite],
   );
   const onToggleWaitlist = useCallback(
-    (t: LobbyTableView) => waitlist.mutate({ tableId: t.id, next: !t.onWaitlist }),
-    [waitlist],
+    (t: LobbyTableView) => mutateWaitlist({ tableId: t.id, next: !t.onWaitlist }),
+    [mutateWaitlist],
   );
 
   return (
