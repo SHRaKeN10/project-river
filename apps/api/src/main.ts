@@ -1,5 +1,4 @@
 import 'reflect-metadata';
-import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
@@ -15,7 +14,8 @@ async function bootstrap(): Promise<void> {
 
   // Health endpoints stay unprefixed for infra probes; everything else is /api/*.
   app.setGlobalPrefix('api', { exclude: ['health/live', 'health/ready'] });
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+  // Request validation is added in Phase 2 as a zod-based pipe (the project
+  // validates with zod schemas from @river/shared-types, not class-validator).
   app.enableShutdownHooks();
 
   const origins = config.get('CORS_ORIGINS');
