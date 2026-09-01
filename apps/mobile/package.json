@@ -1,0 +1,39 @@
+{
+  "name": "@river/mobile",
+  "version": "0.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "main": "index.ts",
+  "scripts": {
+    "dev": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint . --ext .ts,.tsx --max-warnings 0",
+    "test": "echo \"(mobile tests added in Phase 7)\" && exit 0"
+  },
+  "dependencies": {
+    "@react-navigation/native": "^6.1.18",
+    "@react-navigation/native-stack": "^6.11.0",
+    "@tanstack/react-query": "^5.59.0",
+    "expo": "~52.0.0",
+    "expo-constants": "~17.0.0",
+    "expo-secure-store": "~14.0.0",
+    "expo-status-bar": "~2.0.0",
+    "react": "18.3.1",
+    "react-native": "0.76.3",
+    "react-native-safe-area-context": "4.12.0",
+    "react-native-screens": "~4.1.0",
+    "socket.io-client": "^4.8.0",
+    "zustand": "^5.0.0",
+    "@river/shared-types": "workspace:*"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.0",
+    "@river/config": "workspace:*",
+    "@types/react": "~18.3.11",
+    "eslint": "^8.57.1",
+    "typescript": "^5.6.2"
+  }
+}

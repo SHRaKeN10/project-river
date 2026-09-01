@@ -1,0 +1,49 @@
+name: project-river
+
+# Host ports are deliberately non-default to avoid clashing with any native
+# Postgres/Redis or other local docker stacks. Container-internal ports are
+# standard. Override via the repo-root .env if these also collide.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-river}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-river_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-river_dev}
+    ports:
+      - '${POSTGRES_PORT:-5433}:5432'
+    volumes:
+      - river_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-river} -d ${POSTGRES_DB:-river_dev}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes']
+    ports:
+      - '${REDIS_PORT:-6380}:6379'
+    volumes:
+      - river_redisdata:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  adminer:
+    image: adminer:4
+    restart: unless-stopped
+    ports:
+      - '${ADMINER_PORT:-8091}:8080'
+    depends_on:
+      - postgres
+
+volumes:
+  river_pgdata:
+  river_redisdata:

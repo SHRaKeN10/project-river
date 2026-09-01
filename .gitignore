@@ -1,0 +1,43 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build output
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+
+# test / coverage
+coverage/
+.nyc_output/
+
+# turbo
+.turbo/
+
+# env
+.env
+.env.*
+!.env.example
+
+# native / expo
+apps/mobile/.expo/
+apps/mobile/android/
+apps/mobile/ios/
+*.keystore
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# editor / os
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# prisma
+apps/api/prisma/*.db

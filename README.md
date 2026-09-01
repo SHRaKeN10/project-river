@@ -1,0 +1,82 @@
+# Project River
+
+Mobile-first, **server-authoritative** multiplayer poker platform. The MVP is
+**free-to-play No-Limit Texas Hold'em** — no real money, deposits, withdrawals,
+wagering, or rake. The architecture keeps the poker engine isolated so approved
+game types and (post-legal-review) wallet systems can be added later without
+rewriting it.
+
+Everything here is original. Do not copy code, branding, art, or exact UI
+layouts from any existing poker platform.
+
+## Monorepo layout
+
+| Path                    | Package               | Description                                                       |
+| ----------------------- | --------------------- | ----------------------------------------------------------------- |
+| `apps/api`              | `@river/api`          | NestJS modular monolith — REST + WebSocket gateway, table manager |
+| `apps/mobile`           | `@river/mobile`       | React Native (Expo) app — iOS + Android                           |
+| `packages/poker-engine` | `@river/poker-engine` | Pure, deterministic Hold'em rules engine (no framework deps)      |
+| `packages/shared-types` | `@river/shared-types` | Wire contracts & enums shared across all apps                     |
+| `packages/config`       | `@river/config`       | Shared tsconfig / eslint / jest presets                           |
+
+Admin dashboard (`apps/admin`, Next.js) lands in Phase 9.
+
+## Prerequisites
+
+- **Node 22 LTS** (`.nvmrc`). Node 20.11+ also works.
+- **pnpm 9** — `corepack enable && corepack prepare pnpm@9.12.3 --activate`
+- **Docker** + Docker Compose (Postgres + Redis for local dev)
+
+## First-time setup
+
+```bash
+# 1. install workspace dependencies
+pnpm install
+
+# 2. start local infrastructure (Postgres, Redis, Adminer on :8080)
+cp .env.example .env
+pnpm infra:up
+
+# 3. configure the API
+cp apps/api/.env.example apps/api/.env.development.local
+
+# 4. generate the Prisma client and run the first migration
+pnpm --filter @river/api prisma:generate
+pnpm --filter @river/api prisma:migrate --name init
+
+# 5. build shared packages once
+pnpm --filter @river/shared-types --filter @river/poker-engine build
+```
+
+## Running
+
+```bash
+# API  -> http://localhost:3000  (health: /health/live, /health/ready)
+pnpm --filter @river/api dev
+
+# Mobile (Expo) -> press i / a / w
+pnpm --filter @river/mobile dev
+```
+
+## Verify everything
+
+```bash
+pnpm typecheck      # all packages
+pnpm lint
+pnpm test           # poker-engine unit + property tests, API unit tests
+pnpm --filter @river/api test:e2e   # needs infra up + prisma generate
+pnpm build
+```
+
+## Conventions
+
+- Server is the only authority for cards, shuffles, legal actions, winners, pots.
+- The poker engine never imports NestJS, Prisma, React, Socket.IO, or any I/O.
+- Every hand is an append-only event log and must be fully replayable.
+- TypeScript strict mode everywhere.
+- Environments: `development` / `staging` / `production` — never commit `.env`.
+
+## Roadmap
+
+See `docs/architecture/`. Phases: foundation → auth → poker engine → multiplayer
+→ database → lobby → mobile table → hand history → admin → security review.
