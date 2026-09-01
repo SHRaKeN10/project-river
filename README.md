@@ -58,6 +58,23 @@ pnpm --filter @river/api dev
 pnpm --filter @river/mobile dev
 ```
 
+On a real device, `localhost` is the phone — point the app at your machine:
+
+```bash
+EXPO_PUBLIC_API_URL=http://192.168.x.x:3000 pnpm --filter @river/mobile dev
+```
+
+## Mobile app (`@river/mobile`, Phase 7)
+
+Expo SDK 52 · React Navigation · TanStack Query · Zustand · `expo-secure-store`.
+Shell done: splash → auth (login/register, validated with the shared zod
+schemas) → home / profile / settings, with a refresh-on-401 API client and one
+shared socket connection. Lobby and table screens land in 7b / 7c. See
+`docs/architecture/ADR-0008`.
+
+The repo uses `node-linker=hoisted` (`.npmrc`) — required for Metro in a pnpm
+monorepo.
+
 ## Verify everything
 
 ```bash

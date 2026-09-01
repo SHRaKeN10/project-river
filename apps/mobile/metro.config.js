@@ -10,11 +10,10 @@ const config = getDefaultConfig(projectRoot);
 // Watch the whole monorepo so changes in packages/* trigger reloads.
 config.watchFolders = [monorepoRoot];
 
-// Resolve modules from the app first, then the monorepo root.
+// Resolve modules from the app first, then the monorepo root (hoisted).
 config.resolver.nodeModulesPaths = [
   path.resolve(projectRoot, 'node_modules'),
   path.resolve(monorepoRoot, 'node_modules'),
 ];
-config.resolver.disableHierarchicalLookup = true;
 
 module.exports = config;
