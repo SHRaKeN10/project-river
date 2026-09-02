@@ -11,6 +11,8 @@ interface Props {
   bigBlind: number;
   chipBalance: number;
   busy?: boolean;
+  rebuying?: boolean;
+  onRebuy?: () => void;
   onConfirm: (amount: number) => void;
   onClose: () => void;
 }
@@ -27,6 +29,8 @@ export function BuyInSheet({
   bigBlind,
   chipBalance,
   busy,
+  rebuying,
+  onRebuy,
   onConfirm,
   onClose,
 }: Props): JSX.Element {
@@ -104,9 +108,12 @@ export function BuyInSheet({
         ) : (
           <>
             <Text style={styles.hint}>
-              You need at least {minBuyIn.toLocaleString()} chips to sit here. Top up from your
-              profile.
+              You need at least {minBuyIn.toLocaleString()} chips to sit here — you have{' '}
+              {chipBalance.toLocaleString()}.
             </Text>
+            {onRebuy ? (
+              <Button label="Get free chips" loading={rebuying} onPress={onRebuy} />
+            ) : null}
             <Button label="Close" variant="secondary" onPress={onClose} />
           </>
         )}

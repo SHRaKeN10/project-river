@@ -3,8 +3,14 @@ import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-na
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ActionBar, BuyInSheet, CommunityBoard, SeatPod } from '../components/table';
-import { useChips } from '../features/api/queries';
-import { heroSeat, isHeroTurn, seatRing, streetLabel } from '../features/table/layout';
+import { useChips, useRebuy } from '../features/api/queries';
+import {
+  heroSeat,
+  isHeroTurn,
+  seatPodWidth,
+  seatRing,
+  streetLabel,
+} from '../features/table/layout';
 import { useTable } from '../features/table/useTable';
 import { colors, radius, spacing, typography } from '../theme/tokens';
 import type { AppStackParams } from '../navigation/types';
@@ -15,6 +21,7 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
   const { tableId } = route.params;
   const { width, height } = useWindowDimensions();
   const chips = useChips();
+  const rebuy = useRebuy();
 
   const { view, connected, error, feed, clearError, takeSeat, act, toggleSitOut } =
     useTable(tableId);
@@ -51,6 +58,15 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
     [act],
   );
 
+  const onRebuy = useCallback(async () => {
+    try {
+      await rebuy.mutateAsync();
+      await chips.refetch();
+    } catch {
+      // surfaced by the sheet staying open; the user can retry
+    }
+  }, [rebuy, chips]);
+
   if (!view) {
     return (
       <SafeAreaView style={styles.loading}>
@@ -67,7 +83,9 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
   const heroIndex = view.youAreSeat ?? 0;
 
   const feltH = Math.min(height * 0.62, height - 220);
-  const slots = seatRing(view.maxSeats, heroIndex);
+  const feltW = width - spacing.lg * 2;
+  const podW = seatPodWidth(feltW);
+  const slots = seatRing(view.maxSeats, heroIndex, feltW, podW);
 
   return (
     <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
@@ -103,7 +121,7 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
         </Pressable>
       ) : null}
 
-      <View style={[styles.felt, { height: feltH, width: width - spacing.lg * 2 }]}>
+      <View style={[styles.felt, { height: feltH, width: feltW }]}>
         <View style={styles.center}>
           <CommunityBoard
             cards={view.communityCards}
@@ -128,7 +146,15 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
           return (
             <View
               key={slot.index}
-              style={[styles.seatWrap, { left: `${slot.x * 100}%`, top: `${slot.y * 100}%` }]}
+              style={[
+                styles.seatWrap,
+                {
+                  width: podW,
+                  marginLeft: -podW / 2,
+                  left: `${slot.x * 100}%`,
+                  top: `${slot.y * 100}%`,
+                },
+              ]}
             >
               <SeatPod
                 seat={seat}
@@ -136,6 +162,7 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
                 isActing={seat.seatNumber === view.actingSeat}
                 isButton={seat.seatNumber === view.buttonSeat}
                 actionDeadline={view.actionDeadline}
+                width={podW}
                 onSit={onSit}
               />
             </View>
@@ -174,6 +201,8 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
         bigBlind={view.bigBlind}
         chipBalance={chips.data?.playChips ?? 0}
         busy={busy}
+        rebuying={rebuy.isPending}
+        onRebuy={onRebuy}
         onConfirm={confirmBuyIn}
         onClose={() => setBuyInSeat(null)}
       />
@@ -243,7 +272,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   feedText: { ...typography.caption, color: '#ffffffe0' },
-  seatWrap: { position: 'absolute', width: 104, marginLeft: -52, marginTop: -30 },
+  seatWrap: { position: 'absolute', marginTop: -30 },
   bottom: { flex: 1, justifyContent: 'flex-end' },
   statusLine: {
     ...typography.body,

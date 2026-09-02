@@ -9,28 +9,51 @@ export interface SeatSlot {
   y: number;
 }
 
+export const SEAT_POD_MAX_WIDTH = 104;
+export const SEAT_POD_MIN_WIDTH = 84;
+
+/** Pod width that fits the felt: full size on roomy screens, shrinking (to a
+ * floor) on narrow phones so two pods never overlap the centre. */
+export function seatPodWidth(feltWidth: number): number {
+  if (!Number.isFinite(feltWidth) || feltWidth <= 0) return SEAT_POD_MAX_WIDTH;
+  return Math.round(Math.max(SEAT_POD_MIN_WIDTH, Math.min(SEAT_POD_MAX_WIDTH, feltWidth * 0.34)));
+}
+
 /**
  * Positions `count` seats around an oval, hero (the viewer, or seat 0 when
  * spectating) pinned bottom-centre and the rest spread clockwise. Returns the
  * slot for every seat index, already rotated so `heroIndex` sits at the bottom.
+ *
+ * `feltWidth`/`podWidth` (px) tighten the horizontal spread so a pod's box
+ * always stays fully on the felt - without them a narrow screen clips the side
+ * seats.
  */
-export function seatRing(count: number, heroIndex: number): SeatSlot[] {
+export function seatRing(
+  count: number,
+  heroIndex: number,
+  feltWidth?: number,
+  podWidth: number = SEAT_POD_MAX_WIDTH,
+): SeatSlot[] {
+  // Horizontal margin (as a fraction) that keeps a pod's half-width + a little
+  // air inside the felt. Falls back to the old fixed clamp with no width.
+  const marginX =
+    feltWidth && feltWidth > 0 ? clamp01((podWidth / 2 + 4) / feltWidth, 0.16, 0.4) : 0.16;
+
   const slots: SeatSlot[] = [];
   for (let i = 0; i < count; i += 1) {
     // rotate so the hero is at angle 90deg (bottom); go clockwise from there
     const offset = (i - heroIndex + count) % count;
     const angle = Math.PI / 2 + (offset / count) * Math.PI * 2;
-    // keep pods clear of the felt edge (their box is ~104px wide)
     slots.push({
       index: i,
-      x: clamp01(0.5 + Math.cos(angle) * 0.42, 0.16, 0.84),
+      x: clamp01(0.5 + Math.cos(angle) * 0.42, marginX, 1 - marginX),
       y: clamp01(0.5 + Math.sin(angle) * 0.44, 0.08, 0.92),
     });
   }
   return slots;
 }
 
-function clamp01(n: number, lo: number, hi: number): number {
+function clamp01(n: number, lo = 0, hi = 1): number {
   return Math.max(lo, Math.min(hi, n));
 }
 

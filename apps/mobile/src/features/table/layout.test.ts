@@ -1,5 +1,14 @@
 import type { TableStateView } from '@river/shared-types';
-import { describeEvent, isHeroTurn, occupiedCount, seatRing, streetLabel } from './layout';
+import {
+  describeEvent,
+  isHeroTurn,
+  occupiedCount,
+  seatPodWidth,
+  seatRing,
+  SEAT_POD_MAX_WIDTH,
+  SEAT_POD_MIN_WIDTH,
+  streetLabel,
+} from './layout';
 
 describe('seatRing', () => {
   it('pins the hero at the bottom-centre of the oval', () => {
@@ -18,6 +27,32 @@ describe('seatRing', () => {
       expect(slot.y).toBeGreaterThanOrEqual(0);
       expect(slot.y).toBeLessThanOrEqual(1);
     }
+  });
+
+  it('keeps every pod fully on the felt on a narrow screen', () => {
+    const feltWidth = 272; // ~320px phone minus page padding
+    const podWidth = seatPodWidth(feltWidth);
+    const ring = seatRing(9, 0, feltWidth, podWidth);
+    for (const slot of ring) {
+      const centrePx = slot.x * feltWidth;
+      expect(centrePx - podWidth / 2).toBeGreaterThanOrEqual(0);
+      expect(centrePx + podWidth / 2).toBeLessThanOrEqual(feltWidth);
+    }
+  });
+
+  it('is unchanged when no felt width is given (back-compat)', () => {
+    const a = seatRing(6, 2);
+    const b = seatRing(6, 2, undefined);
+    expect(a).toEqual(b);
+    expect(a[0]!.x).toBeGreaterThanOrEqual(0.16);
+  });
+});
+
+describe('seatPodWidth', () => {
+  it('is full width on a roomy screen and floors on a narrow one', () => {
+    expect(seatPodWidth(400)).toBe(SEAT_POD_MAX_WIDTH);
+    expect(seatPodWidth(200)).toBe(SEAT_POD_MIN_WIDTH);
+    expect(seatPodWidth(0)).toBe(SEAT_POD_MAX_WIDTH); // guards bad input
   });
 
   it('spreads the other seats around (no two slots identical)', () => {

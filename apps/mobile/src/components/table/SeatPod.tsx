@@ -11,6 +11,8 @@ interface Props {
   isActing: boolean;
   isButton: boolean;
   actionDeadline: number | null;
+  /** Pod width in px (narrow screens shrink it). Defaults to the full size. */
+  width?: number;
   /** Called when an empty seat is tapped. */
   onSit?: (seatNumber: number) => void;
 }
@@ -26,12 +28,14 @@ function SeatPodBase({
   isActing,
   isButton,
   actionDeadline,
+  width,
   onSit,
 }: Props): JSX.Element {
+  const sizeStyle = width ? { width } : null;
   if (!seat.userId) {
     return (
       <Pressable
-        style={[styles.pod, styles.empty]}
+        style={[styles.pod, styles.empty, sizeStyle]}
         onPress={() => onSit?.(seat.seatNumber)}
         accessibilityRole="button"
         accessibilityLabel={`Sit in seat ${seat.seatNumber + 1}`}
@@ -46,7 +50,9 @@ function SeatPodBase({
   const showCards = (seat.holeCards?.length ?? 0) > 0;
 
   return (
-    <View style={[styles.pod, isActing ? styles.acting : null, folded ? styles.faded : null]}>
+    <View
+      style={[styles.pod, sizeStyle, isActing ? styles.acting : null, folded ? styles.faded : null]}
+    >
       <View style={styles.row}>
         <View style={[styles.avatar, isHero ? styles.avatarHero : null]}>
           <Text style={styles.avatarText}>{initials(seat.username)}</Text>

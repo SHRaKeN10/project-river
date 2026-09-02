@@ -6,6 +6,7 @@ import type { LobbyTableView } from '@river/shared-types';
 import { EmptyState, FilterChip } from '../components';
 import { useLobbyTables, useToggleFavorite, useWaitlist } from '../features/lobby/queries';
 import { useLobbyLive } from '../features/lobby/useLobbyLive';
+import { useSocketConnected } from '../features/realtime/useSocketConnected';
 import { LobbyTableCard } from '../features/lobby/LobbyTableCard';
 import { colors, spacing, typography } from '../theme/tokens';
 import type { AppStackParams } from '../navigation/types';
@@ -27,6 +28,7 @@ const STAKE_BUCKETS: StakeBucket[] = [
 
 export function LobbyScreen({ navigation }: Props): JSX.Element {
   const { data, isLoading, isError, refetch, isRefetching } = useLobbyTables();
+  const online = useSocketConnected();
   const favorite = useToggleFavorite();
   const waitlist = useWaitlist();
 
@@ -81,6 +83,11 @@ export function LobbyScreen({ navigation }: Props): JSX.Element {
 
   return (
     <SafeAreaView style={styles.safe} edges={['bottom']}>
+      {!online ? (
+        <View style={styles.offlineBar}>
+          <Text style={styles.offlineText}>Reconnecting… live updates paused</Text>
+        </View>
+      ) : null}
       <View style={styles.filters}>
         <View style={styles.chipRow}>
           {STAKE_BUCKETS.map((b) => (
@@ -144,6 +151,12 @@ export function LobbyScreen({ navigation }: Props): JSX.Element {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
+  offlineBar: { backgroundColor: colors.surfaceAlt, paddingVertical: spacing.xs },
+  offlineText: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    textAlign: 'center',
+  },
   filters: {
     gap: spacing.sm,
     paddingHorizontal: spacing.lg,
