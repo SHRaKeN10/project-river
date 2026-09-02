@@ -24,6 +24,7 @@ describe('PokerGateway (e2e)', () => {
   const userIds: string[] = [];
   const password = 'a-strong-passphrase';
   const sockets: Socket[] = [];
+  const extraTableIds: string[] = [];
 
   beforeAll(async () => {
     process.env.TABLE_START_DELAY_MS = '50';
@@ -62,12 +63,38 @@ describe('PokerGateway (e2e)', () => {
 
   afterAll(async () => {
     for (const s of sockets) s.disconnect();
-    await prisma.pokerTable.deleteMany({ where: { id: tableId } }).catch(() => undefined);
+    await prisma.pokerTable
+      .deleteMany({ where: { id: { in: [tableId, ...extraTableIds] } } })
+      .catch(() => undefined);
     await prisma.user
       .deleteMany({ where: { email: { in: players.map((p) => p.email) } } })
       .catch(() => undefined);
     await app?.close();
   });
+
+  /** A fresh isolated table so a regression test never collides with others. */
+  const makeTable = async (
+    over: Partial<{ maxSeats: number; minBuyIn: number; maxBuyIn: number }> = {},
+  ) => {
+    const t = await app.get(TablesService).create({
+      name: `e2e ${suffix} ${extraTableIds.length}`,
+      smallBlind: 10,
+      bigBlind: 20,
+      maxSeats: over.maxSeats ?? 3,
+      minBuyIn: over.minBuyIn ?? 200,
+      maxBuyIn: over.maxBuyIn ?? 2000,
+    });
+    extraTableIds.push(t.id);
+    return t.id;
+  };
+
+  const balance = async (i: number): Promise<number> => {
+    const [u] = await prisma.user.findMany({
+      where: { id: userIds[i] },
+      select: { playChips: true },
+    });
+    return u!.playChips;
+  };
 
   const connect = (token: string): Promise<Socket> =>
     new Promise((resolve, reject) => {
@@ -207,4 +234,114 @@ describe('PokerGateway (e2e)', () => {
     });
     for (const u of users) expect(u.playChips).toBe(9000); // 10000 grant - 1000 buy-in
   }, 25000);
+
+  // --- regression: closed-alpha audit ------------------------------------
+
+  it('refunds the buy-in when the requested seat is already taken', async () => {
+    const t = await makeTable();
+    const s1 = await connect(tokens[0]!);
+    const s2 = await connect(tokens[1]!);
+
+    const before0 = await balance(0);
+    const before1 = await balance(1);
+
+    const j1 = await emitAck<{ ok?: true; error?: string }>(s1, 'table:join', {
+      tableId: t,
+      seatNumber: 0,
+      buyIn: 500,
+    });
+    expect(j1.ok).toBe(true);
+    expect(await balance(0)).toBe(before0 - 500);
+
+    // s2 races for the same seat - must be rejected AND not lose chips
+    const j2 = await emitAck<{ ok?: true; error?: string }>(s2, 'table:join', {
+      tableId: t,
+      seatNumber: 0,
+      buyIn: 500,
+    });
+    expect(j2.ok).toBeUndefined();
+    expect(j2.error).toMatch(/taken/i);
+    expect(await balance(1)).toBe(before1); // fully refunded
+
+    s1.emit('table:leave', { tableId: t });
+    s1.disconnect();
+    s2.disconnect();
+  });
+
+  it('rejects an out-of-range buy-in before touching the wallet', async () => {
+    const t = await makeTable({ minBuyIn: 200, maxBuyIn: 400 });
+    const s = await connect(tokens[2]!);
+    const before = await balance(2);
+
+    const tooBig = await emitAck<{ ok?: true; error?: string }>(s, 'table:join', {
+      tableId: t,
+      seatNumber: 0,
+      buyIn: 999_999,
+    });
+    expect(tooBig.error).toMatch(/buy-in/i);
+    expect(await balance(2)).toBe(before); // never debited
+
+    s.disconnect();
+  });
+
+  it('honours a rejoined player’s actions - no timeout after clientSeq restarts at 1', async () => {
+    const t = await makeTable({ maxSeats: 2, minBuyIn: 200, maxBuyIn: 2000 });
+
+    // driver whose clientSeq starts at 1 each time it is attached (like a client
+    // that remounts on rejoin). Records how many of ITS actions were acked.
+    const attachDriver = (socket: Socket) => {
+      let seq = 0;
+      let acks = 0;
+      const acted = new Set<string>();
+      const h = (st: any): void => {
+        if (!st.handId || st.actingSeat !== st.youAreSeat || !st.legalActions?.length) return;
+        const key = `${st.handId}:${st.street}:${st.currentBet}`;
+        if (acted.has(key)) return;
+        acted.add(key);
+        const kinds = st.legalActions.map((o: any) => o.kind);
+        const pick = kinds.includes('CHECK') ? 'CHECK' : kinds.includes('CALL') ? 'CALL' : 'FOLD';
+        socket.emit(
+          'player:action',
+          { tableId: t, handId: st.handId, clientSeq: (seq += 1), action: { type: pick } },
+          (r: any) => {
+            if (r?.ok) acks += 1;
+          },
+        );
+      };
+      socket.on('table:state', h);
+      return { off: () => socket.off('table:state', h), acks: () => acks };
+    };
+
+    const sA = await connect(tokens[0]!);
+    const sB = await connect(tokens[1]!);
+    const dA = attachDriver(sA);
+    attachDriver(sB);
+
+    await emitAck(sA, 'table:join', { tableId: t, seatNumber: 0, buyIn: 1000 });
+    await emitAck(sB, 'table:join', { tableId: t, seatNumber: 1, buyIn: 1000 });
+    await waitFor(sA, 'hand:end', 20000); // hand 1 drives A's seq up to ~5
+
+    dA.off();
+    await emitAck(sA, 'table:leave', { tableId: t });
+    sA.disconnect();
+
+    const sA2 = await connect(tokens[0]!);
+    const dA2 = attachDriver(sA2);
+    const timedOut: any[] = [];
+    sA2.on('hand:update', (e: any) => {
+      if (e.type === 'ACTION_TIMED_OUT') timedOut.push(e);
+    });
+    expect(
+      (await emitAck<any>(sA2, 'table:join', { tableId: t, seatNumber: 0, buyIn: 1000 })).ok,
+    ).toBe(true);
+
+    await waitFor(sA2, 'hand:end', 20000);
+    expect(dA2.acks()).toBeGreaterThan(0); // A2's low-seq actions were accepted
+    expect(timedOut).toHaveLength(0); // A2 never got auto-folded for silence
+
+    sA2.emit('table:leave', { tableId: t });
+    sB.emit('table:leave', { tableId: t });
+    sA2.disconnect();
+    sB.disconnect();
+  }, 45000);
 });

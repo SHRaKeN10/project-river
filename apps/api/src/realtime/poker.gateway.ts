@@ -1,4 +1,4 @@
-import { Logger } from '@nestjs/common';
+import { Logger, type OnModuleDestroy } from '@nestjs/common';
 import {
   ConnectedSocket,
   MessageBody,
@@ -36,9 +36,16 @@ import { createWsAuthMiddleware, socketUser } from './ws-auth';
 
 const ROOM = (tableId: string): string => `table:${tableId}`;
 
+/** How often to drop sockets whose session has been revoked since they
+ * connected (logout, password reset, ban, refresh-token reuse). */
+const SESSION_SWEEP_MS = 60_000;
+
 @WebSocketGateway({ cors: { origin: true, credentials: true } })
-export class PokerGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
+export class PokerGateway
+  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect, OnModuleDestroy
+{
   private readonly logger = new Logger(PokerGateway.name);
+  private sessionSweep: ReturnType<typeof setInterval> | null = null;
 
   @WebSocketServer()
   private server!: Server;
@@ -63,7 +70,37 @@ export class PokerGateway implements OnGatewayInit, OnGatewayConnection, OnGatew
     this.manager.subscribe((tableId, notification, runner) => {
       void this.handleNotification(tableId, notification, runner);
     });
+
+    // The handshake auth check is one-time. Re-check periodically so a session
+    // that gets revoked while a socket stays connected is actually cut off.
+    this.sessionSweep = setInterval(() => void this.dropRevokedSockets(), SESSION_SWEEP_MS);
+    this.sessionSweep.unref?.();
+
     this.logger.log('Poker gateway initialised');
+  }
+
+  onModuleDestroy(): void {
+    if (this.sessionSweep) clearInterval(this.sessionSweep);
+  }
+
+  private async dropRevokedSockets(): Promise<void> {
+    let sockets;
+    try {
+      sockets = await this.server.fetchSockets();
+    } catch {
+      return;
+    }
+    for (const s of sockets) {
+      const user = (s.data as { user?: { sessionId: string; userId: string } }).user;
+      if (!user) {
+        s.disconnect(true);
+        continue;
+      }
+      if (await this.blocklist.isRevoked(user.sessionId)) {
+        this.logger.debug(`dropping socket ${s.id}: session ${user.sessionId} revoked`);
+        s.disconnect(true);
+      }
+    }
   }
 
   handleConnection(socket: Socket): void {
@@ -109,6 +146,13 @@ export class PokerGateway implements OnGatewayInit, OnGatewayConnection, OnGatew
       return { ok: true };
     }
 
+    // Bound the buy-in before touching the wallet so an out-of-range request
+    // never debits then refunds.
+    const { minBuyIn, maxBuyIn } = runner.meta;
+    if (parsed.data.buyIn < minBuyIn || parsed.data.buyIn > maxBuyIn) {
+      return { error: `buy-in must be ${minBuyIn}-${maxBuyIn}` };
+    }
+
     try {
       await this.chips.debit(user.userId, parsed.data.buyIn);
     } catch {
@@ -120,7 +164,10 @@ export class PokerGateway implements OnGatewayInit, OnGatewayConnection, OnGatew
       select: { username: true, avatarUrl: true },
     });
 
-    runner.join({
+    // `join` seats the player synchronously and reports the outcome. If the seat
+    // was lost to a race (or any other rejection) we MUST return the debited
+    // chips - otherwise the player silently loses their buy-in.
+    const outcome = runner.join({
       userId: user.userId,
       username: profile?.username ?? 'player',
       avatarUrl: profile?.avatarUrl ?? null,
@@ -128,6 +175,15 @@ export class PokerGateway implements OnGatewayInit, OnGatewayConnection, OnGatew
       stack: parsed.data.buyIn,
       connected: true,
     });
+    if (!outcome.ok) {
+      await this.chips.credit(user.userId, parsed.data.buyIn).catch((err) => {
+        this.logger.error(
+          `buy-in refund failed for ${user.userId} (+${parsed.data.buyIn}): ${(err as Error).message}`,
+        );
+      });
+      return { error: outcome.reason };
+    }
+
     runner.setConnected(user.userId, true);
     void this.lobby.leaveWaitlist(user.userId, parsed.data.tableId).catch(() => undefined);
     await socket.join(ROOM(parsed.data.tableId));

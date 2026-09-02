@@ -331,6 +331,100 @@ describe('TableRunner', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// closed-alpha audit regressions
+// ---------------------------------------------------------------------------
+
+describe('TableRunner - closed-alpha regressions', () => {
+  const drivePlayHand = (runner: TableRunner, startSeq: number): number => {
+    let seq = startSeq;
+    let guard = 0;
+    while (runner.gameState.street !== 'COMPLETE' && (guard += 1) < 40) {
+      const seat = runner.gameState.actingSeat;
+      if (seat === null) break;
+      const p = runner.gameState.players.find((x) => x.seatNumber === seat);
+      const owed = runner.gameState.round.currentBet - (p?.currentBet ?? 0);
+      runner.submitAction(
+        seatUser(runner, seat),
+        runner.gameState.handId,
+        (seq += 1),
+        owed > 0 ? { type: 'CALL' } : { type: 'CHECK' },
+      );
+    }
+    return seq;
+  };
+
+  it('join() reports SEAT_TAKEN / BAD_BUY_IN synchronously (so the gateway can refund)', () => {
+    const h = harness();
+    expect(h.join('alice', 0, 1000)).toEqual({ ok: true });
+    expect(h.join('bob', 0, 1000)).toEqual({
+      ok: false,
+      code: 'SEAT_TAKEN',
+      reason: expect.any(String),
+    });
+    expect(h.join('cara', 1, 999_999)).toMatchObject({ ok: false, code: 'BAD_BUY_IN' });
+    expect(h.join('dan', 99, 1000)).toMatchObject({ ok: false, code: 'BAD_SEAT' });
+  });
+
+  it('resets the action-sequence high-water mark per hand (a rejoined client uses low seqs)', () => {
+    const h = harness();
+    h.join('alice', 0);
+    h.join('bob', 1);
+    h.timers.runPending(); // hand 1
+
+    drivePlayHand(h.runner, 0); // drives clientSeq 1..~5 for both users
+    expect(h.runner.gameState.street).toBe('COMPLETE');
+
+    h.timers.runPending(); // next-hand delay -> hand 2
+
+    // hand 2: both clients "rejoined", so their seq restarts at 1.
+    const before = h.eventTypes().filter((t) => t === 'HAND_COMPLETED').length;
+    drivePlayHand(h.runner, 0);
+    expect(h.runner.gameState.street).toBe('COMPLETE');
+    expect(h.eventTypes().filter((t) => t === 'HAND_COMPLETED').length).toBe(before + 1);
+    expect(h.rosterTotal()).toBe(2000);
+  });
+
+  it('parks a disconnected player as sitting-out after they time out', () => {
+    const h = harness();
+    h.join('alice', 0);
+    h.join('bob', 1);
+    h.join('cara', 2);
+    h.timers.runPending();
+
+    const seat = h.runner.gameState.actingSeat!;
+    const user = seatUser(h.runner, seat);
+    h.runner.setConnected(user, false);
+    h.timers.runPending(); // grace timer fires -> TIMEOUT
+
+    expect(h.runner.rosterEntries.get(seat)?.sittingOut).toBe(true);
+
+    // and they are not dealt into the following hand
+    h.timers.runUntilIdle();
+    const dealtSeats = h.runner.gameState.players.map((p) => p.seatNumber);
+    expect(dealtSeats).not.toContain(seat);
+  });
+
+  it('frees a pending-leave seat (crediting the stack) when the table cannot start a hand', () => {
+    const h = harness();
+    h.join('alice', 0);
+    h.join('bob', 1);
+    h.timers.runPending(); // hand in progress
+
+    // bob asks to leave mid-hand while it is NOT his turn -> pending
+    const actingSeat = h.runner.gameState.actingSeat!;
+    const other = actingSeat === 0 ? 'bob' : 'alice';
+    const otherSeat = other === 'bob' ? 1 : 0;
+    h.runner.leave(other);
+    expect(h.runner.seatOf(other)).not.toBeNull(); // still seated (pending)
+
+    h.timers.runUntilIdle(); // hand finishes; only 1 player left -> can't start
+    expect(h.runner.seatOf(other)).toBeNull(); // seat freed
+    expect(h.vacated.map((v) => v.userId)).toContain(other);
+    void otherSeat;
+  });
+});
+
 function seatUser(runner: TableRunner, seat: number): string {
   for (const [s, entry] of runner.rosterEntries) if (s === seat) return entry.userId;
   throw new Error(`no user at seat ${seat}`);

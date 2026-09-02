@@ -67,8 +67,9 @@ interface JoinArgs {
   connected: boolean;
 }
 
+export type JoinOutcome = { ok: true } | { ok: false; code: string; reason: string };
+
 type Command =
-  | { type: 'JOIN'; args: JoinArgs }
   | { type: 'LEAVE'; userId: string }
   | { type: 'CONNECTED'; userId: string; connected: boolean }
   | { type: 'SIT'; userId: string; sittingOut: boolean }
@@ -253,8 +254,14 @@ export class TableRunner {
 
   // --- commands ------------------------------------------------------------
 
-  join(args: JoinArgs): void {
-    this.enqueue({ type: 'JOIN', args });
+  /**
+   * Seats a player and returns the outcome synchronously. The command queue
+   * never yields (no handler awaits), and `join` is only ever called from the
+   * single-threaded gateway, so `this.draining` is always false here - the
+   * caller can immediately refund a debited buy-in if the seat was lost.
+   */
+  join(args: JoinArgs): JoinOutcome {
+    return this.onJoin(args);
   }
   leave(userId: string): void {
     this.enqueue({ type: 'LEAVE', userId });
@@ -307,8 +314,6 @@ export class TableRunner {
 
   private handle(cmd: Command): void {
     switch (cmd.type) {
-      case 'JOIN':
-        return this.onJoin(cmd.args);
       case 'LEAVE':
         return this.onLeave(cmd.userId);
       case 'CONNECTED':
@@ -326,22 +331,22 @@ export class TableRunner {
     }
   }
 
-  private onJoin(args: JoinArgs): void {
+  private onJoin(args: JoinArgs): JoinOutcome {
     if (this.seatOf(args.userId) !== null) {
-      this.reject(args.userId, 'ALREADY_SEATED', 'you are already at this table');
-      return;
+      return { ok: false, code: 'ALREADY_SEATED', reason: 'you are already at this table' };
+    }
+    if (args.seatNumber < 0 || args.seatNumber >= this.meta.maxSeats) {
+      return { ok: false, code: 'BAD_SEAT', reason: 'no such seat' };
     }
     if (this.roster.has(args.seatNumber)) {
-      this.reject(args.userId, 'SEAT_TAKEN', 'that seat is taken');
-      return;
+      return { ok: false, code: 'SEAT_TAKEN', reason: 'that seat is taken' };
     }
     if (args.stack < this.meta.minBuyIn || args.stack > this.meta.maxBuyIn) {
-      this.reject(
-        args.userId,
-        'BAD_BUY_IN',
-        `buy-in must be ${this.meta.minBuyIn}-${this.meta.maxBuyIn}`,
-      );
-      return;
+      return {
+        ok: false,
+        code: 'BAD_BUY_IN',
+        reason: `buy-in must be ${this.meta.minBuyIn}-${this.meta.maxBuyIn}`,
+      };
     }
     this.roster.set(args.seatNumber, {
       userId: args.userId,
@@ -355,6 +360,7 @@ export class TableRunner {
     this.deps.persistRoster(this);
     this.deps.notify({ kind: 'state' });
     this.maybeScheduleStart();
+    return { ok: true };
   }
 
   private onLeave(userId: string): void {
@@ -382,9 +388,27 @@ export class TableRunner {
     }
 
     this.roster.delete(seat);
+    this.lastSeqByUser.delete(userId);
     this.deps.onSeatVacated(userId, entry.stack);
     this.deps.persistRoster(this);
     this.deps.notify({ kind: 'state' });
+  }
+
+  /** Remove seats whose player asked to leave, crediting their stack. Called
+   * from `onHandComplete` and when the table can't start a hand. */
+  private releasePendingLeavers(): void {
+    let changed = false;
+    for (const [seat, entry] of [...this.roster.entries()]) {
+      if (!entry.pendingLeave) continue;
+      this.roster.delete(seat);
+      this.lastSeqByUser.delete(entry.userId);
+      this.deps.onSeatVacated(entry.userId, entry.stack);
+      changed = true;
+    }
+    if (changed) {
+      this.deps.persistRoster(this);
+      this.deps.notify({ kind: 'state' });
+    }
   }
 
   private onConnected(userId: string, connected: boolean): void {
@@ -442,6 +466,11 @@ export class TableRunner {
 
   private onTimeout(seat: number, handId: string): void {
     if (this.state.handId !== handId || this.state.actingSeat !== seat) return;
+    // A still-disconnected player who just timed out is parked as sitting-out so
+    // the table stops dealing them in (and burning a grace clock) every hand.
+    // They clear it themselves with "sit in" once they're back.
+    const entry = this.roster.get(seat);
+    if (entry && !entry.connected && !entry.pendingLeave) entry.sittingOut = true;
     this.applyEngine({ type: 'TIMEOUT', seat });
   }
 
@@ -464,10 +493,19 @@ export class TableRunner {
     const eligible = [...this.roster.entries()]
       .filter(([, e]) => !e.sittingOut && !e.pendingLeave && e.stack > 0)
       .sort(([a], [b]) => a - b);
-    if (eligible.length < 2) return;
+    if (eligible.length < 2) {
+      // No hand to deal - free any seats whose player asked to leave and credit
+      // their stack back (they'd otherwise linger until a hand happens to run).
+      this.releasePendingLeavers();
+      return;
+    }
 
     this.handNumber += 1;
     this.revealedSeats.clear();
+    // Client action sequence numbers are per-hand; a rejoined client restarts
+    // its counter, so a stale high-water mark would silently swallow its first
+    // few actions of the new hand.
+    this.lastSeqByUser.clear();
     const fresh = initGameState({
       tableId: this.meta.id,
       config: this.engineConfig,
@@ -522,13 +560,7 @@ export class TableRunner {
       entry.stack = player.stack;
       if (player.stack === 0) entry.sittingOut = true;
     }
-    // remove players who asked to leave during the hand
-    for (const [seat, entry] of [...this.roster.entries()]) {
-      if (entry.pendingLeave) {
-        this.roster.delete(seat);
-        this.deps.onSeatVacated(entry.userId, entry.stack);
-      }
-    }
+    this.releasePendingLeavers();
     this.deps.persistRoster(this);
     this.deps.notify({ kind: 'handComplete' });
     this.scheduleNextHand();
@@ -544,13 +576,13 @@ export class TableRunner {
     }
     const seat = this.state.actingSeat;
     const handId = this.state.handId;
-    // A player whose socket is gone gets a much shorter clock so the table
-    // isn't held hostage while they're away.
+    // A player who is gone - socket dropped, or asked to leave mid-hand - gets a
+    // much shorter clock so the table isn't held hostage while they're away.
     const entry = this.roster.get(seat);
-    const timeoutMs =
-      entry && !entry.connected
-        ? Math.min(this.deps.config.disconnectGraceMs, this.deps.config.actionTimeoutMs)
-        : this.deps.config.actionTimeoutMs;
+    const away = entry !== undefined && (!entry.connected || entry.pendingLeave);
+    const timeoutMs = away
+      ? Math.min(this.deps.config.disconnectGraceMs, this.deps.config.actionTimeoutMs)
+      : this.deps.config.actionTimeoutMs;
     this.state = { ...this.state, actionDeadline: this.deps.now() + timeoutMs };
     this.actionTimer = this.deps.timers.set(() => {
       this.enqueue({ type: 'TIMEOUT', seat, handId });
