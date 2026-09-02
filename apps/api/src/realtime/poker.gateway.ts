@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Logger, type OnModuleDestroy } from '@nestjs/common';
 import {
   ConnectedSocket,
@@ -22,7 +23,6 @@ import {
   tableRoomSchema,
   type WirePlayerAction,
 } from '@river/shared-types';
-import { ChipsService } from '../chips/chips.service';
 import { LobbyService } from '../lobby/lobby.service';
 import { PrismaService } from '../infra/prisma/prisma.service';
 import { RedisService } from '../infra/redis/redis.service';
@@ -31,6 +31,7 @@ import { TokenService } from '../auth/token.service';
 import { projectEvent } from '../tables/event-projection';
 import { projectTableState } from '../tables/table-projection';
 import { TableManager } from '../tables/table-manager';
+import { TablesService } from '../tables/tables.service';
 import type { RunnerNotification, TableRunner } from '../tables/table-runner';
 import { createWsAuthMiddleware, socketUser } from './ws-auth';
 
@@ -54,7 +55,7 @@ export class PokerGateway
     private readonly tokens: TokenService,
     private readonly blocklist: SessionBlocklistService,
     private readonly manager: TableManager,
-    private readonly chips: ChipsService,
+    private readonly tables: TablesService,
     private readonly lobby: LobbyService,
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
@@ -146,27 +147,34 @@ export class PokerGateway
       return { ok: true };
     }
 
-    // Bound the buy-in before touching the wallet so an out-of-range request
-    // never debits then refunds.
     const { minBuyIn, maxBuyIn } = runner.meta;
     if (parsed.data.buyIn < minBuyIn || parsed.data.buyIn > maxBuyIn) {
       return { error: `buy-in must be ${minBuyIn}-${maxBuyIn}` };
     }
 
-    try {
-      await this.chips.debit(user.userId, parsed.data.buyIn);
-    } catch {
-      return { error: 'insufficient chips for that buy-in' };
-    }
+    // A player who just left may still have a cash-out (and its DB seat-clear)
+    // in flight - wait for it so this join's "already seated" guard is accurate.
+    await this.manager.settleSeatChanges(parsed.data.tableId);
+
+    // Debit + claim the seat in one DB transaction: a crash can never leave
+    // chips gone without a seat (or vice versa).
+    const seated = await this.tables.sitDown({
+      tableId: parsed.data.tableId,
+      seatNumber: parsed.data.seatNumber,
+      userId: user.userId,
+      buyIn: parsed.data.buyIn,
+      idemKey: `buyin:${randomUUID()}`,
+    });
+    if (!seated.ok) return { error: seated.error };
 
     const profile = await this.prisma.user.findUnique({
       where: { id: user.userId },
       select: { username: true, avatarUrl: true },
     });
 
-    // `join` seats the player synchronously and reports the outcome. If the seat
-    // was lost to a race (or any other rejection) we MUST return the debited
-    // chips - otherwise the player silently loses their buy-in.
+    // The DB seat is claimed; mirror it into the runner's in-memory roster. This
+    // should never fail (the DB is the authority now); if it somehow does, undo
+    // the transaction so chips aren't stranded.
     const outcome = runner.join({
       userId: user.userId,
       username: profile?.username ?? 'player',
@@ -176,11 +184,18 @@ export class PokerGateway
       connected: true,
     });
     if (!outcome.ok) {
-      await this.chips.credit(user.userId, parsed.data.buyIn).catch((err) => {
-        this.logger.error(
-          `buy-in refund failed for ${user.userId} (+${parsed.data.buyIn}): ${(err as Error).message}`,
-        );
-      });
+      this.logger.error(
+        `seat ${parsed.data.seatNumber}@${parsed.data.tableId} claimed in DB but runner refused (${outcome.code}); refunding`,
+      );
+      await this.tables
+        .standUp({
+          tableId: parsed.data.tableId,
+          seatNumber: parsed.data.seatNumber,
+          userId: user.userId,
+          finalStack: parsed.data.buyIn,
+          idemKey: `buyin-undo:${randomUUID()}`,
+        })
+        .catch(() => undefined);
       return { error: outcome.reason };
     }
 
@@ -234,6 +249,9 @@ export class PokerGateway
     const user = socketUser(socket);
     this.manager.getRunner(parsed.data.tableId)?.leave(user.userId);
     await socket.leave(ROOM(parsed.data.tableId));
+    // Ack only once the stack is actually back in the wallet, so a client that
+    // immediately re-joins (or checks its balance) sees a settled state.
+    await this.manager.settleSeatChanges(parsed.data.tableId);
     return { ok: true };
   }
 

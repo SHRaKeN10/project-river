@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
+  cardToString,
   type EngineAction,
   type GameEvent,
   type GameState,
@@ -51,11 +52,19 @@ export interface RunnerDeps {
   notify: (n: RunnerNotification) => void;
   /** Called after every hand and on seat changes so the DB roster stays current. */
   persistRoster: (runner: TableRunner) => void;
-  /** Called when a seat is freed - the caller credits the stack back to chips
-   * and may promote the head of the waitlist. */
-  onSeatVacated: (userId: string, stack: number) => void;
+  /** Called when a seat is freed - the caller cashes the stack back out (via a
+   * transactional, idempotent `standUp` keyed by `idemKey`) and may promote the
+   * head of the waitlist. */
+  onSeatVacated: (args: {
+    userId: string;
+    seatNumber: number;
+    stack: number;
+    idemKey: string;
+  }) => void;
   /** Completed-hand pot total, for the lobby's rolling average. */
   recordHandStats: (potTotal: number) => void;
+  /** A finished hand, for persistence (hand history + replay). */
+  recordHand: (hand: CompletedHand) => void;
 }
 
 interface JoinArgs {
@@ -68,6 +77,27 @@ interface JoinArgs {
 }
 
 export type JoinOutcome = { ok: true } | { ok: false; code: string; reason: string };
+
+/** A finished hand, ready to persist for dispute resolution + replay. */
+export interface CompletedHand {
+  engineHandId: string;
+  handNumber: number;
+  startedAt: number;
+  endedAt: number;
+  /** 52-card deal order, compact strings - the replay input. */
+  deck: string[];
+  buttonSeat: number;
+  smallBlindSeat: number | null;
+  bigBlindSeat: number;
+  /** The prior hand's positions - the other `replayHand` input. null for hand 1. */
+  prevPositions: PreviousPositions | null;
+  seats: { seat: number; userId: string; username: string; startStack: number }[];
+  /** The PLAYER_ACTION / TIMEOUT sequence after START_HAND - the replay input. */
+  actions: EngineAction[];
+  board: string[];
+  results: { seat: number; userId: string; net: number; endStack: number }[];
+  potTotal: number;
+}
 
 type Command =
   | { type: 'LEAVE'; userId: string }
@@ -104,6 +134,15 @@ export class TableRunner {
 
   private actionTimer: unknown = null;
   private nextHandTimer: unknown = null;
+
+  /** Accumulates what's needed to persist the in-progress hand. */
+  private handLog: {
+    startedAt: number;
+    deck: string[];
+    prevPositions: PreviousPositions | null;
+    seats: CompletedHand['seats'];
+    actions: EngineAction[];
+  } | null = null;
 
   constructor(
     readonly meta: TableMeta,
@@ -389,7 +428,12 @@ export class TableRunner {
 
     this.roster.delete(seat);
     this.lastSeqByUser.delete(userId);
-    this.deps.onSeatVacated(userId, entry.stack);
+    this.deps.onSeatVacated({
+      userId,
+      seatNumber: seat,
+      stack: entry.stack,
+      idemKey: `cashout:${randomUUID()}`,
+    });
     this.deps.persistRoster(this);
     this.deps.notify({ kind: 'state' });
   }
@@ -402,7 +446,12 @@ export class TableRunner {
       if (!entry.pendingLeave) continue;
       this.roster.delete(seat);
       this.lastSeqByUser.delete(entry.userId);
-      this.deps.onSeatVacated(entry.userId, entry.stack);
+      this.deps.onSeatVacated({
+        userId: entry.userId,
+        seatNumber: seat,
+        stack: entry.stack,
+        idemKey: `cashout:${randomUUID()}`,
+      });
       changed = true;
     }
     if (changed) {
@@ -516,12 +565,29 @@ export class TableRunner {
       })),
     });
     this.state = fresh;
+
+    this.handLog = {
+      startedAt: this.deps.now(),
+      deck: [],
+      prevPositions: this.previousPositions,
+      seats: eligible.map(([seat, e]) => ({
+        seat,
+        userId: e.userId,
+        username: e.username,
+        startStack: e.stack,
+      })),
+      actions: [],
+    };
+
     this.applyEngine({
       type: 'START_HAND',
       handId: randomUUID(),
       handNumber: this.handNumber,
       previousPositions: this.previousPositions,
     });
+
+    // the engine has now shuffled - capture the deal order for replay
+    if (this.handLog) this.handLog.deck = this.state.deck.cards.map(cardToString);
   }
 
   // --- engine bridge -----------------------------------------------------
@@ -540,6 +606,11 @@ export class TableRunner {
     this.state = state;
     for (const seat of revealedByEvents(events)) this.revealedSeats.add(seat);
 
+    // record every accepted in-hand action for replay
+    if (this.handLog && (action.type === 'PLAYER_ACTION' || action.type === 'TIMEOUT')) {
+      this.handLog.actions.push(action);
+    }
+
     const completed = events.some((e) => e.type === 'HAND_COMPLETED');
     if (events.length > 0) this.deps.notify({ kind: 'events', events });
 
@@ -553,7 +624,9 @@ export class TableRunner {
 
   private onHandComplete(): void {
     this.previousPositions = previousPositionsOf(this.state);
-    this.deps.recordHandStats(this.state.pots.reduce((sum, pot) => sum + pot.amount, 0));
+    const potTotal = this.state.pots.reduce((sum, pot) => sum + pot.amount, 0);
+    this.deps.recordHandStats(potTotal);
+    this.persistCompletedHand(potTotal);
     for (const player of this.state.players) {
       const entry = this.roster.get(player.seatNumber);
       if (!entry) continue;
@@ -564,6 +637,40 @@ export class TableRunner {
     this.deps.persistRoster(this);
     this.deps.notify({ kind: 'handComplete' });
     this.scheduleNextHand();
+  }
+
+  private persistCompletedHand(potTotal: number): void {
+    const log = this.handLog;
+    this.handLog = null;
+    if (!log) return;
+
+    const results = this.state.players.map((p) => {
+      const start = log.seats.find((s) => s.seat === p.seatNumber);
+      const startStack = start?.startStack ?? p.stack;
+      return {
+        seat: p.seatNumber,
+        userId: p.userId,
+        net: p.stack - startStack,
+        endStack: p.stack,
+      };
+    });
+
+    this.deps.recordHand({
+      engineHandId: this.state.handId,
+      handNumber: this.handNumber,
+      startedAt: log.startedAt,
+      endedAt: this.deps.now(),
+      deck: log.deck,
+      buttonSeat: this.state.buttonSeat,
+      smallBlindSeat: this.state.smallBlindSeat,
+      bigBlindSeat: this.state.bigBlindSeat,
+      prevPositions: log.prevPositions,
+      seats: log.seats,
+      actions: log.actions,
+      board: this.state.communityCards.map(cardToString),
+      results,
+      potTotal,
+    });
   }
 
   // --- timers ----------------------------------------------------------

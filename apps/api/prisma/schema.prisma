@@ -62,8 +62,37 @@ model User {
   tableSeats           PokerTableSeat[]
   tableFavorites       TableFavorite[]
   waitlistEntries      TableWaitlistEntry[]
+  chipLedger           ChipLedgerEntry[]
 
   @@index([status])
+}
+
+enum ChipMovementReason {
+  SIGNUP_GRANT
+  REBUY_GRANT
+  TABLE_BUYIN
+  TABLE_BUYIN_REFUND
+  TABLE_CASHOUT
+  ADJUSTMENT
+}
+
+/// Append-only record of every change to a player's `playChips`. Written in the
+/// same transaction as the balance update. `idemKey` makes a retried movement
+/// (e.g. a cash-out re-attempted after a DB blip) a safe no-op.
+model ChipLedgerEntry {
+  id           String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String             @db.Uuid
+  user         User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Signed: negative leaves the wallet, positive returns to it.
+  amount       Int
+  reason       ChipMovementReason
+  /// Wallet balance immediately after this entry.
+  balanceAfter Int
+  tableId      String?            @db.Uuid
+  idemKey      String             @unique
+  createdAt    DateTime           @default(now())
+
+  @@index([userId, createdAt])
 }
 
 /// A cash-game table. The live hand state lives in memory in the table's
@@ -97,8 +126,44 @@ model PokerTable {
   seats     PokerTableSeat[]
   favorites TableFavorite[]
   waitlist  TableWaitlistEntry[]
+  hands     PokerHand[]
 
   @@index([status])
+}
+
+/// One completed hand, persisted for dispute resolution and replay. Given the
+/// same `deck` and `actions`, the engine's `replayHand` reproduces it exactly.
+model PokerHand {
+  id             String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tableId        String     @db.Uuid
+  table          PokerTable @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  handNumber     Int
+  /// The engine's hand id, to correlate with the live event stream / logs.
+  engineHandId   String
+  /// 52-card deal order (compact strings). The replay input.
+  deck           Json
+  buttonSeat     Int
+  smallBlindSeat Int?
+  bigBlindSeat   Int
+  /// The prior hand's { buttonSeat, smallBlindSeat, bigBlindSeat } - the other
+  /// input `replayHand` needs to reproduce blind assignment. null for hand 1.
+  prevPositionsJson Json?
+  /// [{ seat, userId, username, startStack }]
+  seatsJson      Json
+  /// Ordered PLAYER_ACTION / TIMEOUT sequence after START_HAND. The replay input.
+  actionsJson    Json
+  board          String[]
+  /// [{ seat, userId, net, endStack }]
+  resultsJson    Json
+  potTotal       Int
+  /// Denormalised for "my recent hands" lookups.
+  userIds        String[]   @db.Uuid
+  startedAt      DateTime
+  endedAt        DateTime   @default(now())
+
+  @@unique([tableId, handNumber])
+  @@index([tableId, endedAt])
+  @@index([userIds], type: Gin)
 }
 
 model TableFavorite {

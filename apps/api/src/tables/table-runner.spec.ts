@@ -1,7 +1,16 @@
-import { createTableConfig, fold, PlayerStatus, SeededRandomProvider } from '@river/poker-engine';
+import {
+  cardToString,
+  createTableConfig,
+  fold,
+  parseCard,
+  PlayerStatus,
+  replayHand,
+  SeededRandomProvider,
+} from '@river/poker-engine';
 import type { GameEvent } from '@river/poker-engine';
 import type { TableMeta } from './table-projection';
 import {
+  type CompletedHand,
   type RunnerDeps,
   type RunnerNotification,
   type TimerScheduler,
@@ -47,7 +56,8 @@ const meta: TableMeta = {
 
 function harness(seed = 7) {
   const notifications: RunnerNotification[] = [];
-  const vacated: { userId: string; stack: number }[] = [];
+  const vacated: { userId: string; seatNumber: number; stack: number; idemKey: string }[] = [];
+  const hands: CompletedHand[] = [];
   const timers = new FakeTimers();
   const deps: RunnerDeps = {
     rng: new SeededRandomProvider(seed),
@@ -61,8 +71,9 @@ function harness(seed = 7) {
     },
     notify: (n) => notifications.push(n),
     persistRoster: () => undefined,
-    onSeatVacated: (userId, stack) => vacated.push({ userId, stack }),
+    onSeatVacated: (v) => vacated.push(v),
     recordHandStats: () => undefined,
+    recordHand: (h) => hands.push(h),
   };
   const runner = new TableRunner(
     meta,
@@ -85,7 +96,7 @@ function harness(seed = 7) {
   const eventTypes = () => events().map((e: GameEvent) => e.type);
   const rosterTotal = () => [...runner.rosterEntries.values()].reduce((t, e) => t + e.stack, 0);
 
-  return { runner, notifications, vacated, timers, join, events, eventTypes, rosterTotal };
+  return { runner, notifications, vacated, hands, timers, join, events, eventTypes, rosterTotal };
 }
 
 describe('TableRunner', () => {
@@ -175,7 +186,9 @@ describe('TableRunner', () => {
     // no hand started yet (timer not fired)
     h.runner.leave('alice');
     expect(h.runner.seatOf('alice')).toBeNull();
-    expect(h.vacated).toEqual([{ userId: 'alice', stack: 1000 }]);
+    expect(h.vacated).toEqual([
+      { userId: 'alice', seatNumber: 0, stack: 1000, idemKey: expect.any(String) },
+    ]);
   });
 
   it('a disconnected player is auto-folded on their timer and the hand continues', () => {
@@ -403,6 +416,44 @@ describe('TableRunner - closed-alpha regressions', () => {
     h.timers.runUntilIdle();
     const dealtSeats = h.runner.gameState.players.map((p) => p.seatNumber);
     expect(dealtSeats).not.toContain(seat);
+  });
+
+  it('records each completed hand with everything replayHand needs to reproduce it', () => {
+    const h = harness();
+    h.join('alice', 0);
+    h.join('bob', 1);
+    h.join('cara', 2);
+    h.timers.runPending(); // hand 1
+    drivePlayHand(h.runner, 0);
+    h.timers.runPending(); // hand 2 (so prevPositions is non-null)
+    drivePlayHand(h.runner, 0);
+
+    expect(h.hands).toHaveLength(2);
+    const [, second] = h.hands;
+    expect(second.prevPositions).not.toBeNull();
+    expect(second.deck).toHaveLength(52);
+    expect(second.seats.length).toBeGreaterThanOrEqual(2);
+
+    // the persisted record replays to the same board and net result
+    const replayed = replayHand({
+      tableId: 't-1',
+      config: createTableConfig({ smallBlind: 10, bigBlind: 20, maxSeats: 6 }),
+      seats: second.seats.map((s) => ({
+        userId: s.userId,
+        seatNumber: s.seat,
+        stack: s.startStack,
+      })),
+      handId: second.engineHandId,
+      handNumber: second.handNumber,
+      previousPositions: second.prevPositions,
+      deck: second.deck.map(parseCard),
+      actions: second.actions,
+    });
+    expect(replayed.state.communityCards.map(cardToString)).toEqual(second.board);
+    for (const r of second.results) {
+      const p = replayed.state.players.find((x) => x.seatNumber === r.seat);
+      expect(p?.stack).toBe(r.endStack);
+    }
   });
 
   it('frees a pending-leave seat (crediting the stack) when the table cannot start a hand', () => {

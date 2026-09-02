@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { PokerTable, PokerTableSeat } from '@prisma/client';
+import { ChipMovementReason, PokerTable, PokerTableSeat } from '@prisma/client';
+import { ChipsService } from '../chips/chips.service';
 import { PrismaService } from '../infra/prisma/prisma.service';
 
 export interface CreateTableInput {
@@ -14,9 +15,14 @@ export interface CreateTableInput {
 
 export type TableWithSeats = PokerTable & { seats: PokerTableSeat[] };
 
+export type SitDownResult = { ok: true } | { ok: false; error: string };
+
 @Injectable()
 export class TablesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly chips: ChipsService,
+  ) {}
 
   async create(input: CreateTableInput): Promise<TableWithSeats> {
     if (input.smallBlind <= 0 || input.bigBlind < input.smallBlind) {
@@ -103,23 +109,86 @@ export class TablesService {
     ]);
   }
 
-  async claimSeat(
-    tableId: string,
-    seatNumber: number,
-    userId: string,
-    stack: number,
-  ): Promise<void> {
-    const updated = await this.prisma.pokerTableSeat.updateMany({
-      where: { tableId, seatNumber, userId: null },
-      data: { userId, stack, sittingOut: false, joinedAt: new Date() },
-    });
-    if (updated.count === 0) throw new BadRequestException('seat is taken');
+  /**
+   * Debit the buy-in and claim the seat row in ONE transaction, so a crash can
+   * never leave chips debited without a seat (or vice versa). The in-memory
+   * `TableRunner` roster is a cache of this row and is rebuilt from it on
+   * restart. `idemKey` is unique per join attempt.
+   */
+  async sitDown(args: {
+    tableId: string;
+    seatNumber: number;
+    userId: string;
+    buyIn: number;
+    idemKey: string;
+  }): Promise<SitDownResult> {
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        const already = await tx.pokerTableSeat.count({
+          where: { tableId: args.tableId, userId: args.userId },
+        });
+        if (already > 0) throw new BadRequestException('you are already at this table');
+
+        const claimed = await tx.pokerTableSeat.updateMany({
+          where: { tableId: args.tableId, seatNumber: args.seatNumber, userId: null },
+          data: {
+            userId: args.userId,
+            stack: args.buyIn,
+            sittingOut: false,
+            joinedAt: new Date(),
+          },
+        });
+        if (claimed.count === 0) throw new BadRequestException('that seat is taken');
+
+        await this.chips.move(
+          {
+            userId: args.userId,
+            amount: -args.buyIn,
+            reason: ChipMovementReason.TABLE_BUYIN,
+            idemKey: args.idemKey,
+            tableId: args.tableId,
+          },
+          tx,
+        );
+      });
+      return { ok: true };
+    } catch (err) {
+      const message =
+        err instanceof BadRequestException
+          ? ((err.getResponse() as { message?: string }).message ?? 'could not take that seat')
+          : 'could not take that seat';
+      return { ok: false, error: message };
+    }
   }
 
-  async releaseSeat(tableId: string, seatNumber: number): Promise<void> {
-    await this.prisma.pokerTableSeat.updateMany({
-      where: { tableId, seatNumber },
-      data: { userId: null, stack: 0, sittingOut: false, joinedAt: null },
+  /**
+   * Release the seat row and return the final stack to the wallet in ONE
+   * transaction. Idempotent on `idemKey` - safe to retry after a failure.
+   */
+  async standUp(args: {
+    tableId: string;
+    seatNumber: number;
+    userId: string;
+    finalStack: number;
+    idemKey: string;
+  }): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      await tx.pokerTableSeat.updateMany({
+        where: { tableId: args.tableId, seatNumber: args.seatNumber, userId: args.userId },
+        data: { userId: null, stack: 0, sittingOut: false, joinedAt: null },
+      });
+      if (args.finalStack > 0) {
+        await this.chips.move(
+          {
+            userId: args.userId,
+            amount: args.finalStack,
+            reason: ChipMovementReason.TABLE_CASHOUT,
+            idemKey: args.idemKey,
+            tableId: args.tableId,
+          },
+          tx,
+        );
+      }
     });
   }
 }

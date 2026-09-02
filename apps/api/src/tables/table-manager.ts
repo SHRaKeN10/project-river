@@ -1,11 +1,11 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import {
   CryptoRandomProvider,
   createTableConfig,
   type GameState,
   type PreviousPositions,
 } from '@river/poker-engine';
-import { ChipsService } from '../chips/chips.service';
 import { AppConfigService } from '../config/app-config.service';
 import { PrismaService } from '../infra/prisma/prisma.service';
 import { RedisService } from '../infra/redis/redis.service';
@@ -46,10 +46,12 @@ export class TableManager implements OnModuleDestroy {
   private readonly runners = new Map<string, TableRunner>();
   private readonly creating = new Map<string, Promise<TableRunner>>();
   private readonly listeners = new Set<ManagerListener>();
+  /** In-flight seat cash-outs per table. A rejoin must wait for these to finish
+   * so it doesn't see the DB seat row the player is still leaving. */
+  private readonly vacating = new Map<string, Set<Promise<unknown>>>();
 
   constructor(
     private readonly tables: TablesService,
-    private readonly chips: ChipsService,
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly config: AppConfigService,
@@ -120,10 +122,8 @@ export class TableManager implements OnModuleDestroy {
           .syncSeats(tableId, r.rosterSnapshot(), r.lastHandNumber, r.lastPositions)
           .catch((err) => this.logger.error(`syncSeats ${tableId}: ${(err as Error).message}`));
       },
-      onSeatVacated: (userId, stack) => {
-        void this.chips
-          .credit(userId, stack)
-          .catch((err) => this.logger.error(`credit ${userId}: ${(err as Error).message}`));
+      onSeatVacated: ({ userId, seatNumber, stack, idemKey }) => {
+        this.trackVacate(tableId, this.cashOut(tableId, seatNumber, userId, stack, idemKey));
         this.emit(tableId, { kind: 'seatVacated' }, runner);
       },
       recordHandStats: (potTotal) => {
@@ -133,6 +133,35 @@ export class TableManager implements OnModuleDestroy {
             data: { handsPlayed: { increment: 1 }, potSum: { increment: potTotal } },
           })
           .catch((err) => this.logger.warn(`stats ${tableId}: ${(err as Error).message}`));
+      },
+      recordHand: (hand) => {
+        void this.prisma.pokerHand
+          .create({
+            data: {
+              tableId,
+              handNumber: hand.handNumber,
+              engineHandId: hand.engineHandId,
+              deck: hand.deck,
+              buttonSeat: hand.buttonSeat,
+              smallBlindSeat: hand.smallBlindSeat,
+              bigBlindSeat: hand.bigBlindSeat,
+              prevPositionsJson:
+                hand.prevPositions === null
+                  ? undefined
+                  : (hand.prevPositions as unknown as Prisma.InputJsonValue),
+              seatsJson: hand.seats as unknown as Prisma.InputJsonValue,
+              actionsJson: hand.actions as unknown as Prisma.InputJsonValue,
+              board: hand.board,
+              resultsJson: hand.results as unknown as Prisma.InputJsonValue,
+              potTotal: hand.potTotal,
+              userIds: [...new Set(hand.seats.map((s) => s.userId))],
+              startedAt: new Date(hand.startedAt),
+              endedAt: new Date(hand.endedAt),
+            },
+          })
+          .catch((err) =>
+            this.logger.warn(`recordHand ${tableId}#${hand.handNumber}: ${(err as Error).message}`),
+          );
       },
     });
 
@@ -178,6 +207,50 @@ export class TableManager implements OnModuleDestroy {
             },
       );
     }
+  }
+
+  private trackVacate(tableId: string, work: Promise<unknown>): void {
+    let set = this.vacating.get(tableId);
+    if (!set) {
+      set = new Set();
+      this.vacating.set(tableId, set);
+    }
+    const wrapped = work.finally(() => set?.delete(wrapped));
+    set.add(wrapped);
+  }
+
+  /** Resolves once every in-flight seat cash-out for the table has committed. A
+   * rejoin awaits this so its DB `already seated` guard isn't tripped by a seat
+   * row the player is still in the middle of leaving. */
+  async settleSeatChanges(tableId: string): Promise<void> {
+    const set = this.vacating.get(tableId);
+    if (!set || set.size === 0) return;
+    await Promise.allSettled([...set]);
+  }
+
+  /** Return a stood-up player's stack to their wallet. Idempotent on `idemKey`,
+   * so a few retries after a transient DB failure are safe. */
+  private async cashOut(
+    tableId: string,
+    seatNumber: number,
+    userId: string,
+    stack: number,
+    idemKey: string,
+  ): Promise<void> {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      try {
+        await this.tables.standUp({ tableId, seatNumber, userId, finalStack: stack, idemKey });
+        return;
+      } catch (err) {
+        this.logger.error(
+          `cashOut ${userId} (+${stack}) attempt ${attempt + 1}: ${(err as Error).message}`,
+        );
+        await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+      }
+    }
+    this.logger.error(
+      `cashOut FAILED for ${userId} (+${stack}) at table ${tableId} - manual reconciliation needed (idemKey ${idemKey})`,
+    );
   }
 
   private emit(tableId: string, notification: RunnerNotification, runner: TableRunner): void {
