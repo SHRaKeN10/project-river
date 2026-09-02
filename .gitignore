@@ -41,3 +41,6 @@ Thumbs.db
 
 # prisma
 apps/api/prisma/*.db
+
+# load test artifacts
+apps/api/loadtest/tokens.json
