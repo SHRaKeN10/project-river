@@ -5,5 +5,6 @@ import { PokerGateway } from './poker.gateway';
 @Module({
   imports: [AuthModule],
   providers: [PokerGateway],
+  exports: [PokerGateway],
 })
 export class RealtimeModule {}

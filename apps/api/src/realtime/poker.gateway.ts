@@ -86,6 +86,11 @@ export class PokerGateway
     if (this.sessionSweep) clearInterval(this.sessionSweep);
   }
 
+  /** Sockets connected to this node (for the ops /metrics endpoint). */
+  connectedSocketCount(): number {
+    return this.server?.sockets?.sockets?.size ?? 0;
+  }
+
   private async dropRevokedSockets(): Promise<void> {
     let sockets;
     try {

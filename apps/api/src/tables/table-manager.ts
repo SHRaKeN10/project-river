@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
@@ -46,9 +47,10 @@ export class TableManager implements OnModuleDestroy {
   private readonly runners = new Map<string, TableRunner>();
   private readonly creating = new Map<string, Promise<TableRunner>>();
   private readonly listeners = new Set<ManagerListener>();
-  /** In-flight seat cash-outs per table. A rejoin must wait for these to finish
-   * so it doesn't see the DB seat row the player is still leaving. */
-  private readonly vacating = new Map<string, Set<Promise<unknown>>>();
+  /** In-flight writes to a table's PokerTableSeat rows (cash-outs + roster
+   * snapshots). A rejoin or a table close waits these out so it can't race a
+   * seat row the runner is still persisting. */
+  private readonly pendingSeatWrites = new Map<string, Set<Promise<unknown>>>();
 
   constructor(
     private readonly tables: TablesService,
@@ -71,6 +73,28 @@ export class TableManager implements OnModuleDestroy {
     return this.runners.get(tableId);
   }
 
+  /** Point-in-time counts for the ops /metrics endpoint. A "stuck" table has a
+   * hand whose action clock lapsed well past when its timer should have fired -
+   * a sign the runner queue wedged and needs a look. */
+  liveMetrics(now: number = Date.now()): {
+    activeTables: number;
+    seatedPlayers: number;
+    handsInProgress: number;
+    stuckTables: number;
+  } {
+    let seatedPlayers = 0;
+    let handsInProgress = 0;
+    let stuckTables = 0;
+    for (const runner of this.runners.values()) {
+      seatedPlayers += runner.seatedCount;
+      if (!runner.handInProgress) continue;
+      handsInProgress += 1;
+      const deadline = runner.gameState.actionDeadline;
+      if (deadline !== null && now - deadline > 30_000) stuckTables += 1;
+    }
+    return { activeTables: this.runners.size, seatedPlayers, handsInProgress, stuckTables };
+  }
+
   async getOrCreate(tableId: string): Promise<TableRunner> {
     const existing = this.runners.get(tableId);
     if (existing) return existing;
@@ -80,6 +104,33 @@ export class TableManager implements OnModuleDestroy {
     const promise = this.build(tableId).finally(() => this.creating.delete(tableId));
     this.creating.set(tableId, promise);
     return promise;
+  }
+
+  /** Tear a table's live runner down and return every seated stack to its
+   * wallet. Called when an admin closes the table. */
+  async closeTable(tableId: string): Promise<void> {
+    const runner = this.runners.get(tableId);
+    if (!runner) return;
+    this.runners.delete(tableId);
+    runner.dispose();
+    // Let any in-flight roster snapshot land first, then cash every seat out.
+    await this.settleSeatChanges(tableId);
+    for (const [seat, entry] of runner.rosterEntries) {
+      this.trackSeatWrite(
+        tableId,
+        this.cashOut(tableId, seat, entry.userId, entry.stack, `close:${randomUUID()}`),
+      );
+    }
+    await this.settleSeatChanges(tableId);
+    // Belt and braces: the table is gone, so force every seat row empty.
+    await this.prisma.pokerTableSeat
+      .updateMany({
+        where: { tableId },
+        data: { userId: null, stack: 0, sittingOut: false, joinedAt: null },
+      })
+      .catch((err) =>
+        this.logger.error(`closeTable cleanup ${tableId}: ${(err as Error).message}`),
+      );
   }
 
   private async build(tableId: string): Promise<TableRunner> {
@@ -120,12 +171,17 @@ export class TableManager implements OnModuleDestroy {
         void this.persistSnapshot(tableId, runner);
       },
       persistRoster: (r) => {
-        void this.tables
-          .syncSeats(tableId, r.rosterSnapshot(), r.lastHandNumber, r.lastPositions)
-          .catch((err) => this.logger.error(`syncSeats ${tableId}: ${(err as Error).message}`));
+        // Tracked like a vacate so `settleSeatChanges` also waits out a lagging
+        // roster snapshot - otherwise a late syncSeats can clobber a standUp.
+        this.trackSeatWrite(
+          tableId,
+          this.tables
+            .syncSeats(tableId, r.rosterSnapshot(), r.lastHandNumber, r.lastPositions)
+            .catch((err) => this.logger.error(`syncSeats ${tableId}: ${(err as Error).message}`)),
+        );
       },
       onSeatVacated: ({ userId, seatNumber, stack, idemKey }) => {
-        this.trackVacate(tableId, this.cashOut(tableId, seatNumber, userId, stack, idemKey));
+        this.trackSeatWrite(tableId, this.cashOut(tableId, seatNumber, userId, stack, idemKey));
         this.emit(tableId, { kind: 'seatVacated' }, runner);
       },
       recordHandStats: (potTotal) => {
@@ -211,11 +267,11 @@ export class TableManager implements OnModuleDestroy {
     }
   }
 
-  private trackVacate(tableId: string, work: Promise<unknown>): void {
-    let set = this.vacating.get(tableId);
+  private trackSeatWrite(tableId: string, work: Promise<unknown>): void {
+    let set = this.pendingSeatWrites.get(tableId);
     if (!set) {
       set = new Set();
-      this.vacating.set(tableId, set);
+      this.pendingSeatWrites.set(tableId, set);
     }
     const wrapped = work.finally(() => set?.delete(wrapped));
     set.add(wrapped);
@@ -225,7 +281,7 @@ export class TableManager implements OnModuleDestroy {
    * rejoin awaits this so its DB `already seated` guard isn't tripped by a seat
    * row the player is still in the middle of leaving. */
   async settleSeatChanges(tableId: string): Promise<void> {
-    const set = this.vacating.get(tableId);
+    const set = this.pendingSeatWrites.get(tableId);
     if (!set || set.size === 0) return;
     await Promise.allSettled([...set]);
   }

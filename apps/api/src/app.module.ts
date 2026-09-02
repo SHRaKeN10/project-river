@@ -13,6 +13,7 @@ import { TablesModule } from './tables/tables.module';
 import { HandsModule } from './hands/hands.module';
 import { LobbyModule } from './lobby/lobby.module';
 import { RealtimeModule } from './realtime/realtime.module';
+import { OpsModule } from './ops/ops.module';
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { RealtimeModule } from './realtime/realtime.module';
     HandsModule,
     LobbyModule,
     RealtimeModule,
+    OpsModule,
   ],
 })
 export class AppModule {}

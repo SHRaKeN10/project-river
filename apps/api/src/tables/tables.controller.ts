@@ -1,8 +1,9 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
 import { z } from 'zod';
 import { UserRole } from '@river/shared-types';
 import { Roles } from '../common/decorators/roles.decorator';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
+import { TableManager } from './table-manager';
 import { TablesService, type TableWithSeats } from './tables.service';
 
 const createTableSchema = z.object({
@@ -13,6 +14,10 @@ const createTableSchema = z.object({
   minBuyIn: z.number().int().positive().optional(),
   maxBuyIn: z.number().int().positive().optional(),
   isPrivate: z.boolean().optional(),
+});
+
+const setStatusSchema = z.object({
+  status: z.enum(['ACTIVE', 'PAUSED', 'CLOSED']),
 });
 
 function toDto(table: TableWithSeats) {
@@ -39,7 +44,10 @@ function toDto(table: TableWithSeats) {
 
 @Controller('tables')
 export class TablesController {
-  constructor(private readonly tables: TablesService) {}
+  constructor(
+    private readonly tables: TablesService,
+    private readonly manager: TableManager,
+  ) {}
 
   @Get()
   async list(): Promise<ReturnType<typeof toDto>[]> {
@@ -57,5 +65,17 @@ export class TablesController {
     @Body(new ZodValidationPipe(createTableSchema)) body: unknown,
   ): Promise<ReturnType<typeof toDto>> {
     return toDto(await this.tables.create(body as z.infer<typeof createTableSchema>));
+  }
+
+  /** Admin: pause / resume / close a table. Closing also tears the live runner
+   * down and returns every seated stack to its owner's wallet. */
+  @Patch(':id/status')
+  @Roles(UserRole.ADMIN)
+  async setStatus(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(setStatusSchema)) body: z.infer<typeof setStatusSchema>,
+  ): Promise<ReturnType<typeof toDto>> {
+    if (body.status === 'CLOSED') await this.manager.closeTable(id);
+    return toDto(await this.tables.setStatus(id, body.status));
   }
 }

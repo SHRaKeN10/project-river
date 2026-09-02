@@ -1,5 +1,10 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { ChipMovementReason, PokerTable, PokerTableSeat } from '@prisma/client';
+import {
+  ChipMovementReason,
+  PokerTable,
+  PokerTableSeat,
+  type PokerTableStatus,
+} from '@prisma/client';
 import { ChipsService } from '../chips/chips.service';
 import { PrismaService } from '../infra/prisma/prisma.service';
 
@@ -67,6 +72,17 @@ export class TablesService {
     });
     if (!table) throw new NotFoundException('table not found');
     return table;
+  }
+
+  /** Admin table lifecycle: ACTIVE <-> PAUSED <-> CLOSED. Runner teardown on
+   * CLOSE is the caller's job (it holds the TableManager). */
+  async setStatus(tableId: string, status: PokerTableStatus): Promise<TableWithSeats> {
+    await this.get(tableId); // 404 if unknown
+    return this.prisma.pokerTable.update({
+      where: { id: tableId },
+      data: { status },
+      include: { seats: { orderBy: { seatNumber: 'asc' } } },
+    });
   }
 
   /** Persists the live seat roster + stacks after a hand. */
