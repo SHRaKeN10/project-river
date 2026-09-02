@@ -59,10 +59,14 @@ function harness(seed = 7) {
   const vacated: { userId: string; seatNumber: number; stack: number; idemKey: string }[] = [];
   const hands: CompletedHand[] = [];
   const timers = new FakeTimers();
+  const clock = { ms: 1_000_000 };
+  const advance = (ms: number): void => {
+    clock.ms += ms;
+  };
   const deps: RunnerDeps = {
     rng: new SeededRandomProvider(seed),
     timers,
-    now: () => 1_000_000,
+    now: () => clock.ms,
     config: {
       actionTimeoutMs: 1000,
       nextHandDelayMs: 500,
@@ -98,7 +102,18 @@ function harness(seed = 7) {
   const eventTypes = () => events().map((e: GameEvent) => e.type);
   const rosterTotal = () => [...runner.rosterEntries.values()].reduce((t, e) => t + e.stack, 0);
 
-  return { runner, notifications, vacated, hands, timers, join, events, eventTypes, rosterTotal };
+  return {
+    runner,
+    notifications,
+    vacated,
+    hands,
+    timers,
+    advance,
+    join,
+    events,
+    eventTypes,
+    rosterTotal,
+  };
 }
 
 describe('TableRunner', () => {
@@ -479,6 +494,27 @@ describe('TableRunner - closed-alpha regressions', () => {
     // no chips vanished: what's left on the table + what cara took back == 3000
     const onTable = [...h.runner.rosterEntries.values()].reduce((t, e) => t + e.stack, 0);
     expect(onTable + (caraVacate?.stack ?? 0)).toBe(3000);
+  });
+
+  it('does not mint chips when the away timer fires during a live hand', () => {
+    const h = harness();
+    h.join('alice', 0);
+    h.join('bob', 1);
+    h.join('cara', 2);
+    h.timers.runPending(); // start hand 1 - cara is dealt in and posts chips
+    expect(h.runner.handInProgress).toBe(true);
+
+    h.runner.setConnected('cara', false); // drops with chips committed
+    h.advance(11_000); // past awayMaxMs (10_000) -> "tooLong" is now true
+
+    // Fire every timer. The away sweep must not cash cara out mid-hand against
+    // her stale pre-hand stack while her committed chips are still in the pot;
+    // it waits until the hand settles.
+    h.timers.runUntilIdle();
+
+    const total = h.rosterTotal() + h.vacated.reduce((t, v) => t + v.stack, 0);
+    expect(total).toBe(3000); // chip conservation held
+    expect(h.runner.seatOf('cara')).toBeNull(); // still eventually removed
   });
 
   it('frees a pending-leave seat (crediting the stack) when the table cannot start a hand', () => {

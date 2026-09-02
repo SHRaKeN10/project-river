@@ -140,6 +140,13 @@ export class TablesService {
   }): Promise<SitDownResult> {
     try {
       await this.prisma.$transaction(async (tx) => {
+        const table = await tx.pokerTable.findUnique({
+          where: { id: args.tableId },
+          select: { status: true },
+        });
+        if (!table) throw new BadRequestException('table not found');
+        if (table.status !== 'ACTIVE') throw new BadRequestException('this table is not open');
+
         const already = await tx.pokerTableSeat.count({
           where: { tableId: args.tableId, userId: args.userId },
         });

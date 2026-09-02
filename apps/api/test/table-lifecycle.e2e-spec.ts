@@ -133,16 +133,51 @@ describe('Table lifecycle (e2e)', () => {
     s2.disconnect();
   }, 20000);
 
-  it('drops an idle table from memory once its last player leaves', async () => {
+  it('schedules an idle table for reaping once its last player leaves, and a rejoin cancels it', async () => {
     const tableId = await makeTable();
     const s = await connect(tokens[0]!);
     await emitAck(s, 'table:join', { tableId, seatNumber: 0, buyIn: 800 });
     await settle();
     expect(manager.getRunner(tableId)).toBeDefined();
+    expect(manager.isIdleReapScheduled(tableId)).toBe(false);
 
     await emitAck(s, 'table:leave', { tableId });
     await settle();
 
+    // deferred, not synchronous: the runner lingers on a grace timer so a
+    // concurrent join can't be disposed out from under it
+    const runner = manager.getRunner(tableId);
+    expect(runner).toBeDefined();
+    expect(runner!.isEmpty()).toBe(true);
+    expect(manager.isIdleReapScheduled(tableId)).toBe(true);
+
+    // touching the table again (a re-visit) cancels the pending reap
+    const s2 = await connect(tokens[1]!);
+    await emitAck(s2, 'table:watch', { tableId });
+    await settle();
+    expect(manager.getRunner(tableId)).toBe(runner);
+    expect(manager.isIdleReapScheduled(tableId)).toBe(false);
+
+    s.disconnect();
+    s2.disconnect();
+  }, 20000);
+
+  it('a closed table cannot be re-joined through the gateway', async () => {
+    const tableId = await makeTable();
+    const s = await connect(tokens[0]!);
+    await emitAck(s, 'table:join', { tableId, seatNumber: 0, buyIn: 800 });
+    await settle();
+
+    await manager.closeTable(tableId);
+    await app.get(TablesService).setStatus(tableId, 'CLOSED');
+
+    const rejoin = await emitAck<{ ok?: true; error?: string }>(s, 'table:join', {
+      tableId,
+      seatNumber: 0,
+      buyIn: 800,
+    });
+    expect(rejoin.ok).toBeUndefined();
+    expect(rejoin.error).toBeTruthy();
     expect(manager.getRunner(tableId)).toBeUndefined();
     s.disconnect();
   }, 20000);

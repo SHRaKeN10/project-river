@@ -59,9 +59,18 @@ export class HandsService {
     return Math.min(MAX_LIMIT, Math.max(1, Math.trunc(limit)));
   }
 
-  async listForTable(tableId: string, limit?: number): Promise<HandSummaryDto[]> {
+  /** Recent hands at a table. A non-admin only sees hands they were dealt into
+   * - other players' results (net / end stack, by name) aren't public, and this
+   * also covers private tables. */
+  async listForTable(
+    tableId: string,
+    viewer: RequestUser,
+    limit?: number,
+  ): Promise<HandSummaryDto[]> {
+    const where =
+      viewer.role === UserRole.ADMIN ? { tableId } : { tableId, userIds: { has: viewer.id } };
     const hands = await this.prisma.pokerHand.findMany({
-      where: { tableId },
+      where,
       orderBy: { endedAt: 'desc' },
       take: this.clampLimit(limit),
     });

@@ -17,13 +17,14 @@ const mineQuerySchema = z.object({
 export class HandsController {
   constructor(private readonly hands: HandsService) {}
 
-  /** Recent completed hands at a table (public info: no hole cards). */
+  /** The caller's recent hands at one table (an admin sees every hand there). */
   @Get()
   list(
+    @CurrentUser() user: RequestUser,
     @Query(new ZodValidationPipe(tableQuerySchema))
     query: z.infer<typeof tableQuerySchema>,
   ): Promise<HandSummaryDto[]> {
-    return this.hands.listForTable(query.tableId, query.limit);
+    return this.hands.listForTable(query.tableId, user, query.limit);
   }
 
   /** The caller's own recent hands across all tables. */

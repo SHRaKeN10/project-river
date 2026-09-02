@@ -268,7 +268,8 @@ export class PokerGateway
     @ConnectedSocket() socket: Socket,
     @MessageBody() body: unknown,
   ): Promise<{ ok: true } | { error: string }> {
-    if (this.tooFast(socket, 'room')) return { error: 'you are doing that too fast' };
+    // Not rate-limited: unwatch is a de-escalation - throttling it would only
+    // strand the socket in a room it's trying to leave.
     const parsed = tableRoomSchema.safeParse(body);
     if (!parsed.success) return { error: 'invalid unwatch payload' };
     const user = socketUser(socket);
@@ -285,7 +286,8 @@ export class PokerGateway
     @ConnectedSocket() socket: Socket,
     @MessageBody() body: unknown,
   ): Promise<{ ok: true } | { error: string }> {
-    if (this.tooFast(socket, 'room')) return { error: 'you are doing that too fast' };
+    // Not rate-limited: leaving must always be allowed - it's the action that
+    // frees the seat and returns the chips.
     const parsed = leaveTableSchema.safeParse(body);
     if (!parsed.success) return { error: 'invalid leave payload' };
     const user = socketUser(socket);

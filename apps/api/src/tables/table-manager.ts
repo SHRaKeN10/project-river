@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, OnModuleDestroy } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   CryptoRandomProvider,
@@ -51,6 +51,10 @@ export class TableManager implements OnModuleDestroy {
    * snapshots). A rejoin or a table close waits these out so it can't race a
    * seat row the runner is still persisting. */
   private readonly pendingSeatWrites = new Map<string, Set<Promise<unknown>>>();
+  /** Pending idle-runner reaps. An empty table is dropped after a grace delay,
+   * not synchronously - a synchronous drop could dispose a runner a concurrent
+   * join is mid-way through seating into. Any `getOrCreate` cancels it. */
+  private readonly reapTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor(
     private readonly tables: TablesService,
@@ -60,6 +64,8 @@ export class TableManager implements OnModuleDestroy {
   ) {}
 
   onModuleDestroy(): void {
+    for (const t of this.reapTimers.values()) clearTimeout(t);
+    this.reapTimers.clear();
     for (const runner of this.runners.values()) runner.dispose();
     this.runners.clear();
   }
@@ -71,6 +77,12 @@ export class TableManager implements OnModuleDestroy {
 
   getRunner(tableId: string): TableRunner | undefined {
     return this.runners.get(tableId);
+  }
+
+  /** Whether an emptied runner is waiting out its grace delay before being
+   * dropped. Test / diagnostics. */
+  isIdleReapScheduled(tableId: string): boolean {
+    return this.reapTimers.has(tableId);
   }
 
   /** Point-in-time counts for the ops /metrics endpoint. A "stuck" table has a
@@ -96,6 +108,8 @@ export class TableManager implements OnModuleDestroy {
   }
 
   async getOrCreate(tableId: string): Promise<TableRunner> {
+    // Anyone asking for this table cancels a pending reap - a join is in flight.
+    this.cancelReap(tableId);
     const existing = this.runners.get(tableId);
     if (existing) return existing;
     const pending = this.creating.get(tableId);
@@ -109,6 +123,7 @@ export class TableManager implements OnModuleDestroy {
   /** Tear a table's live runner down and return every seated stack to its
    * wallet. Called when an admin closes the table. */
   async closeTable(tableId: string): Promise<void> {
+    this.cancelReap(tableId);
     const runner = this.runners.get(tableId);
     if (!runner) return;
     this.runners.delete(tableId);
@@ -133,18 +148,45 @@ export class TableManager implements OnModuleDestroy {
       );
   }
 
-  /** Drop a runner once its last player has gone, so idle tables don't pile up
-   * in memory. It rebuilds lazily (from the DB / snapshot) on the next visit. */
+  private static readonly REAP_GRACE_MS = 20_000;
+
+  private cancelReap(tableId: string): void {
+    const t = this.reapTimers.get(tableId);
+    if (t) {
+      clearTimeout(t);
+      this.reapTimers.delete(tableId);
+    }
+  }
+
+  /** Schedule a drop of an emptied runner after a grace delay, so idle tables
+   * don't pile up in memory. Deferred (not synchronous) so a join that already
+   * holds this runner reference can finish seating before it's disposed; any
+   * `getOrCreate` in the meantime cancels it. Rebuilds lazily on the next visit. */
   private reapIfIdle(tableId: string, runner: TableRunner): void {
-    if (!runner.isEmpty() || runner.handInProgress) return;
     if (this.runners.get(tableId) !== runner) return;
-    this.runners.delete(tableId);
-    runner.dispose();
-    this.logger.debug(`reaped idle runner ${tableId}`);
+    if (!runner.isEmpty() || runner.handInProgress) {
+      this.cancelReap(tableId);
+      return;
+    }
+    if (this.reapTimers.has(tableId)) return;
+    const timer = setTimeout(() => {
+      this.reapTimers.delete(tableId);
+      const r = this.runners.get(tableId);
+      if (r !== runner || !r.isEmpty() || r.handInProgress) return;
+      this.runners.delete(tableId);
+      r.dispose();
+      this.logger.debug(`reaped idle runner ${tableId}`);
+    }, TableManager.REAP_GRACE_MS);
+    timer.unref?.();
+    this.reapTimers.set(tableId, timer);
   }
 
   private async build(tableId: string): Promise<TableRunner> {
     const table = await this.tables.get(tableId);
+    if (table.status === 'CLOSED') {
+      // A closed table has no live game - the gateway turns this into an error.
+      throw new NotFoundException('table is closed');
+    }
     const meta: TableMeta = {
       id: table.id,
       name: table.name,

@@ -164,12 +164,17 @@ describe('Hands + chip ledger (e2e)', () => {
     await endA;
     await new Promise((r) => setTimeout(r, 300)); // let the async persist settle
 
-    // list by table
+    // list by table - a participant sees their hands there
     const list = await request(server).get(`/api/hands?tableId=${tableId}`).set(auth(0));
     expect(list.status).toBe(200);
     expect(list.body.length).toBeGreaterThanOrEqual(1);
     const handId = list.body[0].id;
     expect(list.body[0]).toMatchObject({ tableId, handNumber: expect.any(Number) });
+
+    // a non-participant gets nothing from the same table query
+    const outsiderList = await request(server).get(`/api/hands?tableId=${tableId}`).set(auth(2));
+    expect(outsiderList.status).toBe(200);
+    expect(outsiderList.body).toEqual([]);
 
     // "mine" for a participant, and not for a non-participant
     const mine = await request(server).get('/api/hands/mine').set(auth(0));

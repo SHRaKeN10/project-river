@@ -485,8 +485,14 @@ export class TableRunner {
   }
 
   /** Stand up any player who has been disconnected past the away limit (time or
-   * missed hands): free the seat, return the stack, and tell them why. */
+   * missed hands): free the seat, return the stack, and tell them why.
+   *
+   * Only safe to call between hands - `entry.stack` is the roster cache, which
+   * is only true to the engine at hand start / completion. Cashing a player out
+   * mid-hand would return a stale stack while their committed chips are still
+   * live in the pot, minting chips. Callers must guard on `!handInProgress`. */
   private sweepAwayPlayers(now: number): void {
+    if (this.handInProgress) return;
     let changed = false;
     for (const [seat, entry] of [...this.roster.entries()]) {
       if (entry.connected || entry.awaySince === null) continue;
@@ -524,6 +530,8 @@ export class TableRunner {
     const period = Math.min(this.deps.config.awayMaxMs, 30_000);
     this.awayTimer = this.deps.timers.set(() => {
       this.awayTimer = null;
+      // No-op while a hand is live (sweepAwayPlayers guards this too); the sweep
+      // that matters between hands runs from onStartHand / onHandComplete.
       this.sweepAwayPlayers(this.deps.now());
       this.maybeArmAwaySweep();
     }, period);
@@ -720,6 +728,9 @@ export class TableRunner {
       entry.stack = player.stack;
       if (player.stack === 0) entry.sittingOut = true;
     }
+    // Roster stacks now match the engine - safe to cash out anyone over the
+    // away limit (rather than wait for the next hand that may never start).
+    this.sweepAwayPlayers(this.deps.now());
     this.releasePendingLeavers();
     this.deps.persistRoster(this);
     this.deps.notify({ kind: 'handComplete' });
