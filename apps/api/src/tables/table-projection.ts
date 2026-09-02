@@ -52,7 +52,11 @@ export function projectTableState(params: ProjectParams): TableStateView {
   const seats: PublicSeatView[] = [];
   for (let seatNumber = 0; seatNumber < table.maxSeats; seatNumber += 1) {
     const entry = roster.get(seatNumber);
-    if (!entry) continue;
+    if (!entry) {
+      // Empty seat slot - the client renders these as "sit here" targets.
+      seats.push(emptySeatView(seatNumber));
+      continue;
+    }
     const enginePlayer = enginePlayerBySeat.get(seatNumber);
     seats.push(
       buildSeatView({
@@ -95,6 +99,25 @@ export function projectTableState(params: ProjectParams): TableStateView {
 
     youAreSeat: viewerSeat,
     legalActions: showLegal ? projectLegalActions(state) : null,
+  };
+}
+
+function emptySeatView(seatNumber: number): PublicSeatView {
+  return {
+    seatNumber,
+    userId: null,
+    username: null,
+    avatarUrl: null,
+    stack: 0,
+    currentBet: 0,
+    totalInvested: 0,
+    status: 'EMPTY',
+    lastAction: null,
+    isDealer: false,
+    isSmallBlind: false,
+    isBigBlind: false,
+    connected: false,
+    holeCards: null,
   };
 }
 

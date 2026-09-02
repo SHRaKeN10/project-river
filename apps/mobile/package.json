@@ -11,30 +11,62 @@
     "web": "expo start --web",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint . --ext .ts,.tsx --max-warnings 0",
-    "test": "echo \"(mobile tests added in Phase 7)\" && exit 0"
+    "test": "jest --forceExit"
+  },
+  "jest": {
+    "preset": "jest-expo/ios",
+    "setupFiles": [
+      "react-native/jest/setup.js",
+      "jest-expo/src/preset/setup.js"
+    ],
+    "setupFilesAfterEnv": [
+      "<rootDir>/jest.setup.ts"
+    ],
+    "testMatch": [
+      "<rootDir>/src/**/*.test.{ts,tsx}"
+    ],
+    "moduleNameMapper": {
+      "^react$": "<rootDir>/../../node_modules/react",
+      "^react/(.*)$": "<rootDir>/../../node_modules/react/$1",
+      "^react-test-renderer$": "<rootDir>/../../node_modules/react-test-renderer",
+      "^react-test-renderer/(.*)$": "<rootDir>/../../node_modules/react-test-renderer/$1",
+      "^react-native$": "<rootDir>/../../node_modules/react-native",
+      "^react-native/(.*)$": "<rootDir>/../../node_modules/react-native/$1"
+    },
+    "transformIgnorePatterns": [
+      "node_modules/(?!(?:\\.pnpm/[^/]+/node_modules/)?(?:(jest-)?react-native|@react-native|@react-navigation|react-navigation|expo(nent)?|@expo|@expo-google-fonts|@sentry/react-native|native-base|react-native-.*|@river|@testing-library))"
+    ]
   },
   "dependencies": {
+    "@expo/metro-runtime": "~4.0.1",
     "@react-navigation/native": "^6.1.18",
     "@react-navigation/native-stack": "^6.11.0",
+    "@river/shared-types": "workspace:*",
     "@tanstack/react-query": "^5.59.0",
     "expo": "~52.0.0",
     "expo-constants": "~17.0.0",
     "expo-secure-store": "~14.0.0",
     "expo-status-bar": "~2.0.0",
     "react": "18.3.1",
+    "react-dom": "18.3.1",
     "react-native": "0.76.3",
     "react-native-safe-area-context": "4.12.0",
     "react-native-screens": "~4.1.0",
+    "react-native-web": "~0.19.13",
     "socket.io-client": "^4.8.0",
-    "zustand": "^5.0.0",
-    "@river/shared-types": "workspace:*"
+    "zustand": "^5.0.0"
   },
   "devDependencies": {
     "@babel/core": "^7.25.0",
     "@babel/runtime": "^7.25.0",
     "@river/config": "workspace:*",
+    "@testing-library/react-native": "^12.8.0",
     "@types/react": "~18.3.11",
+    "@types/react-test-renderer": "^18.3.0",
     "eslint": "^8.57.1",
+    "jest": "^29.7.0",
+    "jest-expo": "~52.0.0",
+    "react-test-renderer": "18.3.1",
     "typescript": "^5.6.2"
   }
 }

@@ -19,6 +19,7 @@ import {
   ServerToClient,
   tableActionSchema,
   tableChatSchema,
+  tableRoomSchema,
   type WirePlayerAction,
 } from '@river/shared-types';
 import { ChipsService } from '../chips/chips.service';
@@ -131,6 +132,39 @@ export class PokerGateway implements OnGatewayInit, OnGatewayConnection, OnGatew
     void this.lobby.leaveWaitlist(user.userId, parsed.data.tableId).catch(() => undefined);
     await socket.join(ROOM(parsed.data.tableId));
     await this.sendStateTo(socket, runner);
+    return { ok: true };
+  }
+
+  @SubscribeMessage(ClientToServer.TABLE_WATCH)
+  async onWatch(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() body: unknown,
+  ): Promise<{ ok: true } | { error: string }> {
+    const parsed = tableRoomSchema.safeParse(body);
+    if (!parsed.success) return { error: 'invalid watch payload' };
+    let runner: TableRunner;
+    try {
+      runner = await this.manager.getOrCreate(parsed.data.tableId);
+    } catch {
+      return { error: 'table not found' };
+    }
+    await socket.join(ROOM(parsed.data.tableId));
+    await this.sendStateTo(socket, runner);
+    return { ok: true };
+  }
+
+  @SubscribeMessage(ClientToServer.TABLE_UNWATCH)
+  async onUnwatch(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() body: unknown,
+  ): Promise<{ ok: true } | { error: string }> {
+    const parsed = tableRoomSchema.safeParse(body);
+    if (!parsed.success) return { error: 'invalid unwatch payload' };
+    const user = socketUser(socket);
+    // Only leave the room if the caller isn't actually seated here.
+    if (this.manager.getRunner(parsed.data.tableId)?.seatOf(user.userId) == null) {
+      await socket.leave(ROOM(parsed.data.tableId));
+    }
     return { ok: true };
   }
 

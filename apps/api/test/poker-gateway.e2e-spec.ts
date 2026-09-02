@@ -18,6 +18,7 @@ describe('PokerGateway (e2e)', () => {
   const players = [
     { email: `p1_${suffix}@ex.test`, username: `p1_${suffix}`.slice(0, 20) },
     { email: `p2_${suffix}@ex.test`, username: `p2_${suffix}`.slice(0, 20) },
+    { email: `p3_${suffix}@ex.test`, username: `p3_${suffix}`.slice(0, 20) },
   ];
   const tokens: string[] = [];
   const userIds: string[] = [];
@@ -90,6 +91,30 @@ describe('PokerGateway (e2e)', () => {
         resolve(data);
       });
     });
+
+  it('lets a spectator watch a table without a seat, cards, or a buy-in', async () => {
+    const watcher = await connect(tokens[2]!);
+
+    const stateP = waitFor(watcher, 'table:state');
+    const first = await emitAck<{ ok?: true; error?: string }>(watcher, 'table:watch', { tableId });
+    expect(first.ok).toBe(true);
+
+    const state = (await stateP) as any;
+    expect(state.tableId).toBe(tableId);
+    expect(state.youAreSeat).toBeNull();
+    expect(state.legalActions).toBeNull();
+    for (const seat of state.seats) expect(seat.holeCards).toBeNull();
+
+    // spectator was not charged
+    const [u] = await prisma.user.findMany({
+      where: { id: userIds[2] },
+      select: { playChips: true },
+    });
+    expect(u?.playChips).toBe(10000);
+
+    const bye = await emitAck<{ ok?: true }>(watcher, 'table:unwatch', { tableId });
+    expect(bye.ok).toBe(true);
+  });
 
   it('rejects a socket with no token', async () => {
     await expect(
@@ -177,7 +202,7 @@ describe('PokerGateway (e2e)', () => {
     expect(seats.reduce((t, s) => t + s.stack, 0)).toBe(2000);
 
     const users = await prisma.user.findMany({
-      where: { id: { in: userIds } },
+      where: { id: { in: userIds.slice(0, 2) } },
       select: { playChips: true },
     });
     for (const u of users) expect(u.playChips).toBe(9000); // 10000 grant - 1000 buy-in

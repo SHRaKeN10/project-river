@@ -2,6 +2,9 @@
  * type the string literal by hand. */
 
 export const ClientToServer = {
+  /** Enter a table room as a spectator (no seat, no buy-in). */
+  TABLE_WATCH: 'table:watch',
+  TABLE_UNWATCH: 'table:unwatch',
   TABLE_JOIN: 'table:join',
   TABLE_LEAVE: 'table:leave',
   PLAYER_ACTION: 'player:action',
