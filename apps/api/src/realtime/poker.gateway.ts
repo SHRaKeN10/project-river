@@ -33,6 +33,7 @@ import { projectTableState } from '../tables/table-projection';
 import { TableManager } from '../tables/table-manager';
 import { TablesService } from '../tables/tables.service';
 import type { RunnerNotification, TableRunner } from '../tables/table-runner';
+import { SocketRateLimiter, type RateClass } from './socket-rate-limiter';
 import { createWsAuthMiddleware, socketUser } from './ws-auth';
 
 const ROOM = (tableId: string): string => `table:${tableId}`;
@@ -47,6 +48,7 @@ export class PokerGateway
 {
   private readonly logger = new Logger(PokerGateway.name);
   private sessionSweep: ReturnType<typeof setInterval> | null = null;
+  private readonly rate = new SocketRateLimiter();
 
   @WebSocketServer()
   private server!: Server;
@@ -114,6 +116,7 @@ export class PokerGateway
   }
 
   async handleDisconnect(socket: Socket): Promise<void> {
+    this.rate.forget(socket.id);
     const user = safeUser(socket);
     if (!user) return;
     for (const room of socket.rooms) {
@@ -131,6 +134,7 @@ export class PokerGateway
     @ConnectedSocket() socket: Socket,
     @MessageBody() body: unknown,
   ): Promise<{ ok: true } | { error: string }> {
+    if (this.tooFast(socket, 'room')) return { error: 'you are doing that too fast' };
     const parsed = joinTableSchema.safeParse(body);
     if (!parsed.success) return { error: 'invalid join payload' };
     const user = socketUser(socket);
@@ -211,6 +215,7 @@ export class PokerGateway
     @ConnectedSocket() socket: Socket,
     @MessageBody() body: unknown,
   ): Promise<{ ok: true } | { error: string }> {
+    if (this.tooFast(socket, 'room')) return { error: 'you are doing that too fast' };
     const parsed = tableRoomSchema.safeParse(body);
     if (!parsed.success) return { error: 'invalid watch payload' };
     let runner: TableRunner;
@@ -229,6 +234,7 @@ export class PokerGateway
     @ConnectedSocket() socket: Socket,
     @MessageBody() body: unknown,
   ): Promise<{ ok: true } | { error: string }> {
+    if (this.tooFast(socket, 'room')) return { error: 'you are doing that too fast' };
     const parsed = tableRoomSchema.safeParse(body);
     if (!parsed.success) return { error: 'invalid unwatch payload' };
     const user = socketUser(socket);
@@ -244,6 +250,7 @@ export class PokerGateway
     @ConnectedSocket() socket: Socket,
     @MessageBody() body: unknown,
   ): Promise<{ ok: true } | { error: string }> {
+    if (this.tooFast(socket, 'room')) return { error: 'you are doing that too fast' };
     const parsed = leaveTableSchema.safeParse(body);
     if (!parsed.success) return { error: 'invalid leave payload' };
     const user = socketUser(socket);
@@ -260,6 +267,7 @@ export class PokerGateway
     @ConnectedSocket() socket: Socket,
     @MessageBody() body: unknown,
   ): { ok: true } | { error: string } {
+    if (this.tooFast(socket, 'action')) return { error: 'you are acting too fast' };
     const parsed = tableActionSchema.safeParse(body);
     if (!parsed.success) return { error: 'invalid action payload' };
     const user = socketUser(socket);
@@ -305,6 +313,7 @@ export class PokerGateway
     @ConnectedSocket() socket: Socket,
     @MessageBody() body: unknown,
   ): { ok: true } | { error: string } {
+    if (this.tooFast(socket, 'chat')) return { error: 'you are sending messages too fast' };
     const parsed = tableChatSchema.safeParse(body);
     if (!parsed.success) return { error: 'invalid chat payload' };
     const user = socketUser(socket);
@@ -321,6 +330,7 @@ export class PokerGateway
     body: unknown,
     sittingOut: boolean,
   ): { ok: true } | { error: string } {
+    if (this.tooFast(socket, 'misc')) return { error: 'you are doing that too fast' };
     const parsed = leaveTableSchema.safeParse(body);
     if (!parsed.success) return { error: 'invalid payload' };
     const user = socketUser(socket);
@@ -378,6 +388,13 @@ export class PokerGateway
       case 'handComplete':
         return;
     }
+  }
+
+  /** True (and logs) when the socket is over its budget for this message class. */
+  private tooFast(socket: Socket, klass: RateClass): boolean {
+    if (this.rate.allow(socket.id, klass)) return false;
+    this.logger.debug(`rate-limited socket ${socket.id} (${klass})`);
+    return true;
   }
 
   private viewFor(runner: TableRunner, viewerUserId: string | null) {

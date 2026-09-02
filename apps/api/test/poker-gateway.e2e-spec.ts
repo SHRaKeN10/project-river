@@ -284,6 +284,17 @@ describe('PokerGateway (e2e)', () => {
     s.disconnect();
   });
 
+  it('rate-limits a socket that floods the gateway', async () => {
+    const s = await connect(tokens[2]!);
+    const acks = await Promise.all(
+      Array.from({ length: 25 }, () =>
+        emitAck<{ ok?: true; error?: string }>(s, 'table:watch', { tableId }),
+      ),
+    );
+    expect(acks.some((a) => /too fast/i.test(a.error ?? ''))).toBe(true);
+    s.disconnect();
+  });
+
   it('honours a rejoined player’s actions - no timeout after clientSeq restarts at 1', async () => {
     const t = await makeTable({ maxSeats: 2, minBuyIn: 200, maxBuyIn: 2000 });
 
