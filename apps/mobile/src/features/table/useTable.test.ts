@@ -82,11 +82,15 @@ beforeEach(() => {
 });
 
 describe('useTable', () => {
-  it('watches the table on mount and unwatches on unmount', () => {
+  it('watches on mount and, on unmount, stands up then unwatches', () => {
     const { unmount } = renderHook(() => useTable('t-1'));
     expect(mockFake.emitted.some((e) => e.event === 'table:watch')).toBe(true);
     unmount();
-    expect(mockFake.emitted.some((e) => e.event === 'table:unwatch')).toBe(true);
+    const events = mockFake.emitted.map((e) => e.event);
+    expect(events).toContain('table:leave');
+    expect(events).toContain('table:unwatch');
+    // leave is sent before the subscription drops
+    expect(events.indexOf('table:leave')).toBeLessThan(events.lastIndexOf('table:unwatch'));
   });
 
   it('adopts table:state snapshots for the matching table only', async () => {

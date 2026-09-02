@@ -16,15 +16,15 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
   const { width, height } = useWindowDimensions();
   const chips = useChips();
 
-  const { view, connected, error, feed, clearError, takeSeat, leaveSeat, act, toggleSitOut } =
+  const { view, connected, error, feed, clearError, takeSeat, act, toggleSitOut } =
     useTable(tableId);
 
   const [buyInSeat, setBuyInSeat] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const goBack = useCallback(() => {
-    void leaveSeat().finally(() => navigation.goBack());
-  }, [leaveSeat, navigation]);
+  // Standing up is handled by useTable's unmount cleanup, so every exit path
+  // (this button, hardware back, a nav reset) behaves the same.
+  const goBack = useCallback(() => navigation.goBack(), [navigation]);
 
   const onSit = useCallback((seatNumber: number) => setBuyInSeat(seatNumber), []);
 

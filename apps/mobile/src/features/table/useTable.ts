@@ -86,6 +86,11 @@ export function useTable(tableId: string): UseTable {
     });
 
     return () => {
+      // Leaving the table screen stands the player up (a no-op if they were
+      // only spectating), then drops the room subscription. This keeps every
+      // exit path consistent - in-app back button, OS/hardware back, or a
+      // navigation reset.
+      void tableSocket.leave(tableId);
       tableSocket.unwatch(tableId);
       socket.off(ServerToClient.TABLE_STATE, onState);
       socket.off(ServerToClient.HAND_UPDATE, onUpdate);
