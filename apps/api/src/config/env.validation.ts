@@ -30,6 +30,11 @@ export const envSchema = z.object({
   /** Shorter clock for a player whose socket is gone: their turn auto-resolves
    * this fast instead of waiting out the full action timeout. */
   TABLE_DISCONNECT_GRACE_MS: z.coerce.number().int().positive().default(10_000),
+  /** A seated player who has been disconnected this long is stood up (seat
+   * freed, stack returned to their wallet). */
+  TABLE_AWAY_MAX_MS: z.coerce.number().int().positive().default(120_000),
+  /** ...or once they have missed this many hands while away, whichever first. */
+  TABLE_AWAY_MAX_MISSED_HANDS: z.coerce.number().int().positive().default(10),
 });
 
 export type Env = z.infer<typeof envSchema>;

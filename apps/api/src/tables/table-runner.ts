@@ -42,6 +42,10 @@ export interface RunnerConfig {
   startDelayMs: number;
   /** Shorter action clock used while the acting player's socket is gone. */
   disconnectGraceMs: number;
+  /** A seated player disconnected this long is stood up (seat + stack freed). */
+  awayMaxMs: number;
+  /** ...or once they've missed this many hands while away, whichever is first. */
+  awayMaxMissedHands: number;
 }
 
 export interface RunnerDeps {
@@ -66,6 +70,15 @@ export interface RunnerDeps {
   /** A finished hand, for persistence (hand history + replay). */
   recordHand: (hand: CompletedHand) => void;
 }
+
+/** Roster entry plus the bookkeeping the runner keeps but never projects. */
+type RosterEntryInternal = RosterEntry & {
+  pendingLeave: boolean;
+  /** When their socket dropped (ms), or null while connected. */
+  awaySince: number | null;
+  /** Hands they've missed since going away. */
+  missedHands: number;
+};
 
 interface JoinArgs {
   userId: string;
@@ -121,7 +134,7 @@ type Command =
  */
 export class TableRunner {
   private state: GameState;
-  private readonly roster = new Map<number, RosterEntry & { pendingLeave: boolean }>();
+  private readonly roster = new Map<number, RosterEntryInternal>();
   private readonly queue: Command[] = [];
   private draining = false;
 
@@ -134,6 +147,9 @@ export class TableRunner {
 
   private actionTimer: unknown = null;
   private nextHandTimer: unknown = null;
+  /** Periodic check that stands up players who've been away too long. Runs only
+   * while at least one seated player is disconnected. */
+  private awayTimer: unknown = null;
 
   /** Accumulates what's needed to persist the in-progress hand. */
   private handLog: {
@@ -254,12 +270,15 @@ export class TableRunner {
         stack: r.stack,
         sittingOut: r.sittingOut,
         pendingLeave: false,
+        awaySince: this.deps.now(),
+        missedHands: 0,
       });
     }
     // Every restored seat starts disconnected. An in-progress hand cannot
     // fairly resume with nobody watching, so the action timer stays unarmed
     // until the first client reconnects (see onConnected). If the whole table
     // is gone for good, TableManager tears the runner down.
+    this.maybeArmAwaySweep();
   }
 
   /** Restore the roster from a persisted table (after an API restart). */
@@ -285,10 +304,13 @@ export class TableRunner {
         stack: seat.stack,
         sittingOut: seat.sittingOut,
         pendingLeave: false,
+        awaySince: this.deps.now(),
+        missedHands: 0,
       });
     }
     this.handNumber = handNumber;
     this.previousPositions = previous;
+    this.maybeArmAwaySweep();
   }
 
   // --- commands ------------------------------------------------------------
@@ -395,6 +417,8 @@ export class TableRunner {
       stack: args.stack,
       sittingOut: false,
       pendingLeave: false,
+      awaySince: args.connected ? null : this.deps.now(),
+      missedHands: 0,
     });
     this.deps.persistRoster(this);
     this.deps.notify({ kind: 'state' });
@@ -460,12 +484,65 @@ export class TableRunner {
     }
   }
 
+  /** Stand up any player who has been disconnected past the away limit (time or
+   * missed hands): free the seat, return the stack, and tell them why. */
+  private sweepAwayPlayers(now: number): void {
+    let changed = false;
+    for (const [seat, entry] of [...this.roster.entries()]) {
+      if (entry.connected || entry.awaySince === null) continue;
+      const tooLong = now - entry.awaySince >= this.deps.config.awayMaxMs;
+      const tooMany = entry.missedHands >= this.deps.config.awayMaxMissedHands;
+      if (!tooLong && !tooMany) continue;
+
+      this.roster.delete(seat);
+      this.lastSeqByUser.delete(entry.userId);
+      this.deps.onSeatVacated({
+        userId: entry.userId,
+        seatNumber: seat,
+        stack: entry.stack,
+        idemKey: `away:${randomUUID()}`,
+      });
+      this.deps.notify({
+        kind: 'rejected',
+        userId: entry.userId,
+        code: 'REMOVED_INACTIVE',
+        reason: 'You were removed from the table for inactivity; your chips were returned.',
+      });
+      changed = true;
+    }
+    if (changed) {
+      this.deps.persistRoster(this);
+      this.deps.notify({ kind: 'state' });
+    }
+  }
+
+  /** (Re)arm the periodic away sweep if anyone is disconnected and it isn't
+   * already running. Self-cancels once everyone is back. */
+  private maybeArmAwaySweep(): void {
+    if (this.awayTimer !== null) return;
+    if (![...this.roster.values()].some((e) => !e.connected)) return;
+    const period = Math.min(this.deps.config.awayMaxMs, 30_000);
+    this.awayTimer = this.deps.timers.set(() => {
+      this.awayTimer = null;
+      this.sweepAwayPlayers(this.deps.now());
+      this.maybeArmAwaySweep();
+    }, period);
+  }
+
   private onConnected(userId: string, connected: boolean): void {
     const seat = this.seatOf(userId);
     if (seat === null) return;
     const entry = this.roster.get(seat);
     if (!entry || entry.connected === connected) return;
     entry.connected = connected;
+
+    if (connected) {
+      entry.awaySince = null;
+      entry.missedHands = 0;
+    } else {
+      entry.awaySince = this.deps.now();
+      this.maybeArmAwaySweep();
+    }
 
     // Keep the acting player's clock in step with their connection: a returning
     // player gets the full action timeout back; one who just dropped is put on
@@ -538,6 +615,16 @@ export class TableRunner {
   private onStartHand(): void {
     this.nextHandTimer = null;
     if (this.state.street !== Street.Waiting && this.state.street !== Street.Complete) return;
+
+    // Count this hand against every away player, then stand up anyone who's now
+    // over the away limit - before we work out who's eligible to be dealt in.
+    const now = this.deps.now();
+    for (const e of this.roster.values()) {
+      if (e.connected) continue;
+      if (e.awaySince === null) e.awaySince = now;
+      e.missedHands += 1;
+    }
+    this.sweepAwayPlayers(now);
 
     const eligible = [...this.roster.entries()]
       .filter(([, e]) => !e.sittingOut && !e.pendingLeave && e.stack > 0)
@@ -732,6 +819,10 @@ export class TableRunner {
     if (this.nextHandTimer !== null) {
       this.deps.timers.clear(this.nextHandTimer);
       this.nextHandTimer = null;
+    }
+    if (this.awayTimer !== null) {
+      this.deps.timers.clear(this.awayTimer);
+      this.awayTimer = null;
     }
   }
 }

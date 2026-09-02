@@ -112,6 +112,8 @@ export class TableManager implements OnModuleDestroy {
         nextHandDelayMs: this.config.get('TABLE_NEXT_HAND_DELAY_MS'),
         startDelayMs: this.config.get('TABLE_START_DELAY_MS'),
         disconnectGraceMs: this.config.get('TABLE_DISCONNECT_GRACE_MS'),
+        awayMaxMs: this.config.get('TABLE_AWAY_MAX_MS'),
+        awayMaxMissedHands: this.config.get('TABLE_AWAY_MAX_MISSED_HANDS'),
       },
       notify: (notification) => {
         this.emit(tableId, notification, runner);

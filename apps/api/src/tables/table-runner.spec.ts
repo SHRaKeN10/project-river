@@ -68,6 +68,8 @@ function harness(seed = 7) {
       nextHandDelayMs: 500,
       startDelayMs: 100,
       disconnectGraceMs: 200,
+      awayMaxMs: 10_000,
+      awayMaxMissedHands: 3,
     },
     notify: (n) => notifications.push(n),
     persistRoster: () => undefined,
@@ -259,8 +261,8 @@ describe('TableRunner', () => {
         snapshot.roster.map((r) => [r.userId, { username: r.username, avatarUrl: r.avatarUrl }]),
       ),
     );
-    // recovery deliberately leaves the clock unarmed until someone is back
-    expect(revived.timers.pending).toBe(0);
+    // recovery deliberately leaves the action clock unarmed until someone is back
+    expect(revived.runner.gameState.actionDeadline).toBeNull();
 
     const actingSeat = revived.runner.gameState.actingSeat!;
     const actingUser = snapshot.roster.find((r) => r.seatNumber === actingSeat)!.userId;
@@ -454,6 +456,29 @@ describe('TableRunner - closed-alpha regressions', () => {
       const p = replayed.state.players.find((x) => x.seatNumber === r.seat);
       expect(p?.stack).toBe(r.endStack);
     }
+  });
+
+  it('stands up a long-disconnected player, returning their chips', () => {
+    const h = harness(); // awayMaxMissedHands: 3
+    h.join('alice', 0);
+    h.join('bob', 1);
+    h.join('cara', 2);
+    h.timers.runPending(); // hand 1 starts (all three connected)
+
+    h.runner.setConnected('cara', false); // cara's socket drops mid-hand
+    h.timers.runUntilIdle(); // hands play out; cara keeps missing them
+
+    expect(h.runner.seatOf('cara')).toBeNull();
+    const caraVacate = h.vacated.find((v) => v.userId === 'cara');
+    expect(caraVacate?.idemKey).toMatch(/^away:/);
+    expect(
+      h.notifications.some(
+        (n) => n.kind === 'rejected' && n.userId === 'cara' && n.code === 'REMOVED_INACTIVE',
+      ),
+    ).toBe(true);
+    // no chips vanished: what's left on the table + what cara took back == 3000
+    const onTable = [...h.runner.rosterEntries.values()].reduce((t, e) => t + e.stack, 0);
+    expect(onTable + (caraVacate?.stack ?? 0)).toBe(3000);
   });
 
   it('frees a pending-leave seat (crediting the stack) when the table cannot start a hand', () => {
