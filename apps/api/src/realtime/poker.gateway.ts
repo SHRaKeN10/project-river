@@ -49,6 +49,9 @@ export class PokerGateway
   private readonly logger = new Logger(PokerGateway.name);
   private sessionSweep: ReturnType<typeof setInterval> | null = null;
   private readonly rate = new SocketRateLimiter();
+  /** table rooms each socket has entered - `socket.rooms` is already cleared by
+   * the time `handleDisconnect` runs, so we track membership ourselves. */
+  private readonly socketTables = new Map<string, Set<string>>();
 
   @WebSocketServer()
   private server!: Server;
@@ -122,14 +125,28 @@ export class PokerGateway
 
   async handleDisconnect(socket: Socket): Promise<void> {
     this.rate.forget(socket.id);
+    const tableIds = this.socketTables.get(socket.id);
+    this.socketTables.delete(socket.id);
     const user = safeUser(socket);
-    if (!user) return;
-    for (const room of socket.rooms) {
-      if (!room.startsWith('table:')) continue;
-      const tableId = room.slice('table:'.length);
+    if (!user || !tableIds) return;
+    for (const tableId of tableIds) {
       if (await this.userHasOtherSocket(tableId, user.userId, socket.id)) continue;
       this.manager.getRunner(tableId)?.setConnected(user.userId, false);
     }
+  }
+
+  /** Remember (for handleDisconnect) that this socket is in a table room. */
+  private trackRoom(socket: Socket, tableId: string): void {
+    let set = this.socketTables.get(socket.id);
+    if (!set) {
+      set = new Set();
+      this.socketTables.set(socket.id, set);
+    }
+    set.add(tableId);
+  }
+
+  private untrackRoom(socket: Socket, tableId: string): void {
+    this.socketTables.get(socket.id)?.delete(tableId);
   }
 
   // --- client -> server ---------------------------------------------------
@@ -151,6 +168,10 @@ export class PokerGateway
       return { error: 'table not found' };
     }
     if (runner.seatOf(user.userId) !== null) {
+      // Already seated - this is a reconnect. Mark them present again so the
+      // away sweep doesn't stand them up, and refresh their view.
+      runner.setConnected(user.userId, true);
+      this.trackRoom(socket, parsed.data.tableId);
       await socket.join(ROOM(parsed.data.tableId));
       await this.sendStateTo(socket, runner);
       return { ok: true };
@@ -209,6 +230,7 @@ export class PokerGateway
     }
 
     runner.setConnected(user.userId, true);
+    this.trackRoom(socket, parsed.data.tableId);
     void this.lobby.leaveWaitlist(user.userId, parsed.data.tableId).catch(() => undefined);
     await socket.join(ROOM(parsed.data.tableId));
     await this.sendStateTo(socket, runner);
@@ -229,6 +251,13 @@ export class PokerGateway
     } catch {
       return { error: 'table not found' };
     }
+    const user = safeUser(socket);
+    // The client re-issues `watch` on every reconnect - if the watcher is
+    // actually seated here, that's them coming back.
+    if (user && runner.seatOf(user.userId) !== null) {
+      runner.setConnected(user.userId, true);
+    }
+    this.trackRoom(socket, parsed.data.tableId);
     await socket.join(ROOM(parsed.data.tableId));
     await this.sendStateTo(socket, runner);
     return { ok: true };
@@ -245,6 +274,7 @@ export class PokerGateway
     const user = socketUser(socket);
     // Only leave the room if the caller isn't actually seated here.
     if (this.manager.getRunner(parsed.data.tableId)?.seatOf(user.userId) == null) {
+      this.untrackRoom(socket, parsed.data.tableId);
       await socket.leave(ROOM(parsed.data.tableId));
     }
     return { ok: true };
@@ -260,6 +290,7 @@ export class PokerGateway
     if (!parsed.success) return { error: 'invalid leave payload' };
     const user = socketUser(socket);
     this.manager.getRunner(parsed.data.tableId)?.leave(user.userId);
+    this.untrackRoom(socket, parsed.data.tableId);
     await socket.leave(ROOM(parsed.data.tableId));
     // Ack only once the stack is actually back in the wallet, so a client that
     // immediately re-joins (or checks its balance) sees a settled state.

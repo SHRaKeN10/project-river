@@ -133,6 +133,16 @@ export class TableManager implements OnModuleDestroy {
       );
   }
 
+  /** Drop a runner once its last player has gone, so idle tables don't pile up
+   * in memory. It rebuilds lazily (from the DB / snapshot) on the next visit. */
+  private reapIfIdle(tableId: string, runner: TableRunner): void {
+    if (!runner.isEmpty() || runner.handInProgress) return;
+    if (this.runners.get(tableId) !== runner) return;
+    this.runners.delete(tableId);
+    runner.dispose();
+    this.logger.debug(`reaped idle runner ${tableId}`);
+  }
+
   private async build(tableId: string): Promise<TableRunner> {
     const table = await this.tables.get(tableId);
     const meta: TableMeta = {
@@ -183,6 +193,7 @@ export class TableManager implements OnModuleDestroy {
       onSeatVacated: ({ userId, seatNumber, stack, idemKey }) => {
         this.trackSeatWrite(tableId, this.cashOut(tableId, seatNumber, userId, stack, idemKey));
         this.emit(tableId, { kind: 'seatVacated' }, runner);
+        this.reapIfIdle(tableId, runner);
       },
       recordHandStats: (potTotal) => {
         void this.prisma.pokerTable
