@@ -86,12 +86,24 @@ export const useAuthStore = create<AuthState>()((set, get) => {
         return;
       }
       set({ accessToken: stored.accessToken, refreshToken: stored.refreshToken });
-      try {
-        const user = await authApi.me();
-        set({ status: 'authed', user });
-      } catch {
-        forceLogout();
+
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          const user = await authApi.me();
+          set({ status: 'authed', user });
+          return;
+        } catch (err) {
+          // apiFetch already tried a refresh on a 401; a real auth failure means
+          // the session is gone. Anything else (offline on launch) must NOT sign
+          // the player out - retry a couple of times, then proceed optimistically.
+          if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+            forceLogout();
+            return;
+          }
+          await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
+        }
       }
+      set({ status: 'authed' });
     },
 
     async login(emailOrUsername, password) {
