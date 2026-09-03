@@ -7,7 +7,7 @@
 # Full deploy walkthrough: docs/phase-9-deploy-steps.md · runbook: docs/ops-runbook.md
 
 app = 'project-river-nick'
-primary_region = 'iad'
+primary_region = 'dfw'
 
 [build]
   dockerfile = 'docker/api.Dockerfile'
