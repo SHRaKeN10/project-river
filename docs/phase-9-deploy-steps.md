@@ -11,13 +11,13 @@ to work.
 
 ## Prerequisites
 
-| You need | Cost | Notes |
-| --- | --- | --- |
-| A Fly.io account | Card required; alpha usage ~a few $/mo | https://fly.io/app/sign-up |
-| The `flyctl` CLI | free | `iwr https://fly.io/install.ps1 -useb \| iex` (Windows) · `curl -L https://fly.io/install.sh \| sh` (mac/linux) |
-| An Expo account | free | https://expo.dev/signup |
-| `eas-cli` | free | `npm i -g eas-cli` |
-| Node 20+ locally | — | already have it |
+| You need         | Cost                                   | Notes                                                                                                           |
+| ---------------- | -------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| A Fly.io account | Card required; alpha usage ~a few $/mo | https://fly.io/app/sign-up                                                                                      |
+| The `flyctl` CLI | free                                   | `iwr https://fly.io/install.ps1 -useb \| iex` (Windows) · `curl -L https://fly.io/install.sh \| sh` (mac/linux) |
+| An Expo account  | free                                   | https://expo.dev/signup                                                                                         |
+| `eas-cli`        | free                                   | `npm i -g eas-cli`                                                                                              |
+| Node 20+ locally | —                                      | already have it                                                                                                 |
 
 ```powershell
 fly auth login
@@ -245,10 +245,10 @@ Send them `docs/alpha-tester-guide.md` plus the link/APK. Ask for:
 
 ## If something's wrong
 
-| Symptom | Look at |
-| --- | --- |
-| App shows `server: localhost` or won't connect | `EXPO_PUBLIC_API_URL` / `app.config.js` default — rebuild or restart `expo start` |
-| `/health/ready` not 200 | `fly logs`, `fly status` — Postgres or Redis unreachable |
-| `stuckTables > 0` in metrics | `fly logs` for the table id, then `PATCH /api/tables/:id/status {"status":"CLOSED"}` as admin (frees seats + chips) |
-| A player stood up mid-session | away window too tight — `fly secrets set TABLE_AWAY_MAX_MS=300000` and redeploy |
-| `cashOut FAILED` in logs | note the `idemKey`; the stack needs a manual `chips.move` — rare |
+| Symptom                                        | Look at                                                                                                             |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| App shows `server: localhost` or won't connect | `EXPO_PUBLIC_API_URL` / `app.config.js` default — rebuild or restart `expo start`                                   |
+| `/health/ready` not 200                        | `fly logs`, `fly status` — Postgres or Redis unreachable                                                            |
+| `stuckTables > 0` in metrics                   | `fly logs` for the table id, then `PATCH /api/tables/:id/status {"status":"CLOSED"}` as admin (frees seats + chips) |
+| A player stood up mid-session                  | away window too tight — `fly secrets set TABLE_AWAY_MAX_MS=300000` and redeploy                                     |
+| `cashOut FAILED` in logs                       | note the `idemKey`; the stack needs a manual `chips.move` — rare                                                    |
