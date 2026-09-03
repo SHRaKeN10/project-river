@@ -2,18 +2,12 @@ import { PrismaClient } from '@prisma/client';
 
 /**
  * Seeds the standard free-play cash-game ladder. Idempotent: tables are keyed
- * by name, so re-running only fills gaps. Safe to run in dev and CI.
+ * by name, so re-running only fills gaps. Plain .mjs (no ts-node) so it also
+ * runs inside the production image: `node prisma/seed.mjs`.
  */
 const prisma = new PrismaClient();
 
-interface TableSeed {
-  name: string;
-  smallBlind: number;
-  bigBlind: number;
-  maxSeats: number;
-}
-
-const LADDER: TableSeed[] = [
+const LADDER = [
   { name: 'Rookie Room', smallBlind: 1, bigBlind: 2, maxSeats: 6 },
   { name: 'Bronze Stakes', smallBlind: 5, bigBlind: 10, maxSeats: 6 },
   { name: 'Bronze Stakes 9-max', smallBlind: 5, bigBlind: 10, maxSeats: 9 },
@@ -22,23 +16,21 @@ const LADDER: TableSeed[] = [
   { name: 'Diamond Stakes', smallBlind: 50, bigBlind: 100, maxSeats: 9 },
 ];
 
-async function main(): Promise<void> {
+async function main() {
   for (const t of LADDER) {
     const existing = await prisma.pokerTable.findFirst({ where: { name: t.name } });
     if (existing) {
       console.log(`· ${t.name} — already present`);
       continue;
     }
-    const minBuyIn = t.bigBlind * 20;
-    const maxBuyIn = t.bigBlind * 200;
     await prisma.pokerTable.create({
       data: {
         name: t.name,
         smallBlind: t.smallBlind,
         bigBlind: t.bigBlind,
         maxSeats: t.maxSeats,
-        minBuyIn,
-        maxBuyIn,
+        minBuyIn: t.bigBlind * 20,
+        maxBuyIn: t.bigBlind * 200,
         seats: {
           create: Array.from({ length: t.maxSeats }, (_, seatNumber) => ({ seatNumber })),
         },

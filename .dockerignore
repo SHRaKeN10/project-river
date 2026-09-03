@@ -1,11 +1,27 @@
+# Keep the API build context small - it speeds up local and Fly remote builds.
 **/node_modules
 **/dist
 **/.next
 **/.turbo
 **/coverage
 **/.expo
+**/*.tsbuildinfo
+
+# not needed to build the API
 apps/mobile
 .git
-*.log
+.github
+.claude
+docs
+scripts
+fly.toml
+apps/api/test
+apps/api/loadtest
+**/*.md
+**/*.log
+
+# never ship env files (except the templates)
 **/.env
+**/.env.*
 !**/.env.example
+!**/.env.production.example

@@ -1,0 +1,54 @@
+# Fly.io config for the Project River API (apps/api).
+#
+# One machine only. The API holds every live table's state in memory (one
+# single-writer actor per table) - it must NOT auto-stop/start or run a second
+# instance. Redis is socket fan-out + restart-recovery snapshots, not a way to
+# scale out. See docs/ops-runbook.md.
+#
+# First deploy:
+#   fly launch --no-deploy --copy-config --name project-river
+#   fly postgres create --name project-river-db && fly postgres attach project-river-db
+#   fly redis create                              # pick the same region; sets no secret - copy the URL
+#   fly secrets set REDIS_URL="rediss://..." \
+#     JWT_ACCESS_SECRET="$(node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))")" \
+#     JWT_REFRESH_SECRET="$(node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))")" \
+#     CORS_ORIGINS="https://project-river.fly.dev"
+#   fly deploy
+
+app = "project-river"
+primary_region = "iad"          # pick one close to your testers
+
+[build]
+  dockerfile = "docker/api.Dockerfile"
+
+[deploy]
+  # Runs once per release in an ephemeral VM before the new version takes traffic.
+  release_command = "node_modules/.bin/prisma migrate deploy"
+  strategy = "immediate"        # single machine - no rolling
+
+[env]
+  NODE_ENV = "production"
+  PORT = "3000"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = false     # in-memory table state must survive
+  auto_start_machines = false
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "connections"
+    soft_limit = 200             # measured ceiling on this size VM
+    hard_limit = 250
+
+  [[http_service.checks]]
+    method = "get"
+    path = "/health/ready"       # 200 only when Postgres + Redis are reachable
+    interval = "15s"
+    timeout = "4s"
+    grace_period = "10s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"               # load test idled ~100 MB, peaked ~180 MB

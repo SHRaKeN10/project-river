@@ -22,8 +22,14 @@ async function bootstrap(): Promise<void> {
   app.enableCors({ origin: origins.length ? origins : true, credentials: true });
 
   const port = config.get('PORT');
-  await app.listen(port);
-  app.get(Logger).log(`API listening on http://localhost:${port} (${config.get('NODE_ENV')})`);
+  await app.listen(port, '0.0.0.0');
+  app
+    .get(Logger)
+    .log(
+      `API listening on :${port} (${config.get('NODE_ENV')}) · cors=${
+        origins.length ? origins.join(',') : 'reflect-any'
+      }`,
+    );
 }
 
 void bootstrap();

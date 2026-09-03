@@ -5,27 +5,57 @@ the sole authority for live hands; Redis is socket fan-out plus a table-state
 snapshot for restart recovery. Do **not** run two API instances against the same
 database in this phase — table ownership is in-process only.
 
-## Deploy
+## Deploy — Fly.io (alpha target)
 
-1. Provision Postgres 16 and Redis 7 (managed or containers). Note their URLs.
-2. Set the API environment (platform secrets, not a file):
-   - `NODE_ENV=production`
-   - `DATABASE_URL`, `REDIS_URL`
-   - `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` — 48 random bytes each
-     (`node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"`)
-   - `CORS_ORIGINS` — comma-separated client origins. **Required**: the API
-     refuses to boot in staging/production without it.
-   - optional `TABLE_*` overrides (see `apps/api/.env.example`)
-3. Build and release:
-   ```bash
-   pnpm install --frozen-lockfile
-   pnpm --filter @river/api prisma:deploy   # runs pending migrations
-   pnpm --filter @river/api build
-   node apps/api/dist/main.js
-   ```
-4. Point the load balancer's health checks at:
-   - `GET /health/live` — process up (restart policy)
-   - `GET /health/ready` — Postgres + Redis reachable (traffic gate)
+`fly.toml` at the repo root is set up for **one machine, no auto-stop** — the
+API holds every live table in memory, so it must not be scaled or cycled
+automatically. `docker/api.Dockerfile` builds it; `[deploy] release_command`
+runs `prisma migrate deploy` once per release before traffic shifts.
+
+First deploy (needs the `fly` CLI and a logged-in account):
+
+```bash
+fly launch --no-deploy --copy-config --name project-river
+
+# Postgres — creates it and injects DATABASE_URL as a secret
+fly postgres create --name project-river-db
+fly postgres attach project-river-db
+
+# Redis (Upstash via Fly) — prints a rediss:// URL; set it yourself
+fly redis create
+fly secrets set REDIS_URL="rediss://…"
+
+# Auth secrets + the (native-app-irrelevant but required) CORS value
+fly secrets set \
+  JWT_ACCESS_SECRET="$(node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))")" \
+  JWT_REFRESH_SECRET="$(node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))")" \
+  CORS_ORIGINS="https://project-river.fly.dev"
+
+fly deploy
+```
+
+Then seed tables and make yourself an admin:
+
+```bash
+fly ssh console -C "node prisma/seed.mjs"              # the standard 6-table ladder
+# ...register through the app first, then:
+fly ssh console -C "node prisma/promote-admin.mjs you@example.com"
+```
+
+Every later release is just `fly deploy` (migrations run in the release step).
+`fly releases` lists them; `fly deploy --image <previous>` or `fly releases
+rollback` reverts.
+
+Health checks are wired in `fly.toml` to `GET /health/ready` (200 only when
+Postgres **and** Redis are reachable). `GET /health/live` is the bare
+process-up probe.
+
+### Any other host
+
+Same shape: build `docker/api.Dockerfile`, run
+`node_modules/.bin/prisma migrate deploy` before starting, then
+`node dist/main.js`. One instance only. Full env list in
+`apps/api/.env.production.example`.
 
 ## Migrations
 
@@ -75,6 +105,19 @@ first. Their stack is returned to their wallet through the same idempotent
 
 Also scrape `GET /health/ready` for dependency health.
 
+Leave `scripts/watch-metrics.mjs` running during a test session — it logs a
+compact line on a schedule and shouts (`!!`) on `stuckTables > 0`, a process
+restart, or the API going unreachable:
+
+```bash
+API_URL=https://project-river.fly.dev \
+ADMIN_EMAIL=you@example.com ADMIN_PASSWORD=… \
+node scripts/watch-metrics.mjs 20
+```
+
+`fly logs` is the other half — `TableRunner` / `TableManager` warnings and any
+`cashOut FAILED … manual reconciliation needed` line.
+
 ## Admin table control
 
 `PATCH /api/tables/:id/status` (admin) with `{ "status": "ACTIVE" | "PAUSED" | "CLOSED" }`.
@@ -84,8 +127,9 @@ Also scrape `GET /health/ready` for dependency health.
   its owner's wallet. Use this to drain a stuck table: close it, let players
   re-seat elsewhere, investigate the snapshot.
 
-`POST /api/tables` (admin) creates a table. `apps/api/prisma/seed.ts` seeds a
-default set for a fresh environment (`pnpm --filter @river/api prisma:seed`).
+`POST /api/tables` (admin) creates a table. `apps/api/prisma/seed.mjs` seeds the
+standard 6-table ladder (`pnpm --filter @river/api prisma:seed` locally, or
+`fly ssh console -C "node prisma/seed.mjs"` in production). It's idempotent.
 
 ## Incident: a wedged table
 

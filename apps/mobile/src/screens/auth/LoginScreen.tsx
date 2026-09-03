@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { loginSchema } from '@river/shared-types';
 import { Button, Screen, TextField } from '../../components';
+import { apiHost } from '../../config';
 import { useAuthStore } from '../../features/auth/authStore';
 import { colors, spacing, typography } from '../../theme/tokens';
 import type { AuthStackParams } from '../../navigation/types';
@@ -75,6 +76,7 @@ export function LoginScreen({ navigation }: Props): JSX.Element {
           variant="ghost"
           onPress={() => navigation.navigate('Register')}
         />
+        <Text style={styles.server}>server: {apiHost()}</Text>
       </View>
     </Screen>
   );
@@ -89,4 +91,5 @@ const styles = StyleSheet.create({
   error: { ...typography.caption, color: colors.danger },
   footer: { alignItems: 'center', gap: spacing.xs },
   footerText: { ...typography.caption, color: colors.textMuted },
+  server: { ...typography.caption, color: colors.textMuted, fontSize: 10, marginTop: spacing.sm },
 });
