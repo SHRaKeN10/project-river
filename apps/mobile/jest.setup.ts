@@ -1,5 +1,7 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
-import '@testing-library/react-native/extend-expect';
+// RNTL v13 auto-extends Jest with its built-in matchers on first import of the
+// main module; the old `/extend-expect` entrypoint was removed.
+import '@testing-library/react-native';
 
 // expo-constants: the app reads `expoConfig.extra` for API URLs.
 jest.mock('expo-constants', () => ({
