@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { NavigationContainer, type Theme } from '@react-navigation/native';
+import { DarkTheme, NavigationContainer, type Theme } from '@react-navigation/native';
 import { useAuthStore } from '../features/auth/authStore';
 import { connectSocket, disconnectSocket } from '../features/realtime/socket';
 import { colors } from '../theme/tokens';
@@ -8,8 +8,10 @@ import { AuthNavigator } from './AuthNavigator';
 import { AppNavigator } from './AppNavigator';
 
 const navTheme: Theme = {
+  ...DarkTheme,
   dark: true,
   colors: {
+    ...DarkTheme.colors,
     primary: colors.accent,
     background: colors.bg,
     card: colors.bg,
