@@ -5,14 +5,14 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://project-river.fly.dev"
+        "EXPO_PUBLIC_API_URL": "https://project-river-nick.fly.dev"
       }
     },
     "preview": {
       "distribution": "internal",
       "android": { "buildType": "apk" },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://project-river.fly.dev"
+        "EXPO_PUBLIC_API_URL": "https://project-river-nick.fly.dev"
       }
     }
   },

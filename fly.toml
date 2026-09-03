@@ -6,16 +6,16 @@
 # scale out. See docs/ops-runbook.md.
 #
 # First deploy:
-#   fly launch --no-deploy --copy-config --name project-river
-#   fly postgres create --name project-river-db && fly postgres attach project-river-db
+#   fly launch --no-deploy --copy-config --name project-river-nick
+#   fly postgres create --name project-river-nick-db && fly postgres attach project-river-nick-db
 #   fly redis create                              # pick the same region; sets no secret - copy the URL
 #   fly secrets set REDIS_URL="rediss://..." \
 #     JWT_ACCESS_SECRET="$(node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))")" \
 #     JWT_REFRESH_SECRET="$(node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))")" \
-#     CORS_ORIGINS="https://project-river.fly.dev"
+#     CORS_ORIGINS="https://project-river-nick.fly.dev"
 #   fly deploy
 
-app = "project-river"
+app = "project-river-nick"
 primary_region = "iad"          # pick one close to your testers
 
 [build]

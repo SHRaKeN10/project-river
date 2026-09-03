@@ -2,12 +2,12 @@
 // update points at the deployed server by default - a tester's phone must never
 // fall back to `localhost` (which would be the phone itself).
 //
-//   - shipped default:      https://project-river.fly.dev
+//   - shipped default:      https://project-river-nick.fly.dev
 //   - eas build/update:     EXPO_PUBLIC_API_URL from eas.json / shell wins
 //   - local device testing: put EXPO_PUBLIC_API_URL=http://<your-lan-ip>:3000
 //                           in apps/mobile/.env
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'https://project-river.fly.dev';
+const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'https://project-river-nick.fly.dev';
 const SOCKET_URL = process.env.EXPO_PUBLIC_SOCKET_URL ?? API_URL;
 
 module.exports = {
