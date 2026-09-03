@@ -1,54 +1,44 @@
-# Fly.io config for the Project River API (apps/api).
+# fly.toml app configuration file generated for project-river-nick on 2026-09-03T15:33:39-05:00
 #
-# One machine only. The API holds every live table's state in memory (one
-# single-writer actor per table) - it must NOT auto-stop/start or run a second
-# instance. Redis is socket fan-out + restart-recovery snapshots, not a way to
-# scale out. See docs/ops-runbook.md.
-#
-# First deploy:
-#   fly launch --no-deploy --copy-config --name project-river-nick
-#   fly postgres create --name project-river-nick-db && fly postgres attach project-river-nick-db
-#   fly redis create                              # pick the same region; sets no secret - copy the URL
-#   fly secrets set REDIS_URL="rediss://..." \
-#     JWT_ACCESS_SECRET="$(node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))")" \
-#     JWT_REFRESH_SECRET="$(node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))")" \
-#     CORS_ORIGINS="https://project-river-nick.fly.dev"
-#   fly deploy
+# ONE MACHINE ONLY. The API holds every live table's state in memory (one
+# single-writer actor per table). Never `fly scale count` past 1 and never
+# turn on auto_stop/start - a restart or a second instance drops live hands.
+# Redis is socket fan-out + restart-recovery snapshots, not horizontal scale.
+# Full deploy walkthrough: docs/phase-9-deploy-steps.md · runbook: docs/ops-runbook.md
 
-app = "project-river-nick"
-primary_region = "iad"          # pick one close to your testers
+app = 'project-river-nick'
+primary_region = 'iad'
 
 [build]
-  dockerfile = "docker/api.Dockerfile"
+  dockerfile = 'docker/api.Dockerfile'
 
 [deploy]
-  # Runs once per release in an ephemeral VM before the new version takes traffic.
-  release_command = "node_modules/.bin/prisma migrate deploy"
-  strategy = "immediate"        # single machine - no rolling
+  strategy = 'immediate'
+  release_command = 'node_modules/.bin/prisma migrate deploy'
 
 [env]
-  NODE_ENV = "production"
-  PORT = "3000"
+  NODE_ENV = 'production'
+  PORT = '3000'
 
 [http_service]
   internal_port = 3000
   force_https = true
-  auto_stop_machines = false     # in-memory table state must survive
+  auto_stop_machines = 'off'
   auto_start_machines = false
   min_machines_running = 1
 
   [http_service.concurrency]
-    type = "connections"
-    soft_limit = 200             # measured ceiling on this size VM
+    type = 'connections'
     hard_limit = 250
+    soft_limit = 200
 
   [[http_service.checks]]
-    method = "get"
-    path = "/health/ready"       # 200 only when Postgres + Redis are reachable
-    interval = "15s"
-    timeout = "4s"
-    grace_period = "10s"
+    interval = '15s'
+    timeout = '4s'
+    grace_period = '10s'
+    method = 'get'
+    path = '/health/ready'
 
 [[vm]]
-  size = "shared-cpu-1x"
-  memory = "512mb"               # load test idled ~100 MB, peaked ~180 MB
+  size = 'shared-cpu-1x'
+  memory = '512mb'
