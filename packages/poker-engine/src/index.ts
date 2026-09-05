@@ -33,6 +33,7 @@ export * from './street-manager';
 export * from './showdown';
 export * from './events';
 export * from './reducer';
+export * from './tournament';
 
 /** Semver of the engine's public contract. */
 export const ENGINE_VERSION = '0.1.0';
