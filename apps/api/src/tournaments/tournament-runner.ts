@@ -323,15 +323,20 @@ export class TournamentRunner {
   ): Promise<void> {
     const table = this.tables.get(tableId);
 
+    // --- everything that touches seating happens synchronously, before any
+    // await, so a balance triggered by another table's notification can never
+    // interleave and see a half-processed hand (a busted player still seated,
+    // or a seat freed for a bust not yet recorded).
+
     // Refresh stacks from the completed hand's own results snapshot - not
-    // `table.stacks()`, which by the time this async handler runs may already
-    // reflect blinds posted for the next hand.
+    // `table.stacks()`, which by the time this handler runs may already reflect
+    // blinds posted for the next hand.
     for (const r of n.results) {
       const entry = this.entries.get(r.userId);
       if (entry && entry.finishPosition === null) entry.stack = r.endStack;
     }
 
-    // Record bust-outs. `busted` is already worst-finish-first.
+    // Record bust-outs (`busted` is worst-finish-first) and free their seats.
     for (const b of n.busted) {
       const entry = this.entries.get(b.userId);
       if (!entry || entry.finishPosition !== null) continue;
@@ -341,7 +346,7 @@ export class TournamentRunner {
       this.eliminatedCount += 1;
       const seat = table?.seatOf(b.userId);
       if (seat !== null && seat !== undefined) table?.unseat(seat);
-      await this.deps.prisma.tournamentEntry
+      void this.deps.prisma.tournamentEntry
         .update({
           where: { id: entry.entryId },
           data: { stack: 0, eliminatedAt: new Date(), finishPosition: position },
