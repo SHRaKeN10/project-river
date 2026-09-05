@@ -2,7 +2,13 @@ import { useCallback, useState } from 'react';
 import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { ActionBar, BuyInSheet, CommunityBoard, SeatPod } from '../components/table';
+import {
+  ActionBar,
+  BuyInSheet,
+  CommunityBoard,
+  SeatPod,
+  TimeChargeBadge,
+} from '../components/table';
 import { useChips, useRebuy } from '../features/api/queries';
 import {
   heroSeat,
@@ -101,6 +107,9 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
             {view.smallBlind}/{view.bigBlind}
             {!connected ? ' · offline' : ''}
           </Text>
+          {view.timeChargeAmount > 0 && view.nextTimeChargeAt ? (
+            <TimeChargeBadge amount={view.timeChargeAmount} nextChargeAt={view.nextTimeChargeAt} />
+          ) : null}
         </View>
         {hero ? (
           <Pressable

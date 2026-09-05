@@ -16,6 +16,8 @@ export interface RosterEntry {
   connected: boolean;
   stack: number;
   sittingOut: boolean;
+  /** Epoch millis the seat's time charge was last applied (or joined-at, before the first one). */
+  lastTimeChargeAt: number;
 }
 
 export interface TableMeta {
@@ -27,6 +29,10 @@ export interface TableMeta {
   maxSeats: number;
   minBuyIn: number;
   maxBuyIn: number;
+  /** Flat per-seat time charge (membership-club billing, not a pot rake).
+   * Either being 0 disables it. */
+  timeChargeAmount: number;
+  timeChargeIntervalMs: number;
 }
 
 export interface ProjectParams {
@@ -74,6 +80,11 @@ export function projectTableState(params: ProjectParams): TableStateView {
     state.actingSeat !== null &&
     roster.get(state.actingSeat)?.userId === viewerUserId;
 
+  const chargeableViewer =
+    viewerSeat !== null && table.timeChargeAmount > 0 && table.timeChargeIntervalMs > 0
+      ? roster.get(viewerSeat)
+      : undefined;
+
   return {
     tableId: table.id,
     name: table.name,
@@ -83,6 +94,11 @@ export function projectTableState(params: ProjectParams): TableStateView {
     maxSeats: table.maxSeats,
     minBuyIn: table.minBuyIn,
     maxBuyIn: table.maxBuyIn,
+    timeChargeAmount: table.timeChargeAmount,
+    timeChargeIntervalMs: table.timeChargeIntervalMs,
+    nextTimeChargeAt: chargeableViewer
+      ? chargeableViewer.lastTimeChargeAt + table.timeChargeIntervalMs
+      : null,
 
     handId: handInProgress ? state.handId : null,
     handNumber: state.handNumber,

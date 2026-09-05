@@ -16,11 +16,21 @@ const LADDER = [
   { name: 'Diamond Stakes', smallBlind: 50, bigBlind: 100, maxSeats: 9 },
 ];
 
+// A flat per-seat charge every 15 minutes, scaled with stakes - the
+// membership-club billing model (Texas Card House/Hijack) instead of a rake.
+const TIME_CHARGE_INTERVAL_MS = 15 * 60_000;
+const timeChargeFor = (bigBlind) => ({
+  timeChargeAmount: bigBlind * 5,
+  timeChargeIntervalMs: TIME_CHARGE_INTERVAL_MS,
+});
+
 async function main() {
   for (const t of LADDER) {
+    const charge = timeChargeFor(t.bigBlind);
     const existing = await prisma.pokerTable.findFirst({ where: { name: t.name } });
     if (existing) {
-      console.log(`· ${t.name} — already present`);
+      await prisma.pokerTable.update({ where: { id: existing.id }, data: charge });
+      console.log(`· ${t.name} — already present (time charge backfilled)`);
       continue;
     }
     await prisma.pokerTable.create({
@@ -31,6 +41,7 @@ async function main() {
         maxSeats: t.maxSeats,
         minBuyIn: t.bigBlind * 20,
         maxBuyIn: t.bigBlind * 200,
+        ...charge,
         seats: {
           create: Array.from({ length: t.maxSeats }, (_, seatNumber) => ({ seatNumber })),
         },
