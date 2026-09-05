@@ -1,5 +1,9 @@
 /**
- * @river/poker-engine - pure, deterministic Texas Hold'em rules engine.
+ * @river/poker-engine - pure, deterministic poker rules engine.
+ *
+ * Hold'em (no-limit) and four-card Pot-Limit Omaha, selected per table via
+ * `config.variant` (see `GameVariant` / `rulesFor`). Hold'em is the default and
+ * behaves exactly as it always has.
  *
  * The only entry point you normally need is `reduce(state, action, rng)`:
  *
@@ -17,6 +21,7 @@ export * from './rng/random-provider';
 export * from './cards';
 export * from './deck';
 export * from './shuffle';
+export * from './variant';
 export * from './hand-evaluator';
 export * from './player';
 export * from './table';

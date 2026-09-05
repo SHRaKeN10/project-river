@@ -1,8 +1,11 @@
 import { isInHand, type PlayerState, PlayerStatus } from '../player/player';
+import { GameVariant, isGameVariant } from '../variant/variant';
 
 export interface TableConfig {
   /** 2 to 9. */
   readonly maxSeats: number;
+  /** The game dealt at this table. Defaults to Hold'em. */
+  readonly variant: GameVariant;
   readonly smallBlind: number;
   readonly bigBlind: number;
   /** Per-player ante. 0 for the MVP. */
@@ -16,6 +19,7 @@ export function createTableConfig(overrides: Partial<TableConfig> = {}): TableCo
   const smallBlind = overrides.smallBlind ?? Math.floor(bigBlind / 2);
   const config: TableConfig = {
     maxSeats: overrides.maxSeats ?? 9,
+    variant: overrides.variant ?? GameVariant.Holdem,
     smallBlind,
     bigBlind,
     ante: overrides.ante ?? 0,
@@ -29,6 +33,9 @@ export function createTableConfig(overrides: Partial<TableConfig> = {}): TableCo
 export function validateTableConfig(config: TableConfig): void {
   if (config.maxSeats < 2 || config.maxSeats > 9) {
     throw new Error(`maxSeats must be between 2 and 9, got ${config.maxSeats}`);
+  }
+  if (!isGameVariant(config.variant)) {
+    throw new Error(`unknown game variant: ${String(config.variant)}`);
   }
   if (config.smallBlind <= 0 || config.bigBlind <= 0) {
     throw new Error('blinds must be positive');

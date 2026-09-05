@@ -4,6 +4,7 @@ import {
   minRaiseTo,
   type PlayerAction,
   type PlayerActionKind,
+  potLimitMaxTo,
 } from '../betting';
 import { canAct, type PlayerState } from '../player/player';
 
@@ -15,8 +16,17 @@ export enum ValidationCode {
   BetNotAllowed = 'BET_NOT_ALLOWED',
   RaiseNotAllowed = 'RAISE_NOT_ALLOWED',
   BelowMinimum = 'BELOW_MINIMUM',
+  AboveMaximum = 'ABOVE_MAXIMUM',
   InsufficientChips = 'INSUFFICIENT_CHIPS',
   InvalidAmount = 'INVALID_AMOUNT',
+}
+
+/** Largest legal "raise to" total for the acting seat: the whole stack under
+ * no-limit, the pot-limit cap under pot-limit. */
+function maxToFor(ctx: BettingContext, player: PlayerState): number {
+  const stackMax = player.currentBet + player.stack;
+  if (ctx.bettingLimit !== 'POT_LIMIT') return stackMax;
+  return Math.min(stackMax, potLimitMaxTo(ctx, player.seatNumber));
 }
 
 export type ValidationResult =
@@ -48,7 +58,6 @@ export function validateAction(
   if (!canAct(player)) return fail(ValidationCode.CannotAct, 'you cannot act in this state');
 
   const owed = amountToCall(player.currentBet, ctx.round);
-  const maxTo = player.currentBet + player.stack;
 
   switch (action.type) {
     case 'FOLD':
@@ -67,7 +76,7 @@ export function validateAction(
       return validateBet(ctx, player, action.amount);
 
     case 'RAISE':
-      return validateRaise(ctx, player, action.amount, owed, maxTo);
+      return validateRaise(ctx, player, action.amount, owed);
 
     default: {
       const exhaustive: never = action;
@@ -91,6 +100,10 @@ function validateBet(ctx: BettingContext, player: PlayerState, amount: number): 
   if (amount < ctx.round.minOpen && !isAllIn) {
     return fail(ValidationCode.BelowMinimum, `minimum bet is ${ctx.round.minOpen}`);
   }
+  const maxTo = maxToFor(ctx, player);
+  if (amount > maxTo) {
+    return fail(ValidationCode.AboveMaximum, `maximum bet is ${maxTo} (pot limit)`);
+  }
   return ok;
 }
 
@@ -99,7 +112,6 @@ function validateRaise(
   player: PlayerState,
   amount: number,
   owed: number,
-  maxTo: number,
 ): ValidationResult {
   if (ctx.round.currentBet === 0) {
     return fail(ValidationCode.RaiseNotAllowed, 'there is no bet to raise - bet instead');
@@ -117,8 +129,12 @@ function validateRaise(
   if (required <= owed) {
     return fail(ValidationCode.InvalidAmount, 'a raise must be more than a call');
   }
-  if (amount > maxTo) {
+  if (amount > player.currentBet + player.stack) {
     return fail(ValidationCode.InsufficientChips, 'you cannot raise more than your stack allows');
+  }
+  const potMaxTo = maxToFor(ctx, player);
+  if (amount > potMaxTo) {
+    return fail(ValidationCode.AboveMaximum, `maximum raise is to ${potMaxTo} (pot limit)`);
   }
   const isAllIn = required === player.stack;
   const raiseIncrement = amount - ctx.round.currentBet;
@@ -148,19 +164,23 @@ export function legalActions(ctx: BettingContext, seat: number): ActionOption[] 
   if (!player || !canAct(player)) return [];
 
   const owed = amountToCall(player.currentBet, ctx.round);
-  const maxTo = player.currentBet + player.stack;
+  const stackTo = player.currentBet + player.stack;
+  // Under pot-limit the "raise to" ceiling is the pot cap; under no-limit it is
+  // the whole stack.
+  const maxTo = maxToFor(ctx, player);
+  const canFullRaise = minRaiseTo(ctx.round) <= maxTo || stackTo <= maxTo;
   const options: ActionOption[] = [{ kind: 'FOLD' }];
 
   if (owed === 0) {
     options.push({ kind: 'CHECK' });
     if (ctx.round.currentBet === 0) {
       options.push({ kind: 'BET', min: Math.min(ctx.round.minOpen, maxTo), max: maxTo });
-    } else if (!player.hasActed) {
+    } else if (!player.hasActed && canFullRaise) {
       options.push({ kind: 'RAISE', min: Math.min(minRaiseTo(ctx.round), maxTo), max: maxTo });
     }
   } else {
     options.push({ kind: 'CALL', callAmount: Math.min(owed, player.stack) });
-    if (!player.hasActed && player.stack > owed) {
+    if (!player.hasActed && player.stack > owed && canFullRaise) {
       options.push({ kind: 'RAISE', min: Math.min(minRaiseTo(ctx.round), maxTo), max: maxTo });
     }
   }

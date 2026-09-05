@@ -1,7 +1,7 @@
 # Poker engine — test report & known limitations
 
-`@river/poker-engine` · **26 test suites · 267 tests · all passing**
-(plus the API multiplayer layer: 33 unit tests + 19 API e2e).
+`@river/poker-engine` · **31 test suites · 302 tests · all passing**
+(plus the API multiplayer layer: 48 unit tests + 34 API e2e).
 
 > The limitations listed at the bottom of ADR-0009 have since been closed — see
 > **ADR-0010** and the revised "Known limitations" section below.
@@ -34,7 +34,8 @@ pnpm --filter @river/api test:e2e       # needs docker infra up
 **Deliberately out of scope (per the product brief)**
 
 - No rake, no real money, no deposits/withdrawals.
-- NLHE cash only — no PLO/Big O/Hi-Lo, no tournaments/SNGs, no straddles, bomb pots, run-it-twice, or time banks.
+- Cash games only — no tournaments/SNGs, no straddles, bomb pots, run-it-twice, or time banks.
+- **No-Limit Hold'em and Pot-Limit Omaha** are implemented (see ADR-0013). Five-card Omaha hi/lo ("Big O") needs split-pot settlement and is the next engine ADR. The API/mobile still open every table as Hold'em until the PLO integration PR lands.
 
 **Deliberate rule choices (not bugs)**
 

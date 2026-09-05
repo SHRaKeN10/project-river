@@ -18,7 +18,9 @@ import {
   applyCheck,
   applyFold,
   applyRaise,
+  potLimitMaxTo,
 } from '../betting/betting';
+import { rulesFor } from '../variant/variant';
 import { type GameEvent } from '../events/events';
 import { compareHandRanks, type HandRank } from '../hand-evaluator/hand-rank';
 import {
@@ -329,12 +331,20 @@ function applyTimeout(state: GameState, seat: number, rng: RandomProvider): Redu
   };
 }
 
-/** Expands ALL_IN into the concrete bet/call/raise for the player's whole stack. */
+/**
+ * Expands ALL_IN into the concrete bet/call/raise for the player's whole stack.
+ * Under pot-limit a stack deeper than the pot can't be wagered in full, so
+ * "all in" becomes a pot-sized bet or raise instead.
+ */
 function expandAllIn(state: GameState, seat: number): PlayerAction {
   const player = getPlayer(state, seat);
   if (!player) return callAction();
-  const target = player.currentBet + player.stack;
   const owed = amountToCall(player.currentBet, state.round);
+  let target = player.currentBet + player.stack;
+
+  if (rulesFor(state.config.variant).bettingLimit === 'POT_LIMIT') {
+    target = Math.min(target, potLimitMaxTo(toBettingContext(state), seat));
+  }
 
   if (state.round.currentBet === 0) return betTo(target);
   if (target <= state.round.currentBet || player.hasActed) return callAction();
@@ -724,7 +734,13 @@ function setStatus(state: GameState, seat: number, status: PlayerStatus): Reduce
 // ---------------------------------------------------------------------------
 
 function toBettingContext(state: GameState): BettingContext {
-  return { players: state.players, round: state.round, actingSeat: state.actingSeat ?? -1 };
+  return {
+    players: state.players,
+    round: state.round,
+    actingSeat: state.actingSeat ?? -1,
+    potBeforeRound: state.collectedPot,
+    bettingLimit: rulesFor(state.config.variant).bettingLimit,
+  };
 }
 
 function firstActionable(state: GameState, preferredSeat: number): number | null {
