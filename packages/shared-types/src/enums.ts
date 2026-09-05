@@ -99,6 +99,15 @@ export enum TableStatus {
   CLOSED = 'CLOSED',
 }
 
+export enum TournamentStatus {
+  SCHEDULED = 'SCHEDULED',
+  REGISTERING = 'REGISTERING',
+  RUNNING = 'RUNNING',
+  PAUSED = 'PAUSED',
+  FINISHED = 'FINISHED',
+  CANCELLED = 'CANCELLED',
+}
+
 export enum UserRole {
   PLAYER = 'PLAYER',
   ADMIN = 'ADMIN',

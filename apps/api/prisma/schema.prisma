@@ -45,6 +45,17 @@ enum PokerTableStatus {
   CLOSED
 }
 
+enum TournamentStatus {
+  /// Created; registration has not opened.
+  SCHEDULED
+  /// Open for registration (before the start and, later, during late reg).
+  REGISTERING
+  RUNNING
+  PAUSED
+  FINISHED
+  CANCELLED
+}
+
 model User {
   id             String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   email          String     @unique
@@ -69,6 +80,7 @@ model User {
   tableFavorites       TableFavorite[]
   waitlistEntries      TableWaitlistEntry[]
   chipLedger           ChipLedgerEntry[]
+  tournamentEntries    TournamentEntry[]
 
   @@index([status])
 }
@@ -80,6 +92,9 @@ enum ChipMovementReason {
   TABLE_BUYIN_REFUND
   TABLE_CASHOUT
   TABLE_TIME_CHARGE
+  TOURNAMENT_BUYIN
+  TOURNAMENT_REFUND
+  TOURNAMENT_PAYOUT
   ADJUSTMENT
 }
 
@@ -217,6 +232,69 @@ model PokerTableSeat {
   updatedAt  DateTime    @updatedAt
 
   @@unique([tableId, seatNumber])
+  @@index([userId])
+}
+
+/// A multi-table tournament. The live game (level clock, per-table runners,
+/// seat balancing) lives in memory in the API's TournamentRunner; this row is
+/// the durable config + clock bookmark + final results, so a tournament
+/// survives an API restart.
+model Tournament {
+  id            String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name          String
+  gameType      PokerGameType    @default(NLHE)
+  status        TournamentStatus @default(SCHEDULED)
+  /// Tournament chips added to the prize pool per entry (play money).
+  buyIn         Int
+  /// The house's fee per entry; not added to the pool. 0 = freeroll-style.
+  entryFee      Int              @default(0)
+  /// Tournament chips every entrant starts with.
+  startingStack Int
+  seatsPerTable Int              @default(9)
+  /// The blind structure: an ordered BlindLevel[] (see @river/poker-engine).
+  blindsJson    Json
+  /// Registration closes when this level begins (1 = no late registration).
+  lateRegUntilLevel Int          @default(1)
+  maxEntrants   Int?
+  /// Wall-clock start of the level timer; null until RUNNING.
+  startedAt     DateTime?
+  /// Total milliseconds the clock has been paused, so the level maths can
+  /// subtract it from real elapsed time.
+  pausedMs      Int              @default(0)
+  /// When the current pause began; null unless PAUSED.
+  pausedAt      DateTime?
+  finishedAt    DateTime?
+  /// Final standings once FINISHED: [{ userId, position, payout }].
+  resultsJson   Json?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  entries       TournamentEntry[]
+
+  @@index([status])
+}
+
+/// One player's registration in a tournament, and their live state while it runs.
+model TournamentEntry {
+  id             String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tournamentId   String     @db.Uuid
+  tournament     Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  userId         String     @db.Uuid
+  user           User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  registeredAt   DateTime   @default(now())
+  /// The poker table + seat this entry is playing at; null before the seat draw
+  /// and after elimination.
+  seatTableId    String?    @db.Uuid
+  seatNumber     Int?
+  /// Tournament chips, updated after every completed hand.
+  stack          Int        @default(0)
+  eliminatedAt   DateTime?
+  /// 1 = winner. Set on elimination, and for everyone once the tournament ends.
+  finishPosition Int?
+  payout         Int        @default(0)
+
+  @@unique([tournamentId, userId])
+  @@index([tournamentId])
   @@index([userId])
 }
 

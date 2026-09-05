@@ -10,6 +10,7 @@ import { AuditModule } from './audit/audit.module';
 import { AuthModule } from './auth/auth.module';
 import { ChipsModule } from './chips/chips.module';
 import { TablesModule } from './tables/tables.module';
+import { TournamentsModule } from './tournaments/tournaments.module';
 import { HandsModule } from './hands/hands.module';
 import { LobbyModule } from './lobby/lobby.module';
 import { RealtimeModule } from './realtime/realtime.module';
@@ -39,6 +40,7 @@ import { OpsModule } from './ops/ops.module';
     AuthModule,
     ChipsModule,
     TablesModule,
+    TournamentsModule,
     HandsModule,
     LobbyModule,
     RealtimeModule,
