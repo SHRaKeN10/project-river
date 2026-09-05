@@ -29,7 +29,7 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
   const chips = useChips();
   const rebuy = useRebuy();
 
-  const { view, connected, error, feed, clearError, takeSeat, act, toggleSitOut } =
+  const { view, connected, error, feed, sessionFeesPaid, clearError, takeSeat, act, toggleSitOut } =
     useTable(tableId);
 
   const [buyInSeat, setBuyInSeat] = useState<number | null>(null);
@@ -111,6 +111,7 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
             <TimeChargeBadge
               amount={view.timeChargeAmount}
               intervalMs={view.timeChargeIntervalMs}
+              paid={sessionFeesPaid}
             />
           ) : null}
         </View>

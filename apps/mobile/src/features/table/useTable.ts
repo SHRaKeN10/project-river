@@ -24,6 +24,9 @@ export interface UseTable {
   error: WsError | null;
   feed: FeedLine[];
   chat: TableChatMessage[];
+  /** Total time-charge fees billed to the viewer at this table this session
+   * (resets on remount, e.g. re-joining). Not a server-persisted figure. */
+  sessionFeesPaid: number;
   clearError: () => void;
   takeSeat: (seatNumber: number, buyIn: number) => Promise<string | null>;
   leaveSeat: () => Promise<void>;
@@ -40,6 +43,7 @@ export function useTable(tableId: string): UseTable {
   const [error, setError] = useState<WsError | null>(null);
   const [feed, setFeed] = useState<FeedLine[]>([]);
   const [chat, setChat] = useState<TableChatMessage[]>([]);
+  const [sessionFeesPaid, setSessionFeesPaid] = useState(0);
 
   const viewRef = useRef<TableStateView | null>(null);
   viewRef.current = view;
@@ -70,9 +74,11 @@ export function useTable(tableId: string): UseTable {
     };
     const onTimeCharge = (msg: TableTimeChargeMessage): void => {
       if (msg.tableId !== tableId) return;
+      // The gateway only ever delivers this to the charged player's own
+      // socket, so every event received here is about the viewer.
+      setSessionFeesPaid((prev) => prev + msg.amount);
       feedIdRef.current += 1;
-      const name = nameForSeat(msg.seatNumber);
-      const entry = { id: `f${feedIdRef.current}`, text: `Table fee: ${name} -${msg.amount}` };
+      const entry = { id: `f${feedIdRef.current}`, text: `Table fee: -${msg.amount}` };
       setFeed((prev) => [...prev.slice(-(FEED_MAX - 1)), entry]);
     };
     const onError = (err: WsError): void => setError(err);
@@ -163,6 +169,7 @@ export function useTable(tableId: string): UseTable {
     error,
     feed,
     chat,
+    sessionFeesPaid,
     clearError,
     takeSeat,
     leaveSeat,

@@ -87,7 +87,29 @@ describe('Ops (e2e)', () => {
         stuckTables: 0,
       },
       handsLastMinute: expect.any(Number),
+      timeChargeRevenue: { allTime: expect.any(Number), lastHour: expect.any(Number) },
     });
+  });
+
+  it('rolls up time-charge ledger entries into a positive revenue figure', async () => {
+    const before = await request(server).get('/api/ops/metrics').set(auth(adminToken));
+    const balance = await app.get(ChipsService).getBalance(playerId);
+
+    await prisma.chipLedgerEntry.create({
+      data: {
+        userId: playerId,
+        amount: -42, // ledger amounts are signed; a charge is always negative
+        reason: 'TABLE_TIME_CHARGE',
+        balanceAfter: balance - 42,
+        tableId: tableIds[0],
+        idemKey: `test-timecharge:${suffix}`,
+      },
+    });
+
+    const after = await request(server).get('/api/ops/metrics').set(auth(adminToken));
+    // reported as a positive figure - the flat fee actually collected
+    expect(after.body.timeChargeRevenue.allTime).toBe(before.body.timeChargeRevenue.allTime + 42);
+    expect(after.body.timeChargeRevenue.lastHour).toBe(before.body.timeChargeRevenue.lastHour + 42);
   });
 
   it('admin CLOSE tears the table down and refunds seated stacks', async () => {
