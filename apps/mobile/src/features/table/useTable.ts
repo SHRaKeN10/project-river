@@ -5,6 +5,7 @@ import {
   type HandUpdateEvent,
   type TableChatMessage,
   type TableStateView,
+  type TableTimeChargeMessage,
   type WirePlayerAction,
   type WsError,
 } from '@river/shared-types';
@@ -67,6 +68,13 @@ export function useTable(tableId: string): UseTable {
     const onChat = (msg: TableChatMessage): void => {
       if (msg.tableId === tableId) setChat((prev) => [...prev.slice(-49), msg]);
     };
+    const onTimeCharge = (msg: TableTimeChargeMessage): void => {
+      if (msg.tableId !== tableId) return;
+      feedIdRef.current += 1;
+      const name = nameForSeat(msg.seatNumber);
+      const entry = { id: `f${feedIdRef.current}`, text: `Table fee: ${name} -${msg.amount}` };
+      setFeed((prev) => [...prev.slice(-(FEED_MAX - 1)), entry]);
+    };
     const onError = (err: WsError): void => setError(err);
     const onConnect = (): void => {
       setConnected(true);
@@ -77,6 +85,7 @@ export function useTable(tableId: string): UseTable {
     socket.on(ServerToClient.TABLE_STATE, onState);
     socket.on(ServerToClient.HAND_UPDATE, onUpdate);
     socket.on(ClientToServer.TABLE_CHAT, onChat);
+    socket.on(ServerToClient.TIME_CHARGE, onTimeCharge);
     socket.on(ServerToClient.ERROR, onError);
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
@@ -95,6 +104,7 @@ export function useTable(tableId: string): UseTable {
       socket.off(ServerToClient.TABLE_STATE, onState);
       socket.off(ServerToClient.HAND_UPDATE, onUpdate);
       socket.off(ClientToServer.TABLE_CHAT, onChat);
+      socket.off(ServerToClient.TIME_CHARGE, onTimeCharge);
       socket.off(ServerToClient.ERROR, onError);
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);

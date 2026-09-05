@@ -80,6 +80,13 @@ export interface TableStateView {
   maxSeats: number;
   minBuyIn: number;
   maxBuyIn: number;
+  /** Flat per-seat time charge (membership-club billing, not a pot rake).
+   * 0 means the table doesn't charge one. */
+  timeChargeAmount: number;
+  timeChargeIntervalMs: number;
+  /** Epoch millis of the viewer's own next time charge, or null if they
+   * aren't seated or the table doesn't charge one. */
+  nextTimeChargeAt: number | null;
 
   handId: string | null;
   handNumber: number;
@@ -115,6 +122,13 @@ export interface TableChatMessage {
   username: string;
   text: string;
   at: string;
+}
+
+export interface TableTimeChargeMessage {
+  tableId: string;
+  seatNumber: number;
+  /** Chips actually taken - may be less than the table's rate if it's all the seat had left. */
+  amount: number;
 }
 
 export interface WsError {

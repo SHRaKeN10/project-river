@@ -44,6 +44,9 @@ const view = (over: Partial<TableStateView> = {}): TableStateView => ({
   maxSeats: 6,
   minBuyIn: 200,
   maxBuyIn: 2000,
+  timeChargeAmount: 0,
+  timeChargeIntervalMs: 0,
+  nextTimeChargeAt: null,
   handId: 'h1',
   handNumber: 1,
   street: 'PREFLOP',
@@ -107,6 +110,17 @@ describe('useTable', () => {
     act(() => mockFake.server('table:state', view()));
     act(() => mockFake.server('hand:update', { type: 'PLAYER_FOLDED', seat: 0 }));
     await waitFor(() => expect(result.current.feed.at(-1)?.text).toBe('Me folds'));
+  });
+
+  it('turns a time-charge event into a feed line naming the charged seat', async () => {
+    const { result } = renderHook(() => useTable('t-1'));
+    act(() => mockFake.server('table:state', view()));
+    act(() => mockFake.server('table:timeCharge', { tableId: 't-1', seatNumber: 0, amount: 5 }));
+    await waitFor(() => expect(result.current.feed.at(-1)?.text).toBe('Table fee: Me -5'));
+
+    // a charge for a different table is ignored
+    act(() => mockFake.server('table:timeCharge', { tableId: 'other', seatNumber: 0, amount: 9 }));
+    expect(result.current.feed.at(-1)?.text).toBe('Table fee: Me -5');
   });
 
   it('surfaces and clears socket errors', async () => {

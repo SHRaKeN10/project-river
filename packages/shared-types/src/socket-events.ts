@@ -26,6 +26,8 @@ export const ServerToClient = {
   PLAYER_RECONNECTED: 'player:reconnected',
   ACTION_PROMPT: 'action:prompt',
   ERROR: 'error',
+  /** A seat's flat time charge fired (membership-club billing, not a pot rake). */
+  TIME_CHARGE: 'table:timeCharge',
 } as const;
 
 export type ClientToServerEvent = (typeof ClientToServer)[keyof typeof ClientToServer];

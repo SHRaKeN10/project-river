@@ -423,6 +423,14 @@ export class PokerGateway
         this.server.to(ROOM(tableId)).emit(ClientToServer.TABLE_CHAT, notification.message);
         return;
       }
+      case 'timeCharge': {
+        this.server.to(ROOM(tableId)).emit(ServerToClient.TIME_CHARGE, {
+          tableId,
+          seatNumber: notification.seatNumber,
+          amount: notification.amount,
+        });
+        return;
+      }
       case 'handComplete':
         return;
     }

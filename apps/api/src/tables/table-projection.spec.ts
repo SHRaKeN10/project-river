@@ -15,6 +15,8 @@ const meta: TableMeta = {
   maxSeats: 6,
   minBuyIn: 400,
   maxBuyIn: 4000,
+  timeChargeAmount: 0,
+  timeChargeIntervalMs: 0,
 };
 
 const roster = new Map<number, RosterEntry>([
@@ -27,6 +29,7 @@ const roster = new Map<number, RosterEntry>([
       connected: true,
       stack: 1000,
       sittingOut: false,
+      lastTimeChargeAt: 0,
     },
   ],
   [
@@ -38,6 +41,7 @@ const roster = new Map<number, RosterEntry>([
       connected: true,
       stack: 1000,
       sittingOut: false,
+      lastTimeChargeAt: 0,
     },
   ],
   [
@@ -49,6 +53,7 @@ const roster = new Map<number, RosterEntry>([
       connected: true,
       stack: 1000,
       sittingOut: false,
+      lastTimeChargeAt: 0,
     },
   ],
 ]);

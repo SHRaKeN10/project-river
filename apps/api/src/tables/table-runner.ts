@@ -24,7 +24,8 @@ export type RunnerNotification =
   | { kind: 'rejected'; userId: string; code: string; reason: string }
   | { kind: 'chat'; message: TableChatMessage }
   | { kind: 'handComplete' }
-  | { kind: 'seatVacated' };
+  | { kind: 'seatVacated' }
+  | { kind: 'timeCharge'; seatNumber: number; amount: number };
 
 export interface TimerScheduler {
   set(fn: () => void, ms: number): unknown;
@@ -272,6 +273,7 @@ export class TableRunner {
         pendingLeave: false,
         awaySince: this.deps.now(),
         missedHands: 0,
+        lastTimeChargeAt: this.deps.now(),
       });
     }
     // Every restored seat starts disconnected. An in-progress hand cannot
@@ -306,6 +308,7 @@ export class TableRunner {
         pendingLeave: false,
         awaySince: this.deps.now(),
         missedHands: 0,
+        lastTimeChargeAt: this.deps.now(),
       });
     }
     this.handNumber = handNumber;
@@ -419,6 +422,7 @@ export class TableRunner {
       pendingLeave: false,
       awaySince: args.connected ? null : this.deps.now(),
       missedHands: 0,
+      lastTimeChargeAt: this.deps.now(),
     });
     this.deps.persistRoster(this);
     this.deps.notify({ kind: 'state' });
@@ -522,6 +526,67 @@ export class TableRunner {
     }
   }
 
+  /**
+   * Flat per-seat time charge (a Texas-card-room-style membership fee, not a
+   * pot rake) - every seated, not-sitting-out player pays `timeChargeAmount`
+   * per `timeChargeIntervalMs` they occupy a seat, win or lose. Disabled
+   * table-wide when either is 0. Only safe to call between hands - same
+   * constraint as sweepAwayPlayers above.
+   *
+   * Unlike every other stack movement here, a time charge is NOT conserved
+   * across the table - it's revenue leaving the game entirely (the house's
+   * cut), not a zero-sum transfer between players. rosterTotal() is expected
+   * to shrink by exactly the amount charged. There's nowhere for it to go yet
+   * (no house/revenue account exists) - that's the seam a real-money payout
+   * would hang off later.
+   */
+  private applyTimeCharges(now: number): void {
+    if (this.handInProgress) return;
+    const { timeChargeAmount, timeChargeIntervalMs } = this.meta;
+    if (timeChargeAmount <= 0 || timeChargeIntervalMs <= 0) return;
+
+    let changed = false;
+    for (const [seat, entry] of [...this.roster.entries()]) {
+      if (entry.sittingOut || entry.pendingLeave || entry.stack <= 0) continue;
+
+      // A table idle for a long stretch (or a slow cold-start recovery) could
+      // owe several intervals at once - settle all of them, capped so a
+      // clock stuck far in the past can't loop indefinitely.
+      let guard = 0;
+      while (now - entry.lastTimeChargeAt >= timeChargeIntervalMs && guard < 100) {
+        guard += 1;
+        const charge = Math.min(entry.stack, timeChargeAmount);
+        entry.stack -= charge;
+        entry.lastTimeChargeAt += timeChargeIntervalMs;
+        changed = true;
+        this.deps.notify({ kind: 'timeCharge', seatNumber: seat, amount: charge });
+
+        if (entry.stack <= 0) {
+          entry.sittingOut = true;
+          this.roster.delete(seat);
+          this.lastSeqByUser.delete(entry.userId);
+          this.deps.onSeatVacated({
+            userId: entry.userId,
+            seatNumber: seat,
+            stack: 0,
+            idemKey: `timecharge:${randomUUID()}`,
+          });
+          this.deps.notify({
+            kind: 'rejected',
+            userId: entry.userId,
+            code: 'TIME_CHARGE_BUSTED',
+            reason: 'You were stood up - your stack ran out covering the table time charge.',
+          });
+          break;
+        }
+      }
+    }
+    if (changed) {
+      this.deps.persistRoster(this);
+      this.deps.notify({ kind: 'state' });
+    }
+  }
+
   /** (Re)arm the periodic away sweep if anyone is disconnected and it isn't
    * already running. Self-cancels once everyone is back. */
   private maybeArmAwaySweep(): void {
@@ -577,6 +642,11 @@ export class TableRunner {
     const entry = this.roster.get(seat);
     if (!entry) return;
     entry.sittingOut = sittingOut;
+    // Pause/resume the time-charge clock at the seat, not the wall clock: sit
+    // out and the elapsed-since-last-charge mark freezes (applyTimeCharges
+    // already skips sitting-out seats); return and it restarts from now, so a
+    // long break never turns into a surprise charge for time not played.
+    entry.lastTimeChargeAt = this.deps.now();
     this.deps.notify({ kind: 'state' });
     if (!sittingOut) this.maybeScheduleStart();
   }
@@ -731,6 +801,9 @@ export class TableRunner {
     // Roster stacks now match the engine - safe to cash out anyone over the
     // away limit (rather than wait for the next hand that may never start).
     this.sweepAwayPlayers(this.deps.now());
+    // Same reasoning: only safe to touch stacks between hands (see
+    // sweepAwayPlayers' own note above it).
+    this.applyTimeCharges(this.deps.now());
     this.releasePendingLeavers();
     this.deps.persistRoster(this);
     this.deps.notify({ kind: 'handComplete' });

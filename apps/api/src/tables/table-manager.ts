@@ -196,6 +196,8 @@ export class TableManager implements OnModuleDestroy {
       maxSeats: table.maxSeats,
       minBuyIn: table.minBuyIn,
       maxBuyIn: table.maxBuyIn,
+      timeChargeAmount: table.timeChargeAmount,
+      timeChargeIntervalMs: table.timeChargeIntervalMs,
     };
     const engineConfig = createTableConfig({
       smallBlind: table.smallBlind,

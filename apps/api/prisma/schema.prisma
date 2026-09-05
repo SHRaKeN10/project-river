@@ -111,6 +111,11 @@ model PokerTable {
   isPrivate  Boolean          @default(false)
   status     PokerTableStatus @default(ACTIVE)
   handNumber Int              @default(0)
+  /// Flat per-seat time charge (membership-club billing, not a pot rake) -
+  /// mirrors the model used by Texas card rooms like Texas Card House/Hijack.
+  /// 0 disables it (the table plays exactly as before).
+  timeChargeAmount     Int @default(0)
+  timeChargeIntervalMs Int @default(0)
   /// Last completed hand's positions, kept so the forward-moving big blind
   /// rotates correctly after a cold restart with no Redis snapshot. All null
   /// before the table's first hand.
