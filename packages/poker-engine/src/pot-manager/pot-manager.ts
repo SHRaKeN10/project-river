@@ -1,4 +1,5 @@
 import { compareHandRanks, type HandRank } from '../hand-evaluator/hand-rank';
+import { compareLowRanks, type LowRank } from '../hand-evaluator/low';
 import { type Pot } from '../game-state/game-state';
 
 export interface Contribution {
@@ -136,6 +137,84 @@ export function awardPots(
       winners: splitAmount(pot.amount, winners, oddChipOrder),
     };
   });
+}
+
+export interface HiLoPotAward {
+  readonly potIndex: number;
+  readonly amount: number;
+  /** High-half winners (or whole-pot winners when `lo` is empty). */
+  readonly hi: { seat: number; amount: number }[];
+  /** Low-half winners; empty when no eligible seat made a qualifying low. */
+  readonly lo: { seat: number; amount: number }[];
+}
+
+/**
+ * Distributes each pot as an eight-or-better hi/lo split.
+ *
+ * The high half goes to the strongest eligible high hand(s); the low half to
+ * the best eligible qualifying low(s). When no eligible seat has a qualifying
+ * low, the high hand takes the whole pot. An odd chip in the pot goes to the
+ * high side; odd chips *within* a side go by `oddChipOrder`. A player who wins
+ * both halves ("scoop") simply appears in both lists.
+ */
+export function awardPotsHiLo(
+  pots: readonly Pot[],
+  hiBySeat: ReadonlyMap<number, HandRank>,
+  loBySeat: ReadonlyMap<number, LowRank>,
+  oddChipOrder: readonly number[],
+): HiLoPotAward[] {
+  return pots.map((pot, potIndex) => {
+    const hiContenders = pot.eligibleSeats.filter((seat) => hiBySeat.has(seat));
+
+    if (hiContenders.length === 0) {
+      const fallback = pot.eligibleSeats[0];
+      return {
+        potIndex,
+        amount: pot.amount,
+        hi: fallback === undefined ? [] : [{ seat: fallback, amount: pot.amount }],
+        lo: [],
+      };
+    }
+
+    const hiWinners = bestOf(hiContenders, (s) => hiBySeat.get(s) as HandRank, compareHandRanks);
+    const loContenders = pot.eligibleSeats.filter((seat) => loBySeat.has(seat));
+    const loWinners =
+      loContenders.length === 0
+        ? []
+        : bestOf(loContenders, (s) => loBySeat.get(s) as LowRank, compareLowRanks);
+
+    if (loWinners.length === 0) {
+      return {
+        potIndex,
+        amount: pot.amount,
+        hi: splitAmount(pot.amount, hiWinners, oddChipOrder),
+        lo: [],
+      };
+    }
+
+    const loShare = Math.floor(pot.amount / 2);
+    const hiShare = pot.amount - loShare; // odd chip to the high hand
+    return {
+      potIndex,
+      amount: pot.amount,
+      hi: splitAmount(hiShare, hiWinners, oddChipOrder),
+      lo: splitAmount(loShare, loWinners, oddChipOrder),
+    };
+  });
+}
+
+/** Seats whose ranked value ties the best value under `cmp` (cmp > 0 = better). */
+function bestOf<T>(
+  seats: readonly number[],
+  rankOf: (seat: number) => T,
+  cmp: (a: T, b: T) => number,
+): number[] {
+  let best = rankOf(seats[0] as number);
+  for (const seat of seats) {
+    const r = rankOf(seat);
+    if (cmp(r, best) > 0) best = r;
+  }
+  return seats.filter((seat) => cmp(rankOf(seat), best) === 0);
 }
 
 /** Splits `amount` among `winners`; the remainder ("odd chips") goes one at a

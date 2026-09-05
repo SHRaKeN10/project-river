@@ -1,5 +1,5 @@
 import { isInHand, type PlayerState, PlayerStatus } from '../player/player';
-import { GameVariant, isGameVariant } from '../variant/variant';
+import { GameVariant, isGameVariant, maxSeatsForVariant } from '../variant/variant';
 
 export interface TableConfig {
   /** 2 to 9. */
@@ -17,9 +17,13 @@ export interface TableConfig {
 export function createTableConfig(overrides: Partial<TableConfig> = {}): TableConfig {
   const bigBlind = overrides.bigBlind ?? 20;
   const smallBlind = overrides.smallBlind ?? Math.floor(bigBlind / 2);
+  const variant = overrides.variant ?? GameVariant.Holdem;
   const config: TableConfig = {
-    maxSeats: overrides.maxSeats ?? 9,
-    variant: overrides.variant ?? GameVariant.Holdem,
+    // The default is the most seats this variant can be dealt from one deck
+    // (nine for Hold'em / four-card Omaha, eight for five-card Omaha). An
+    // explicit out-of-range `maxSeats` is still rejected by validateTableConfig.
+    maxSeats: overrides.maxSeats ?? maxSeatsForVariant(variant),
+    variant,
     smallBlind,
     bigBlind,
     ante: overrides.ante ?? 0,
@@ -36,6 +40,11 @@ export function validateTableConfig(config: TableConfig): void {
   }
   if (!isGameVariant(config.variant)) {
     throw new Error(`unknown game variant: ${String(config.variant)}`);
+  }
+  if (config.maxSeats > maxSeatsForVariant(config.variant)) {
+    throw new Error(
+      `${config.variant} can be dealt to at most ${maxSeatsForVariant(config.variant)} seats, got ${config.maxSeats}`,
+    );
   }
   if (config.smallBlind <= 0 || config.bigBlind <= 0) {
     throw new Error('blinds must be positive');

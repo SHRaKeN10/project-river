@@ -6,12 +6,13 @@ import { type Card } from '../cards/card';
  * `HOLDEM` is the historical default - every table created before variants
  * existed is Hold'em, and `createTableConfig` still defaults to it.
  *
- * `OMAHA` is four-card Pot-Limit Omaha, high only. Five-card Omaha hi/lo
- * ("Big O") lands with the hi/lo split-pot work and is not in this enum yet.
+ * `OMAHA` is four-card Pot-Limit Omaha, high only. `OMAHA5_HILO` ("Big O") is
+ * five-card Pot-Limit Omaha, eight-or-better hi/lo split.
  */
 export enum GameVariant {
   Holdem = 'HOLDEM',
   Omaha = 'OMAHA',
+  Omaha5HiLo = 'OMAHA5_HILO',
 }
 
 export type BettingLimit = 'NO_LIMIT' | 'POT_LIMIT';
@@ -31,6 +32,16 @@ export interface VariantRules {
    */
   readonly holeCardsUsed: number | null;
   readonly bettingLimit: BettingLimit;
+  /**
+   * Split-pot: the pot is shared between the best high hand and the best
+   * qualifying low hand (the high hand takes it all when no low qualifies).
+   */
+  readonly hiLo: boolean;
+  /**
+   * Highest card rank (ace = 1) a low hand may contain and still qualify, or
+   * `null` when `hiLo` is false. 8 means "eight or better".
+   */
+  readonly lowQualifier: number | null;
 }
 
 const RULES: Readonly<Record<GameVariant, VariantRules>> = {
@@ -39,12 +50,24 @@ const RULES: Readonly<Record<GameVariant, VariantRules>> = {
     holeCards: 2,
     holeCardsUsed: null,
     bettingLimit: 'NO_LIMIT',
+    hiLo: false,
+    lowQualifier: null,
   },
   [GameVariant.Omaha]: {
     variant: GameVariant.Omaha,
     holeCards: 4,
     holeCardsUsed: 2,
     bettingLimit: 'POT_LIMIT',
+    hiLo: false,
+    lowQualifier: null,
+  },
+  [GameVariant.Omaha5HiLo]: {
+    variant: GameVariant.Omaha5HiLo,
+    holeCards: 5,
+    holeCardsUsed: 2,
+    bettingLimit: 'POT_LIMIT',
+    hiLo: true,
+    lowQualifier: 8,
   },
 };
 
@@ -55,17 +78,26 @@ export function rulesFor(variant: GameVariant): VariantRules {
 }
 
 export function isGameVariant(value: unknown): value is GameVariant {
-  return value === GameVariant.Holdem || value === GameVariant.Omaha;
+  return (
+    value === GameVariant.Holdem || value === GameVariant.Omaha || value === GameVariant.Omaha5HiLo
+  );
 }
 
 /**
  * Every card that leaves the deck during one hand: hole cards for every seat,
- * one burn per community street, and the five board cards. Used to sanity-check
- * that a variant fits in 52 cards at a given seat count (four-card Omaha is
- * fine to nine-handed; five-card would not be).
+ * one burn per community street, and the five board cards.
  */
 export function cardsNeeded(rules: VariantRules, seatedPlayers: number): number {
   return rules.holeCards * seatedPlayers + 3 /* burns */ + 5; /* board */
+}
+
+/**
+ * The most seats a variant can be dealt from one 52-card deck (also capped at
+ * the table maximum of 9). Five-card Omaha only fits eight-handed.
+ */
+export function maxSeatsForVariant(variant: GameVariant): number {
+  const perDeal = rulesFor(variant).holeCards;
+  return Math.min(9, Math.floor((52 - 3 - 5) / perDeal));
 }
 
 /** A hole-card hand, kept as its own type so evaluator signatures read clearly. */

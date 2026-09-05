@@ -8,3 +8,4 @@ export {
   combinations,
   describeHand,
 } from './evaluate';
+export { type LowRank, evaluateLow, compareLowRanks, describeLow } from './low';

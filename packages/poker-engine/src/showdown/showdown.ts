@@ -1,6 +1,7 @@
 import { describeHand, evaluateHand } from '../hand-evaluator/evaluate';
 import { type HandRank } from '../hand-evaluator/hand-rank';
-import { type HandRankSummary } from '../events/events';
+import { describeLow, evaluateLow, type LowRank } from '../hand-evaluator/low';
+import { type HandRankSummary, type LowHandSummary } from '../events/events';
 import { contestingPlayers, type GameState } from '../game-state/game-state';
 import { firstToActPostflop } from '../table/table';
 import { rulesFor } from '../variant/variant';
@@ -48,4 +49,24 @@ export function summarizeHand(rank: HandRank): HandRankSummary {
     cards: rank.cards,
     description: describeHand(rank),
   };
+}
+
+/**
+ * Best qualifying low for every contesting seat that has one. Empty for every
+ * non-hi/lo variant, so callers can treat "no low map entry" as "no low".
+ */
+export function evaluateLowShowdown(state: GameState): Map<number, LowRank> {
+  const { hiLo, holeCardsUsed, lowQualifier } = rulesFor(state.config.variant);
+  const result = new Map<number, LowRank>();
+  if (!hiLo || lowQualifier === null) return result;
+  const used = holeCardsUsed ?? 2;
+  for (const player of contestingPlayers(state)) {
+    const low = evaluateLow(player.holeCards, state.communityCards, used, lowQualifier);
+    if (low) result.set(player.seatNumber, low);
+  }
+  return result;
+}
+
+export function summarizeLow(rank: LowRank): LowHandSummary {
+  return { ranks: rank.ranks, description: describeLow(rank) };
 }
