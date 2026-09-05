@@ -78,7 +78,7 @@ describe('PokerGateway (e2e)', () => {
       maxSeats: number;
       minBuyIn: number;
       maxBuyIn: number;
-      gameType: 'NLHE' | 'PLO';
+      gameType: 'NLHE' | 'PLO' | 'OMAHA5_HILO';
     }> = {},
   ) => {
     const t = await app.get(TablesService).create({
@@ -303,6 +303,64 @@ describe('PokerGateway (e2e)', () => {
       });
     expect(raiseBounds.length).toBeGreaterThan(0);
     for (const b of raiseBounds) expect(b.max).toBe(b.cap);
+  }, 25000);
+
+  it('runs a Big O table: five hole cards each, and refuses a nine-seat Big O table', async () => {
+    await expect(
+      app.get(TablesService).create({
+        name: `bigo9 ${suffix}`,
+        gameType: 'OMAHA5_HILO',
+        smallBlind: 10,
+        bigBlind: 20,
+        maxSeats: 9,
+      }),
+    ).rejects.toThrow(/at most 8/);
+
+    const table = await makeTable({ gameType: 'OMAHA5_HILO', maxSeats: 2 });
+    const seen: any[] = [];
+    let seq = 0;
+    const drive = (socket: Socket) => {
+      const actedOn = new Set<string>();
+      socket.on('table:state', (state: any) => {
+        seen.push(state);
+        if (!state.handId || state.actingSeat !== state.youAreSeat || !state.legalActions?.length) {
+          return;
+        }
+        const key = `${state.handId}:${state.actingSeat}:${state.currentBet}:${state.street}`;
+        if (actedOn.has(key)) return;
+        actedOn.add(key);
+        const kinds = state.legalActions.map((o: any) => o.kind);
+        const pick = kinds.includes('CHECK') ? 'CHECK' : kinds.includes('CALL') ? 'CALL' : 'FOLD';
+        socket.emit('player:action', {
+          tableId: table,
+          handId: state.handId,
+          clientSeq: (seq += 1),
+          action: { type: pick },
+        });
+      });
+    };
+
+    const sA = await connect(tokens[0]!);
+    const sB = await connect(tokens[1]!);
+    drive(sA);
+    drive(sB);
+    const endA = waitFor(sA, 'hand:end', 25000);
+    const endB = waitFor(sB, 'hand:end', 25000);
+    await emitAck(sA, 'table:join', { tableId: table, seatNumber: 0, buyIn: 2000 });
+    await emitAck(sB, 'table:join', { tableId: table, seatNumber: 1, buyIn: 2000 });
+    await Promise.all([endA, endB]);
+
+    const heroCardStates = seen.filter(
+      (s) =>
+        s.handId &&
+        s.street !== 'COMPLETE' &&
+        s.seats.some((seat: any) => seat.seatNumber === s.youAreSeat && seat.holeCards),
+    );
+    expect(heroCardStates.length).toBeGreaterThan(0);
+    for (const s of heroCardStates) {
+      const hero = s.seats.find((seat: any) => seat.seatNumber === s.youAreSeat);
+      expect(hero.holeCards).toHaveLength(5);
+    }
   }, 25000);
 
   // --- regression: closed-alpha audit ------------------------------------

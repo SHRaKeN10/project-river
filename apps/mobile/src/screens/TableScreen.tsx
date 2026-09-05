@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { GAME_HOLE_CARDS, GameType, POT_LIMIT_GAME_TYPES } from '@river/shared-types';
 import {
   ActionBar,
   BuyInSheet,
@@ -90,6 +91,9 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
   const hero = heroSeat(view);
   const myTurn = isHeroTurn(view);
   const heroIndex = view.youAreSeat ?? 0;
+  const gameType = view.gameType as GameType;
+  const holeCardCount = GAME_HOLE_CARDS[gameType] ?? 2;
+  const potLimit = POT_LIMIT_GAME_TYPES.has(gameType);
 
   const feltH = Math.min(height * 0.62, height - 220);
   const feltW = width - spacing.lg * 2;
@@ -172,7 +176,7 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
                 isButton={seat.seatNumber === view.buttonSeat}
                 actionDeadline={view.actionDeadline}
                 width={podW}
-                holeCardCount={view.gameType === 'PLO' ? 4 : 2}
+                holeCardCount={holeCardCount}
                 onSit={onSit}
               />
             </View>
@@ -187,7 +191,7 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
             bigBlind={view.bigBlind}
             pot={view.pot}
             currentBet={hero?.currentBet ?? 0}
-            potLimit={view.gameType === 'PLO'}
+            potLimit={potLimit}
             busy={busy}
             onAct={onAct}
           />

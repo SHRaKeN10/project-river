@@ -67,6 +67,23 @@ describe('LobbyTableCard', () => {
     expect(screen.getByText(/PLO · 5\/10 · 6-max/)).toBeTruthy();
   });
 
+  it('marks a Big O table', () => {
+    render(
+      <LobbyTableCard
+        table={table({
+          gameType: 'OMAHA5_HILO',
+          smallBlind: 10,
+          bigBlind: 20,
+          timeChargeAmount: 0,
+        })}
+        onOpen={noop}
+        onToggleFavorite={noop}
+        onToggleWaitlist={noop}
+      />,
+    );
+    expect(screen.getByText(/Big O · 10\/20 · 6-max/)).toBeTruthy();
+  });
+
   it('does not mark a Hold’em table', () => {
     render(
       <LobbyTableCard

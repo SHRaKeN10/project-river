@@ -6,8 +6,10 @@ import {
   PokerTableSeat,
   type PokerTableStatus,
 } from '@prisma/client';
+import { maxSeatsForVariant } from '@river/poker-engine';
 import { ChipsService } from '../chips/chips.service';
 import { PrismaService } from '../infra/prisma/prisma.service';
+import { variantForGameType } from './game-variant';
 
 export interface CreateTableInput {
   name: string;
@@ -36,8 +38,13 @@ export class TablesService {
     if (input.smallBlind <= 0 || input.bigBlind < input.smallBlind) {
       throw new BadRequestException('invalid blinds');
     }
+    const gameType = input.gameType ?? 'NLHE';
     const maxSeats = input.maxSeats ?? 6;
     if (maxSeats < 2 || maxSeats > 9) throw new BadRequestException('maxSeats must be 2-9');
+    const seatCap = maxSeatsForVariant(variantForGameType(gameType));
+    if (maxSeats > seatCap) {
+      throw new BadRequestException(`${gameType} seats at most ${seatCap} (deck size)`);
+    }
 
     const minBuyIn = input.minBuyIn ?? input.bigBlind * 20;
     const maxBuyIn = input.maxBuyIn ?? input.bigBlind * 200;
@@ -46,7 +53,7 @@ export class TablesService {
     return this.prisma.pokerTable.create({
       data: {
         name: input.name,
-        gameType: input.gameType ?? 'NLHE',
+        gameType,
         smallBlind: input.smallBlind,
         bigBlind: input.bigBlind,
         maxSeats,

@@ -8,7 +8,7 @@ import { TablesService, type TableWithSeats } from './tables.service';
 
 const createTableSchema = z.object({
   name: z.string().min(1).max(60),
-  gameType: z.enum(['NLHE', 'PLO']).optional(),
+  gameType: z.enum(['NLHE', 'PLO', 'OMAHA5_HILO']).optional(),
   smallBlind: z.number().int().positive(),
   bigBlind: z.number().int().positive(),
   maxSeats: z.number().int().min(2).max(9).optional(),

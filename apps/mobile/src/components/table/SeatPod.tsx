@@ -25,6 +25,13 @@ function initials(name: string | null): string {
   return name.slice(0, 2).toUpperCase();
 }
 
+/** Overlap so an Omaha (4) / Big O (5) hand still fits a narrow pod; two-card
+ * Hold'em hands sit apart as before. */
+function tuckStyle(index: number, count: number): { marginLeft: number } | null {
+  if (index === 0 || count <= 3) return null;
+  return { marginLeft: count >= 5 ? -15 : -12 };
+}
+
 function SeatPodBase({
   seat,
   isHero,
@@ -81,10 +88,7 @@ function SeatPodBase({
       {showCards ? (
         <View style={styles.cards}>
           {seat.holeCards?.map((c, i) => (
-            <View
-              key={i}
-              style={i > 0 && (seat.holeCards?.length ?? 0) > 3 ? styles.cardTuck : null}
-            >
+            <View key={i} style={tuckStyle(i, seat.holeCards?.length ?? 0)}>
               <PlayingCard card={c} size="sm" />
             </View>
           ))}
@@ -92,7 +96,7 @@ function SeatPodBase({
       ) : seat.status === 'ACTIVE' || seat.status === 'ALL_IN' ? (
         <View style={styles.cards}>
           {Array.from({ length: holeCardCount }, (_, i) => (
-            <View key={i} style={i > 0 && holeCardCount > 3 ? styles.cardTuck : null}>
+            <View key={i} style={tuckStyle(i, holeCardCount)}>
               <PlayingCard size="sm" />
             </View>
           ))}
@@ -158,8 +162,6 @@ const styles = StyleSheet.create({
   },
   buttonText: { fontSize: 10, fontWeight: '800', color: colors.bg },
   cards: { flexDirection: 'row', gap: 3 },
-  // Omaha's four cards overlap so the row still fits a narrow pod.
-  cardTuck: { marginLeft: -12 },
   bet: {
     alignSelf: 'flex-start',
     backgroundColor: '#00000055',

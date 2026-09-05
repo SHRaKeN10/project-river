@@ -123,14 +123,19 @@ export function describeEvent(
       return 'Turn';
     case 'RIVER_DEALT':
       return 'River';
-    case 'HAND_REVEALED':
-      return `${who} shows ${(ev.hand as { description?: string } | undefined)?.description ?? ''}`.trim();
+    case 'HAND_REVEALED': {
+      const hi = (ev.hand as { description?: string } | undefined)?.description ?? '';
+      const lo = (ev.low as { description?: string } | undefined)?.description;
+      return `${who} shows ${hi}${lo ? ` (low: ${lo})` : ''}`.trim();
+    }
     case 'HAND_MUCKED':
       return `${who} mucks`;
     case 'POT_AWARDED': {
       const winners = (ev.winners as { seat: number; amount: number }[] | undefined) ?? [];
       const label = winners.map((w) => `${nameForSeat(w.seat)} ${w.amount}`).join(', ');
-      return label ? `Pot to ${label}` : null;
+      if (!label) return null;
+      const portion = ev.portion === 'HIGH' ? 'High pot' : ev.portion === 'LOW' ? 'Low pot' : 'Pot';
+      return `${portion} to ${label}`;
     }
     default:
       return null;

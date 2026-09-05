@@ -95,6 +95,20 @@ describe('SeatPod', () => {
     expect(screen.getAllByLabelText('Face-down card')).toHaveLength(4);
   });
 
+  it('draws five face-down cards for a Big O opponent', () => {
+    render(
+      <SeatPod
+        seat={seat({ holeCards: null, status: 'ACTIVE' })}
+        isHero={false}
+        isActing={false}
+        isButton={false}
+        actionDeadline={null}
+        holeCardCount={5}
+      />,
+    );
+    expect(screen.getAllByLabelText('Face-down card')).toHaveLength(5);
+  });
+
   it('marks a folded seat', () => {
     render(
       <SeatPod

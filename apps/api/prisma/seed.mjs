@@ -17,6 +17,8 @@ const LADDER = [
   // Pot-Limit Omaha - four hole cards, exactly two play.
   { name: 'Bronze PLO', gameType: 'PLO', smallBlind: 5, bigBlind: 10, maxSeats: 6 },
   { name: 'Silver PLO', gameType: 'PLO', smallBlind: 10, bigBlind: 20, maxSeats: 6 },
+  // "Big O" - five-card Omaha, eight-or-better hi/lo split. Max 8 seats.
+  { name: 'Silver Big O', gameType: 'OMAHA5_HILO', smallBlind: 10, bigBlind: 20, maxSeats: 6 },
 ];
 
 // A flat per-seat charge every 15 minutes - the membership-club billing model
