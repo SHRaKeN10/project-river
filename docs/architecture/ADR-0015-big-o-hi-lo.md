@@ -18,13 +18,13 @@ change; every one of the 304 prior engine tests passes untouched.
 
 `VariantRules` gains `hiLo` and `lowQualifier`:
 
-| rule            | Hold'em    | Omaha       | Big O         |
-| --------------- | ---------- | ----------- | ------------- |
-| `holeCards`     | 2          | 4           | 5             |
-| `holeCardsUsed` | `null`     | `2`         | `2`           |
-| `bettingLimit`  | `NO_LIMIT` | `POT_LIMIT` | `POT_LIMIT`   |
-| `hiLo`          | `false`    | `false`     | `true`        |
-| `lowQualifier`  | `null`     | `null`      | `8`           |
+| rule            | Hold'em    | Omaha       | Big O       |
+| --------------- | ---------- | ----------- | ----------- |
+| `holeCards`     | 2          | 4           | 5           |
+| `holeCardsUsed` | `null`     | `2`         | `2`         |
+| `bettingLimit`  | `NO_LIMIT` | `POT_LIMIT` | `POT_LIMIT` |
+| `hiLo`          | `false`    | `false`     | `true`      |
+| `lowQualifier`  | `null`     | `null`      | `8`         |
 
 Five hole cards + three burns + a five-card board is 53 cards nine-handed, so
 Big O only fits eight. `maxSeatsForVariant(variant)` caps it; `createTableConfig`
