@@ -13,7 +13,7 @@ describe('Tournaments (e2e)', () => {
 
   const suffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
   const admin = { email: `tadm_${suffix}@ex.test`, username: `tadm_${suffix}`.slice(0, 20) };
-  const players = [0, 1, 2].map((i) => ({
+  const players = [0, 1, 2, 3, 4].map((i) => ({
     email: `tp${i}_${suffix}@ex.test`,
     username: `tp${i}_${suffix}`.slice(0, 20),
   }));
@@ -233,7 +233,31 @@ describe('Tournaments (e2e)', () => {
     expect(await balance(0)).toBe(before0 + 1100);
   });
 
-  it('will not start a field larger than one table (multi-table lands later)', async () => {
+  it('starts a multi-table field (4 entrants, 3 per table -> 2 tables)', async () => {
+    const id = await create({ seatsPerTable: 3 });
+    for (const i of [0, 1, 2, 3]) {
+      await request(server)
+        .post(`/api/tournaments/${id}/register`)
+        .set(auth(tokens[i]!))
+        .expect(201);
+    }
+
+    const res = await request(server)
+      .patch(`/api/tournaments/${id}/status`)
+      .set(auth(adminToken))
+      .send({ status: 'RUNNING' })
+      .expect(200);
+    expect(res.body.status).toBe('RUNNING');
+
+    // abort so the runner is torn down before the suite ends
+    await request(server)
+      .patch(`/api/tournaments/${id}/status`)
+      .set(auth(adminToken))
+      .send({ status: 'CANCELLED' })
+      .expect(200);
+  });
+
+  it('refuses a heads-up multi-table field (2 seats per table, 3 entrants)', async () => {
     const id = await create({ seatsPerTable: 2 });
     await request(server).post(`/api/tournaments/${id}/register`).set(auth(tokens[0]!)).expect(201);
     await request(server).post(`/api/tournaments/${id}/register`).set(auth(tokens[1]!)).expect(201);

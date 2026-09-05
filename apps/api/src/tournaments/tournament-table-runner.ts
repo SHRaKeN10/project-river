@@ -91,7 +91,10 @@ export class TournamentTableRunner {
 
   private actionTimer: unknown = null;
   private nextHandTimer: unknown = null;
+  /** Paused by a scheduled break. */
   private paused = false;
+  /** Held by the coordinator while it rearranges seating between hands. */
+  private held = false;
   private disposed = false;
   /** Stacks captured at the start of the in-progress hand (for bust ordering). */
   private handStartStacks = new Map<number, number>();
@@ -138,6 +141,13 @@ export class TournamentTableRunner {
 
   get chippedCount(): number {
     return [...this.roster.values()].filter((e) => e.stack > 0).length;
+  }
+
+  /** `userId | null` per seat, length `maxSeats` - the shape `planBalance` wants. */
+  seatsArray(): (string | null)[] {
+    const out: (string | null)[] = Array.from({ length: this.engineConfig.maxSeats }, () => null);
+    for (const [seat, e] of this.roster) if (seat < out.length) out[seat] = e.userId;
+    return out;
   }
 
   // --- coordinator commands ---------------------------------------------
@@ -198,6 +208,23 @@ export class TournamentTableRunner {
   resume(): void {
     if (!this.paused) return;
     this.paused = false;
+    this.maybeScheduleNextHand();
+  }
+
+  /** Freeze the table so the coordinator can move players on/off it. Cancels a
+   * pending next-hand start; an in-progress hand is left to finish (the
+   * coordinator only balances when nothing is in progress). */
+  holdForBalance(): void {
+    this.held = true;
+    if (this.nextHandTimer !== null) {
+      this.deps.timers.clear(this.nextHandTimer);
+      this.nextHandTimer = null;
+    }
+  }
+
+  releaseFromBalance(): void {
+    if (!this.held) return;
+    this.held = false;
     this.maybeScheduleNextHand();
   }
 
@@ -269,7 +296,7 @@ export class TournamentTableRunner {
 
   private onStartHand(): void {
     this.nextHandTimer = null;
-    if (this.handInProgress || this.paused || this.disposed) return;
+    if (this.handInProgress || this.paused || this.held || this.disposed) return;
 
     const eligible = [...this.roster.entries()]
       .filter(([, e]) => e.stack > 0)
@@ -404,7 +431,8 @@ export class TournamentTableRunner {
   }
 
   private maybeScheduleNextHand(): void {
-    if (this.disposed || this.paused || this.nextHandTimer !== null || this.handInProgress) return;
+    if (this.disposed || this.paused || this.held) return;
+    if (this.nextHandTimer !== null || this.handInProgress) return;
     if (this.chippedCount < 2) {
       this.deps.notify({ kind: 'idle' });
       return;

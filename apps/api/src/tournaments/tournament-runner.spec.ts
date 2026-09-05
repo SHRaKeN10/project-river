@@ -138,22 +138,55 @@ function makeRow(opts: { entrants: number; seatsPerTable: number; startingStack?
   };
 }
 
+function makeRunner(
+  row: Record<string, unknown> & { entries: FakeEntry[] },
+  seed: number,
+): {
+  runner: TournamentRunner;
+  timers: FakeTimers;
+  chips: ReturnType<typeof fakeChips>;
+} {
+  const chips = fakeChips();
+  const timers = new FakeTimers();
+  const runner = new TournamentRunner('tourney-1', {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    prisma: fakePrisma(row) as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    chips: chips as any,
+    rng: new SeededRandomProvider(seed),
+    timers,
+    now: () => timers.now,
+    actionTimeoutMs: 1_000,
+    disconnectGraceMs: 200,
+    nextHandDelayMs: 500,
+  });
+  return { runner, timers, chips };
+}
+
+/** Drive every table that has someone to act; advance the clock when they are
+ * all between hands. Works for one table or many. */
 async function runToCompletion(
   runner: TournamentRunner,
   timers: FakeTimers,
   pick: (s: GameState, seat: number) => PlayerAction,
+  onStep?: () => void,
 ): Promise<void> {
   let seq = 0;
-  for (let step = 0; step < 20_000 && runner.running; step += 1) {
-    const s = runner.tableState;
-    const live = s && s.street !== Street.Waiting && s.street !== Street.Complete;
-    if (live && s.actingSeat !== null) {
-      const p = s.players.find((x) => x.seatNumber === s.actingSeat);
-      if (p) runner.act(p.userId, s.handId, (seq += 1), pick(s, s.actingSeat));
-    } else {
-      timers.advance(600); // start the next hand / advance the clock
+  for (let step = 0; step < 60_000 && runner.running; step += 1) {
+    let acted = false;
+    for (const { state: s } of runner.tableStates()) {
+      const live = s.street !== Street.Waiting && s.street !== Street.Complete;
+      if (live && s.actingSeat !== null) {
+        const p = s.players.find((x) => x.seatNumber === s.actingSeat);
+        if (p) {
+          runner.act(p.userId, s.handId, (seq += 1), pick(s, s.actingSeat));
+          acted = true;
+        }
+      }
     }
+    if (!acted) timers.advance(600);
     await flush();
+    onStep?.();
   }
 }
 
@@ -161,28 +194,15 @@ async function runToCompletion(
 
 jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
 
-describe('TournamentRunner (single table)', () => {
+describe('TournamentRunner', () => {
   it('runs a 3-handed tournament to a winner, records the finishing order, and pays the ladder', async () => {
     const row = makeRow({ entrants: 3, seatsPerTable: 3, startingStack: 800 });
-    const prisma = fakePrisma(row);
-    const chips = fakeChips();
-    const timers = new FakeTimers();
-    const runner = new TournamentRunner('tourney-1', {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      prisma: prisma as any,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      chips: chips as any,
-      rng: new SeededRandomProvider(11),
-      timers,
-      now: () => timers.now,
-      actionTimeoutMs: 1_000,
-      disconnectGraceMs: 200,
-      nextHandDelayMs: 500,
-    });
+    const { runner, timers, chips } = makeRunner(row, 11);
 
     await runner.start();
     expect(row.status).toBe('RUNNING');
     expect(row.startedAt).not.toBeNull();
+    expect(runner.tableCount).toBe(1);
 
     await runToCompletion(runner, timers, () => allIn());
 
@@ -217,61 +237,21 @@ describe('TournamentRunner (single table)', () => {
 
   it('conserves chips across every hand of a 4-handed tournament', async () => {
     const row = makeRow({ entrants: 4, seatsPerTable: 4, startingStack: 600 });
-    const chips = fakeChips();
-    const timers = new FakeTimers();
-    const runner = new TournamentRunner('tourney-1', {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      prisma: fakePrisma(row) as any,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      chips: chips as any,
-      rng: new SeededRandomProvider(4),
-      timers,
-      now: () => timers.now,
-      actionTimeoutMs: 1_000,
-      disconnectGraceMs: 200,
-      nextHandDelayMs: 500,
-    });
+    const { runner, timers } = makeRunner(row, 4);
     await runner.start();
 
-    let seq = 0;
-    for (let step = 0; step < 20_000 && runner.running; step += 1) {
-      const s = runner.tableState;
-      if (
-        s &&
-        s.street !== Street.Waiting &&
-        s.street !== Street.Complete &&
-        s.actingSeat !== null
-      ) {
-        const p = s.players.find((x) => x.seatNumber === s.actingSeat);
-        if (p) runner.act(p.userId, s.handId, (seq += 1), callStation(s, s.actingSeat));
-      } else {
-        timers.advance(600);
-      }
-      await flush();
-      // sum of live stacks + already-cashed (0) is always the full chip count
+    await runToCompletion(runner, timers, callStation, () => {
       const total = [...runner.stacks().values()].reduce((a, b) => a + b, 0);
       if (runner.running) expect(total).toBe(2400);
-    }
+    });
+
     expect(row.status).toBe('FINISHED');
     expect(row.entries.filter((e) => e.finishPosition === 1)).toHaveLength(1);
   });
 
   it('pays two places for a nine-handed field, top-heavy and summing to the pool', async () => {
     const row = makeRow({ entrants: 9, seatsPerTable: 9, startingStack: 500 });
-    const chips = fakeChips();
-    const timers = new FakeTimers();
-    const runner = new TournamentRunner('tourney-1', {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      prisma: fakePrisma(row) as any,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      chips: chips as any,
-      rng: new SeededRandomProvider(99),
-      timers,
-      now: () => timers.now,
-      actionTimeoutMs: 1_000,
-      disconnectGraceMs: 200,
-      nextHandDelayMs: 500,
-    });
+    const { runner, timers, chips } = makeRunner(row, 99);
     await runner.start();
     await runToCompletion(runner, timers, () => allIn());
 
@@ -287,22 +267,86 @@ describe('TournamentRunner (single table)', () => {
     expect(payouts.reduce((a, m) => a + m.amount, 0)).toBe(900);
   });
 
-  it('refuses to start a field that does not fit one table', async () => {
-    const row = makeRow({ entrants: 10, seatsPerTable: 9 });
-    const timers = new FakeTimers();
-    const runner = new TournamentRunner('tourney-1', {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      prisma: fakePrisma(row) as any,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      chips: fakeChips() as any,
-      rng: new SeededRandomProvider(1),
+  it('runs a three-table field: balances, breaks tables down to one, crowns a winner', async () => {
+    const row = makeRow({ entrants: 12, seatsPerTable: 4, startingStack: 500 });
+    const { runner, timers, chips } = makeRunner(row, 7);
+    await runner.start();
+    expect(runner.tableCount).toBe(3);
+
+    let maxTables = runner.tableCount;
+    let minTables = runner.tableCount;
+    await runToCompletion(
+      runner,
       timers,
-      now: () => timers.now,
-      actionTimeoutMs: 1_000,
-      disconnectGraceMs: 200,
-      nextHandDelayMs: 500,
-    });
-    await expect(runner.start()).rejects.toThrow(/multi-table/);
+      () => allIn(),
+      () => {
+        if (runner.running) {
+          maxTables = Math.max(maxTables, runner.tableCount);
+          minTables = Math.min(minTables, runner.tableCount);
+          // conservation across every table, every step
+          const total = [...runner.stacks().values()].reduce((a, b) => a + b, 0);
+          expect(total).toBe(6000);
+        }
+      },
+    );
+
+    expect(row.status).toBe('FINISHED');
+    expect(maxTables).toBe(3);
+    expect(minTables).toBe(1); // it collapsed to a final table
+
+    // 12 distinct finishing positions
+    const positions = row.entries.map((e) => e.finishPosition).sort((a, b) => (a ?? 0) - (b ?? 0));
+    expect(positions).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+
+    const winner = row.entries.find((e) => e.finishPosition === 1);
+    expect(winner?.stack).toBe(6000); // holds every chip
+
+    // placesPaid(12) === 2; the pool (1200) is split between them
+    const results = row.resultsJson as { position: number; payout: number }[];
+    expect(results).toHaveLength(12);
+    expect(results[0]!.payout + results[1]!.payout).toBe(1200);
+    expect(results[0]!.payout).toBeGreaterThan(results[1]!.payout);
+    expect(results.slice(2).every((r) => r.payout === 0)).toBe(true);
+    expect(chips.moves.filter((m) => m.reason === 'TOURNAMENT_PAYOUT')).toHaveLength(2);
+  });
+
+  it('runs a 24-player, four-table field clean: every seat count 4..1, one winner', async () => {
+    const row = makeRow({ entrants: 24, seatsPerTable: 6, startingStack: 400 });
+    const { runner, timers } = makeRunner(row, 21);
+    await runner.start();
+    expect(runner.tableCount).toBe(4);
+
+    const seenTableCounts = new Set<number>();
+    await runToCompletion(
+      runner,
+      timers,
+      () => allIn(),
+      () => {
+        if (runner.running) {
+          seenTableCounts.add(runner.tableCount);
+          expect([...runner.stacks().values()].reduce((a, b) => a + b, 0)).toBe(9600);
+          // no table ever exceeds its seat cap
+          for (const { state } of runner.tableStates()) {
+            expect(state.players.length).toBeLessThanOrEqual(6);
+          }
+        }
+      },
+    );
+
+    expect(row.status).toBe('FINISHED');
+    // the field collapsed 4 -> 3 -> 2 -> 1 at some point along the way
+    expect(seenTableCounts.has(4)).toBe(true);
+    expect(seenTableCounts.has(1)).toBe(true);
+
+    const positions = row.entries.map((e) => e.finishPosition).sort((a, b) => (a ?? 0) - (b ?? 0));
+    expect(positions).toEqual(Array.from({ length: 24 }, (_, i) => i + 1));
+    expect(row.entries.find((e) => e.finishPosition === 1)?.stack).toBe(9600);
+  });
+
+  it('refuses a heads-up multi-table field', async () => {
+    const row = makeRow({ entrants: 3, seatsPerTable: 2 });
+    const { runner } = makeRunner(row, 1);
+    await expect(runner.start()).rejects.toThrow(/three seats per table/);
     expect(row.status).toBe('REGISTERING');
   });
 });
