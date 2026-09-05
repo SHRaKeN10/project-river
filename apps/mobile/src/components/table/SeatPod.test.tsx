@@ -65,6 +65,36 @@ describe('SeatPod', () => {
     expect(screen.getByText('K')).toBeTruthy();
   });
 
+  it('shows four face-up cards for an Omaha hero', () => {
+    render(
+      <SeatPod
+        seat={seat({ holeCards: ['As', 'Kd', 'Qh', 'Jc'] })}
+        isHero
+        isActing={false}
+        isButton={false}
+        actionDeadline={null}
+        holeCardCount={4}
+      />,
+    );
+    for (const rank of ['A', 'K', 'Q', 'J']) {
+      expect(screen.getByText(rank)).toBeTruthy();
+    }
+  });
+
+  it('draws holeCardCount face-down cards for an opponent still in the hand', () => {
+    render(
+      <SeatPod
+        seat={seat({ holeCards: null, status: 'ACTIVE' })}
+        isHero={false}
+        isActing={false}
+        isButton={false}
+        actionDeadline={null}
+        holeCardCount={4}
+      />,
+    );
+    expect(screen.getAllByLabelText('Face-down card')).toHaveLength(4);
+  });
+
   it('marks a folded seat', () => {
     render(
       <SeatPod

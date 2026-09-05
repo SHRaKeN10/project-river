@@ -29,6 +29,7 @@ function LobbyTableCardBase({
             {table.name}
           </Text>
           <Text style={styles.stakes}>
+            {table.gameType === 'PLO' ? 'PLO · ' : ''}
             {table.smallBlind}/{table.bigBlind}
             {table.ante > 0 ? ` · ante ${table.ante}` : ''} · {table.maxSeats}-max
             {table.timeChargeAmount > 0

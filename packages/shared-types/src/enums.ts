@@ -27,8 +27,17 @@ export enum Rank {
 }
 
 export enum GameType {
+  /** No-Limit Texas Hold'em. */
   NLHE = 'NLHE',
+  /** Pot-Limit Omaha (four hole cards). */
+  PLO = 'PLO',
 }
+
+/** Human label for a game type, for headers and the lobby. */
+export const GAME_TYPE_LABEL: Readonly<Record<GameType, string>> = {
+  [GameType.NLHE]: "No-Limit Hold'em",
+  [GameType.PLO]: 'Pot-Limit Omaha',
+};
 
 export enum Street {
   WAITING = 'WAITING',

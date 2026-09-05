@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import {
   ChipMovementReason,
   PokerTable,
+  type PokerGameType,
   PokerTableSeat,
   type PokerTableStatus,
 } from '@prisma/client';
@@ -10,6 +11,8 @@ import { PrismaService } from '../infra/prisma/prisma.service';
 
 export interface CreateTableInput {
   name: string;
+  /** Defaults to NLHE. */
+  gameType?: PokerGameType;
   smallBlind: number;
   bigBlind: number;
   maxSeats?: number;
@@ -43,6 +46,7 @@ export class TablesService {
     return this.prisma.pokerTable.create({
       data: {
         name: input.name,
+        gameType: input.gameType ?? 'NLHE',
         smallBlind: input.smallBlind,
         bigBlind: input.bigBlind,
         maxSeats,

@@ -37,7 +37,7 @@ const queryBool = z
   .optional();
 
 export const lobbyFilterSchema = z.object({
-  gameType: z.enum(['NLHE']).optional(),
+  gameType: z.enum(['NLHE', 'PLO']).optional(),
   minBigBlind: z.coerce.number().int().positive().optional(),
   maxBigBlind: z.coerce.number().int().positive().optional(),
   hasOpenSeat: queryBool,

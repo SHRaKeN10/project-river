@@ -54,4 +54,28 @@ describe('LobbyTableCard', () => {
     );
     expect(screen.queryByText(/fee/)).toBeNull();
   });
+
+  it('marks a Pot-Limit Omaha table', () => {
+    render(
+      <LobbyTableCard
+        table={table({ gameType: 'PLO', smallBlind: 5, bigBlind: 10, timeChargeAmount: 0 })}
+        onOpen={noop}
+        onToggleFavorite={noop}
+        onToggleWaitlist={noop}
+      />,
+    );
+    expect(screen.getByText(/PLO · 5\/10 · 6-max/)).toBeTruthy();
+  });
+
+  it('does not mark a Hold’em table', () => {
+    render(
+      <LobbyTableCard
+        table={table({ timeChargeAmount: 0 })}
+        onOpen={noop}
+        onToggleFavorite={noop}
+        onToggleWaitlist={noop}
+      />,
+    );
+    expect(screen.queryByText(/PLO/)).toBeNull();
+  });
 });
