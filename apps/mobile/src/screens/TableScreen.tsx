@@ -6,8 +6,8 @@ import {
   ActionBar,
   BuyInSheet,
   CommunityBoard,
+  GameDetailsSheet,
   SeatPod,
-  TimeChargeBadge,
 } from '../components/table';
 import { useChips, useRebuy } from '../features/api/queries';
 import {
@@ -33,6 +33,7 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
     useTable(tableId);
 
   const [buyInSeat, setBuyInSeat] = useState<number | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
   // Standing up is handled by useTable's unmount cleanup, so every exit path
@@ -99,21 +100,20 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
         <Pressable onPress={goBack} hitSlop={10} accessibilityRole="button">
           <Text style={styles.link}>‹ Lobby</Text>
         </Pressable>
-        <View style={styles.headerCenter}>
+        <Pressable
+          style={styles.headerCenter}
+          onPress={() => setDetailsOpen(true)}
+          accessibilityRole="button"
+          accessibilityLabel="Game details"
+        >
           <Text style={styles.tableName} numberOfLines={1}>
-            {view.name}
+            {view.name} ⓘ
           </Text>
           <Text style={styles.stakes}>
             {view.smallBlind}/{view.bigBlind}
             {!connected ? ' · offline' : ''}
           </Text>
-          {view.timeChargeAmount > 0 ? (
-            <TimeChargeBadge
-              amount={view.timeChargeAmount}
-              intervalMs={view.timeChargeIntervalMs}
-            />
-          ) : null}
-        </View>
+        </Pressable>
         {hero ? (
           <Pressable
             onPress={() => toggleSitOut(hero.status !== 'SITTING_OUT')}
@@ -218,6 +218,8 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
         onConfirm={confirmBuyIn}
         onClose={() => setBuyInSeat(null)}
       />
+
+      <GameDetailsSheet visible={detailsOpen} view={view} onClose={() => setDetailsOpen(false)} />
     </SafeAreaView>
   );
 }

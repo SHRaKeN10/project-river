@@ -4,4 +4,4 @@ export { SeatPod } from './SeatPod';
 export { ActionBar } from './ActionBar';
 export { BuyInSheet } from './BuyInSheet';
 export { TurnTimer } from './TurnTimer';
-export { TimeChargeBadge } from './TimeChargeBadge';
+export { GameDetailsSheet } from './GameDetailsSheet';
