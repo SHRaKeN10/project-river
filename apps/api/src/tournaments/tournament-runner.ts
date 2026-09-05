@@ -95,6 +95,11 @@ export class TournamentRunner {
     return [...this.tables.entries()].map(([tableId, t]) => ({ tableId, state: t.gameState }));
   }
 
+  /** Test / diagnostics: how many players are seated at each live table. */
+  tableSeatCounts(): number[] {
+    return [...this.tables.values()].map((t) => t.seatedUserIds.length);
+  }
+
   /** Test / diagnostics: the first table's state (single-table convenience). */
   get tableState(): GameState | null {
     return [...this.tables.values()][0]?.gameState ?? null;
