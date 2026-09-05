@@ -343,6 +343,43 @@ describe('TournamentRunner', () => {
     expect(row.entries.find((e) => e.finishPosition === 1)?.stack).toBe(9600);
   });
 
+  it('holds three full nine-handed tables (27 entrants) and plays them down to a winner', async () => {
+    const row = makeRow({ entrants: 27, seatsPerTable: 9, startingStack: 300 });
+    const { runner, timers, chips } = makeRunner(row, 27);
+    await runner.start();
+    expect(runner.tableCount).toBe(3);
+    expect(runner.tableSeatCounts()).toEqual([9, 9, 9]); // three full nine-handed tables
+
+    const seenCounts = new Set<number>();
+    await runToCompletion(
+      runner,
+      timers,
+      () => allIn(),
+      () => {
+        if (runner.running) {
+          seenCounts.add(runner.tableCount);
+          expect([...runner.stacks().values()].reduce((a, b) => a + b, 0)).toBe(8100);
+          for (const { state } of runner.tableStates()) {
+            expect(state.players.length).toBeLessThanOrEqual(9);
+          }
+        }
+      },
+    );
+
+    expect(row.status).toBe('FINISHED');
+    expect(seenCounts.has(3)).toBe(true);
+    expect(seenCounts.has(1)).toBe(true);
+    const positions = row.entries.map((e) => e.finishPosition).sort((a, b) => (a ?? 0) - (b ?? 0));
+    expect(positions).toEqual(Array.from({ length: 27 }, (_, i) => i + 1));
+    expect(row.entries.find((e) => e.finishPosition === 1)?.stack).toBe(8100);
+    // placesPaid(27) === 4; the whole pool is split among them, top-heavy
+    const results = row.resultsJson as { position: number; payout: number }[];
+    const paid = results.filter((r) => r.payout > 0);
+    expect(paid).toHaveLength(4);
+    expect(paid.reduce((a, r) => a + r.payout, 0)).toBe(2700);
+    expect(chips.moves.filter((m) => m.reason === 'TOURNAMENT_PAYOUT')).toHaveLength(4);
+  });
+
   it('refuses a heads-up multi-table field', async () => {
     const row = makeRow({ entrants: 3, seatsPerTable: 2 });
     const { runner } = makeRunner(row, 1);
