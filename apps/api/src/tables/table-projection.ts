@@ -80,11 +80,6 @@ export function projectTableState(params: ProjectParams): TableStateView {
     state.actingSeat !== null &&
     roster.get(state.actingSeat)?.userId === viewerUserId;
 
-  const chargeableViewer =
-    viewerSeat !== null && table.timeChargeAmount > 0 && table.timeChargeIntervalMs > 0
-      ? roster.get(viewerSeat)
-      : undefined;
-
   return {
     tableId: table.id,
     name: table.name,
@@ -96,9 +91,6 @@ export function projectTableState(params: ProjectParams): TableStateView {
     maxBuyIn: table.maxBuyIn,
     timeChargeAmount: table.timeChargeAmount,
     timeChargeIntervalMs: table.timeChargeIntervalMs,
-    nextTimeChargeAt: chargeableViewer
-      ? chargeableViewer.lastTimeChargeAt + table.timeChargeIntervalMs
-      : null,
 
     handId: handInProgress ? state.handId : null,
     handNumber: state.handNumber,

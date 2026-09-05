@@ -107,8 +107,11 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
             {view.smallBlind}/{view.bigBlind}
             {!connected ? ' · offline' : ''}
           </Text>
-          {view.timeChargeAmount > 0 && view.nextTimeChargeAt ? (
-            <TimeChargeBadge amount={view.timeChargeAmount} nextChargeAt={view.nextTimeChargeAt} />
+          {view.timeChargeAmount > 0 ? (
+            <TimeChargeBadge
+              amount={view.timeChargeAmount}
+              intervalMs={view.timeChargeIntervalMs}
+            />
           ) : null}
         </View>
         {hero ? (

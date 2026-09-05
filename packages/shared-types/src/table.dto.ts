@@ -80,13 +80,12 @@ export interface TableStateView {
   maxSeats: number;
   minBuyIn: number;
   maxBuyIn: number;
-  /** Flat per-seat time charge (membership-club billing, not a pot rake).
-   * 0 means the table doesn't charge one. */
+  /** Flat per-seat time charge, billed against the wallet not the stack
+   * (membership-club billing, not a pot rake). 0 means the table doesn't
+   * charge one. Shown as a static rate - there's no per-seat "next charge"
+   * countdown on the wire, deliberately. */
   timeChargeAmount: number;
   timeChargeIntervalMs: number;
-  /** Epoch millis of the viewer's own next time charge, or null if they
-   * aren't seated or the table doesn't charge one. */
-  nextTimeChargeAt: number | null;
 
   handId: string | null;
   handNumber: number;

@@ -16,13 +16,38 @@ const LADDER = [
   { name: 'Diamond Stakes', smallBlind: 50, bigBlind: 100, maxSeats: 9 },
 ];
 
-// A flat per-seat charge every 15 minutes, scaled with stakes - the
-// membership-club billing model (Texas Card House/Hijack) instead of a rake.
+// A flat per-seat charge every 15 minutes - the membership-club billing model
+// (Texas Card House/Hijack) instead of a pot rake. Our chip blinds already
+// read as real-money-equivalent stakes (1 chip == $0.01), so this is the
+// house's own published hourly rate card, by blind level, converted straight
+// across: rate/hr -> rate/15min, rounded to the nearest chip. A table's rate
+// is the card's first tier at or above its big blind (so anything below the
+// card's lowest tier - e.g. a beginner room - still gets that lowest rate).
+const HOURLY_RATE_CARD = [
+  { bigBlind: 5, hourlyRate: 150 }, // $.02/$.05
+  { bigBlind: 10, hourlyRate: 250 }, // $.05/$.10
+  { bigBlind: 20, hourlyRate: 350 }, // $.10/$.20
+  { bigBlind: 50, hourlyRate: 500 }, // $.25/$.50
+  { bigBlind: 100, hourlyRate: 600 }, // $.50/$1
+  { bigBlind: 200, hourlyRate: 750 }, // $1/$2
+  { bigBlind: 400, hourlyRate: 900 }, // $2/$4
+  { bigBlind: 600, hourlyRate: 1100 }, // $3/$6
+  { bigBlind: 800, hourlyRate: 1200 }, // $4/$8
+  { bigBlind: 1000, hourlyRate: 1400 }, // $5/$10
+  { bigBlind: 2000, hourlyRate: 2000 }, // $10/$20
+];
 const TIME_CHARGE_INTERVAL_MS = 15 * 60_000;
-const timeChargeFor = (bigBlind) => ({
-  timeChargeAmount: bigBlind * 5,
-  timeChargeIntervalMs: TIME_CHARGE_INTERVAL_MS,
-});
+const CHARGES_PER_HOUR = 3_600_000 / TIME_CHARGE_INTERVAL_MS;
+
+const timeChargeFor = (bigBlind) => {
+  const tier =
+    HOURLY_RATE_CARD.find((row) => row.bigBlind >= bigBlind) ??
+    HOURLY_RATE_CARD[HOURLY_RATE_CARD.length - 1];
+  return {
+    timeChargeAmount: Math.round(tier.hourlyRate / CHARGES_PER_HOUR),
+    timeChargeIntervalMs: TIME_CHARGE_INTERVAL_MS,
+  };
+};
 
 async function main() {
   for (const t of LADDER) {

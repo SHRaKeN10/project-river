@@ -25,7 +25,7 @@ export type RunnerNotification =
   | { kind: 'chat'; message: TableChatMessage }
   | { kind: 'handComplete' }
   | { kind: 'seatVacated' }
-  | { kind: 'timeCharge'; seatNumber: number; amount: number };
+  | { kind: 'timeCharge'; userId: string; seatNumber: number; amount: number };
 
 export interface TimerScheduler {
   set(fn: () => void, ms: number): unknown;
@@ -70,6 +70,15 @@ export interface RunnerDeps {
   recordHandStats: (potTotal: number) => void;
   /** A finished hand, for persistence (hand history + replay). */
   recordHand: (hand: CompletedHand) => void;
+  /** Fire-and-forget: debit the table's flat time charge from a player's chip
+   * wallet (never their on-table stack). No feedback path - an insufficient
+   * wallet just fails to charge; see applyTimeCharges' doc comment. */
+  chargeAccount: (args: {
+    userId: string;
+    seatNumber: number;
+    amount: number;
+    idemKey: string;
+  }) => void;
 }
 
 /** Roster entry plus the bookkeeping the runner keeps but never projects. */
@@ -531,23 +540,23 @@ export class TableRunner {
    * pot rake) - every seated, not-sitting-out player pays `timeChargeAmount`
    * per `timeChargeIntervalMs` they occupy a seat, win or lose. Disabled
    * table-wide when either is 0. Only safe to call between hands - same
-   * constraint as sweepAwayPlayers above.
+   * constraint as sweepAwayPlayers above (lastTimeChargeAt bookkeeping is
+   * roster state, and the roster is only trustworthy between hands).
    *
-   * Unlike every other stack movement here, a time charge is NOT conserved
-   * across the table - it's revenue leaving the game entirely (the house's
-   * cut), not a zero-sum transfer between players. rosterTotal() is expected
-   * to shrink by exactly the amount charged. There's nowhere for it to go yet
-   * (no house/revenue account exists) - that's the seam a real-money payout
-   * would hang off later.
+   * Billed against the player's chip *wallet*, never their on-table stack -
+   * `deps.chargeAccount` is fire-and-forget (like persistRoster/onSeatVacated,
+   * it settles asynchronously against the DB) and simply no-ops if their
+   * wallet can't cover it; the runner never learns whether it succeeded, so a
+   * seat is never touched here. That's a deliberate limitation: an empty
+   * wallet doesn't stop someone from playing yet. Revisit before real money.
    */
   private applyTimeCharges(now: number): void {
     if (this.handInProgress) return;
     const { timeChargeAmount, timeChargeIntervalMs } = this.meta;
     if (timeChargeAmount <= 0 || timeChargeIntervalMs <= 0) return;
 
-    let changed = false;
-    for (const [seat, entry] of [...this.roster.entries()]) {
-      if (entry.sittingOut || entry.pendingLeave || entry.stack <= 0) continue;
+    for (const [seat, entry] of this.roster.entries()) {
+      if (entry.sittingOut || entry.pendingLeave) continue;
 
       // A table idle for a long stretch (or a slow cold-start recovery) could
       // owe several intervals at once - settle all of them, capped so a
@@ -555,35 +564,20 @@ export class TableRunner {
       let guard = 0;
       while (now - entry.lastTimeChargeAt >= timeChargeIntervalMs && guard < 100) {
         guard += 1;
-        const charge = Math.min(entry.stack, timeChargeAmount);
-        entry.stack -= charge;
         entry.lastTimeChargeAt += timeChargeIntervalMs;
-        changed = true;
-        this.deps.notify({ kind: 'timeCharge', seatNumber: seat, amount: charge });
-
-        if (entry.stack <= 0) {
-          entry.sittingOut = true;
-          this.roster.delete(seat);
-          this.lastSeqByUser.delete(entry.userId);
-          this.deps.onSeatVacated({
-            userId: entry.userId,
-            seatNumber: seat,
-            stack: 0,
-            idemKey: `timecharge:${randomUUID()}`,
-          });
-          this.deps.notify({
-            kind: 'rejected',
-            userId: entry.userId,
-            code: 'TIME_CHARGE_BUSTED',
-            reason: 'You were stood up - your stack ran out covering the table time charge.',
-          });
-          break;
-        }
+        this.deps.chargeAccount({
+          userId: entry.userId,
+          seatNumber: seat,
+          amount: timeChargeAmount,
+          idemKey: `timecharge:${randomUUID()}`,
+        });
+        this.deps.notify({
+          kind: 'timeCharge',
+          userId: entry.userId,
+          seatNumber: seat,
+          amount: timeChargeAmount,
+        });
       }
-    }
-    if (changed) {
-      this.deps.persistRoster(this);
-      this.deps.notify({ kind: 'state' });
     }
   }
 
