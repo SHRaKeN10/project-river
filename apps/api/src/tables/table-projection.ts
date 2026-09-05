@@ -4,6 +4,7 @@ import {
   type GameState,
   legalActions,
   type PlayerState,
+  rulesFor,
   Street,
   totalPot,
 } from '@river/poker-engine';
@@ -170,6 +171,10 @@ function projectLegalActions(state: GameState): ActionOptionView[] {
     players: state.players,
     round: state.round,
     actingSeat: state.actingSeat,
+    // So the client's sizing bounds match the server's - the pot-limit cap for
+    // Omaha, the whole stack for Hold'em.
+    potBeforeRound: state.collectedPot,
+    bettingLimit: rulesFor(state.config.variant).bettingLimit,
   };
   return legalActions(ctx, state.actingSeat).map((option) => ({
     kind: option.kind,
