@@ -10,6 +10,13 @@ export interface HandRankSummary {
   readonly description: string;
 }
 
+/** A qualifying low hand for the event log / UI (hi/lo games only). */
+export interface LowHandSummary {
+  /** Five ranks, descending, ace as 1. */
+  readonly ranks: readonly number[];
+  readonly description: string;
+}
+
 /**
  * Every meaningful thing that happens in a hand. The engine emits these with no
  * sequence number or timestamp (it has no clock); the application layer stamps
@@ -88,6 +95,8 @@ export type GameEvent =
       readonly seat: number;
       readonly cards: readonly Card[];
       readonly hand: HandRankSummary;
+      /** The player's qualifying low, in a hi/lo game where they have one. */
+      readonly low?: LowHandSummary;
     }
   | { readonly type: 'HAND_MUCKED'; readonly seat: number }
   | {
@@ -96,6 +105,9 @@ export type GameEvent =
       readonly potType: 'MAIN' | 'SIDE';
       readonly amount: number;
       readonly winners: readonly { readonly seat: number; readonly amount: number }[];
+      /** Which half of a split pot this award is. Absent for a whole-pot award
+       * (every non-hi/lo game, and a hi/lo pot with no qualifying low). */
+      readonly portion?: 'HIGH' | 'LOW';
     }
   | {
       readonly type: 'HAND_COMPLETED';

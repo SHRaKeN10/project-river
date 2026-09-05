@@ -23,6 +23,7 @@ import {
 import { rulesFor } from '../variant/variant';
 import { type GameEvent } from '../events/events';
 import { compareHandRanks, type HandRank } from '../hand-evaluator/hand-rank';
+import { compareLowRanks, type LowRank } from '../hand-evaluator/low';
 import {
   contestingPlayers,
   type GameState,
@@ -32,6 +33,7 @@ import {
 } from '../game-state/game-state';
 import {
   awardPots,
+  awardPotsHiLo,
   buildPots,
   type Contribution,
   returnUncalledBet,
@@ -47,7 +49,13 @@ import {
   resetForStreet,
 } from '../player/player';
 import { type RandomProvider } from '../rng/random-provider';
-import { evaluateShowdown, showdownOrder, summarizeHand } from '../showdown/showdown';
+import {
+  evaluateLowShowdown,
+  evaluateShowdown,
+  showdownOrder,
+  summarizeHand,
+  summarizeLow,
+} from '../showdown/showdown';
 import {
   dealFlop,
   dealRiver,
@@ -611,44 +619,47 @@ function settleByShowdown(
     collectedPot,
   };
 
+  const hiLo = rulesFor(collectedAfterRefunds.config.variant).hiLo;
   const ranks = evaluateShowdown(collectedAfterRefunds);
+  const lows = hiLo ? evaluateLowShowdown(collectedAfterRefunds) : new Map<number, LowRank>();
   events.push({ type: 'SHOWDOWN_STARTED' });
 
   // A player mucks rather than expose their cards only when they called a river
   // bet with chips behind (status ACTIVE) and cannot win or chop any pot they
-  // are eligible for. All-in hands are always tabled, and if at most one player
-  // could still wager then the whole hand was all-in - table everything.
+  // are eligible for - for the high, or (hi/lo) for a qualifying low. All-in
+  // hands are always tabled, and if at most one player could still wager then
+  // the whole hand was all-in - table everything.
   const stillWagering = contestingPlayers(collectedAfterRefunds).filter(
     (p) => p.status !== PlayerStatus.AllIn,
   ).length;
   const tableEveryHand = stillWagering <= 1;
 
   const revealed = new Map<number, HandRank>();
+  const revealedLo = new Map<number, LowRank>();
   for (const seat of showdownOrder(collectedAfterRefunds)) {
     const player = getPlayer(collectedAfterRefunds, seat);
     const rank = ranks.get(seat);
     if (!player || !rank) continue;
+    const lowRank = lows.get(seat);
 
     const eligiblePots = pots.filter((pot) => pot.eligibleSeats.includes(seat));
-    const canWinSomething = eligiblePots.some((pot) => {
-      let bestShown: HandRank | undefined;
-      for (const [shownSeat, shownRank] of revealed) {
-        if (!pot.eligibleSeats.includes(shownSeat)) continue;
-        if (bestShown === undefined || compareHandRanks(shownRank, bestShown) > 0) {
-          bestShown = shownRank;
-        }
-      }
-      return bestShown === undefined || compareHandRanks(rank, bestShown) >= 0;
-    });
+    const canWinHi = eligiblePots.some((pot) =>
+      beatsOrTiesShown(rank, revealed, pot, compareHandRanks),
+    );
+    const canWinLo =
+      lowRank !== undefined &&
+      eligiblePots.some((pot) => beatsOrTiesShown(lowRank, revealedLo, pot, compareLowRanks));
 
     const mayMuck = player.status === PlayerStatus.Active && !tableEveryHand;
-    if (!mayMuck || canWinSomething || revealed.size === 0) {
+    if (!mayMuck || canWinHi || canWinLo || revealed.size === 0) {
       revealed.set(seat, rank);
+      if (lowRank) revealedLo.set(seat, lowRank);
       events.push({
         type: 'HAND_REVEALED',
         seat,
         cards: player.holeCards,
         hand: summarizeHand(rank),
+        ...(lowRank ? { low: summarizeLow(lowRank) } : {}),
       });
     } else {
       events.push({ type: 'HAND_MUCKED', seat });
@@ -662,21 +673,51 @@ function settleByShowdown(
     ) ?? collectedAfterRefunds.buttonSeat,
     [...revealed.keys()],
   );
-  const awards = awardPots(pots, revealed, oddChipOrder);
 
   const payoutBySeat = new Map<number, number>();
-  awards.forEach((award, index) => {
-    for (const w of award.winners) {
-      payoutBySeat.set(w.seat, (payoutBySeat.get(w.seat) ?? 0) + w.amount);
-    }
-    events.push({
-      type: 'POT_AWARDED',
-      potIndex: index,
-      potType: index === 0 ? 'MAIN' : 'SIDE',
-      amount: award.amount,
-      winners: award.winners,
+  const credit = (seat: number, amount: number): void => {
+    payoutBySeat.set(seat, (payoutBySeat.get(seat) ?? 0) + amount);
+  };
+
+  if (hiLo) {
+    const awards = awardPotsHiLo(pots, revealed, revealedLo, oddChipOrder);
+    awards.forEach((award, index) => {
+      const potType = index === 0 ? 'MAIN' : 'SIDE';
+      for (const w of award.hi) credit(w.seat, w.amount);
+      for (const w of award.lo) credit(w.seat, w.amount);
+      const split = award.lo.length > 0;
+      events.push({
+        type: 'POT_AWARDED',
+        potIndex: index,
+        potType,
+        amount: award.hi.reduce((t, w) => t + w.amount, 0),
+        winners: award.hi,
+        ...(split ? { portion: 'HIGH' as const } : {}),
+      });
+      if (split) {
+        events.push({
+          type: 'POT_AWARDED',
+          potIndex: index,
+          potType,
+          amount: award.lo.reduce((t, w) => t + w.amount, 0),
+          winners: award.lo,
+          portion: 'LOW',
+        });
+      }
     });
-  });
+  } else {
+    const awards = awardPots(pots, revealed, oddChipOrder);
+    awards.forEach((award, index) => {
+      for (const w of award.winners) credit(w.seat, w.amount);
+      events.push({
+        type: 'POT_AWARDED',
+        potIndex: index,
+        potType: index === 0 ? 'MAIN' : 'SIDE',
+        amount: award.amount,
+        winners: award.winners,
+      });
+    });
+  }
 
   const players = collectedAfterRefunds.players.map((p) => ({
     ...p,
@@ -758,6 +799,23 @@ function clockwiseFrom(startSeat: number, seats: readonly number[]): number[] {
   const index = sorted.findIndex((s) => s >= startSeat);
   const pivot = index === -1 ? 0 : index;
   return [...sorted.slice(pivot), ...sorted.slice(0, pivot)];
+}
+
+/** True if `mine` beats or ties the best already-shown hand among the seats
+ * eligible for `pot` (or nothing eligible has been shown yet). `cmp` is
+ * `compareHandRanks` for the high or `compareLowRanks` for the low. */
+function beatsOrTiesShown<T>(
+  mine: T,
+  shown: ReadonlyMap<number, T>,
+  pot: { eligibleSeats: readonly number[] },
+  cmp: (a: T, b: T) => number,
+): boolean {
+  let best: T | undefined;
+  for (const [seat, rank] of shown) {
+    if (!pot.eligibleSeats.includes(seat)) continue;
+    if (best === undefined || cmp(rank, best) > 0) best = rank;
+  }
+  return best === undefined || cmp(mine, best) >= 0;
 }
 
 function reject(state: GameState, seat: number, code: string, reason: string): ReduceResult {

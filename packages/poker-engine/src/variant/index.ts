@@ -6,4 +6,5 @@ export {
   rulesFor,
   isGameVariant,
   cardsNeeded,
+  maxSeatsForVariant,
 } from './variant';

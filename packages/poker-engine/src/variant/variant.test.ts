@@ -1,4 +1,4 @@
-import { cardsNeeded, GameVariant, isGameVariant, rulesFor } from './variant';
+import { cardsNeeded, GameVariant, isGameVariant, maxSeatsForVariant, rulesFor } from './variant';
 
 describe('rulesFor', () => {
   it('describes Hold’em', () => {
@@ -7,6 +7,8 @@ describe('rulesFor', () => {
       holeCards: 2,
       holeCardsUsed: null,
       bettingLimit: 'NO_LIMIT',
+      hiLo: false,
+      lowQualifier: null,
     });
   });
 
@@ -16,6 +18,19 @@ describe('rulesFor', () => {
       holeCards: 4,
       holeCardsUsed: 2,
       bettingLimit: 'POT_LIMIT',
+      hiLo: false,
+      lowQualifier: null,
+    });
+  });
+
+  it('describes five-card Omaha hi/lo ("Big O")', () => {
+    expect(rulesFor(GameVariant.Omaha5HiLo)).toEqual({
+      variant: GameVariant.Omaha5HiLo,
+      holeCards: 5,
+      holeCardsUsed: 2,
+      bettingLimit: 'POT_LIMIT',
+      hiLo: true,
+      lowQualifier: 8,
     });
   });
 
@@ -28,6 +43,7 @@ describe('isGameVariant', () => {
   it('accepts the known variants', () => {
     expect(isGameVariant('HOLDEM')).toBe(true);
     expect(isGameVariant('OMAHA')).toBe(true);
+    expect(isGameVariant('OMAHA5_HILO')).toBe(true);
   });
   it('rejects anything else', () => {
     expect(isGameVariant('PLO5')).toBe(false);
@@ -36,13 +52,20 @@ describe('isGameVariant', () => {
   });
 });
 
-describe('cardsNeeded', () => {
+describe('cardsNeeded / maxSeatsForVariant', () => {
   it('four-card Omaha fits a full nine-handed table', () => {
     expect(cardsNeeded(rulesFor(GameVariant.Omaha), 9)).toBe(44);
-    expect(cardsNeeded(rulesFor(GameVariant.Omaha), 9)).toBeLessThanOrEqual(52);
+    expect(maxSeatsForVariant(GameVariant.Omaha)).toBe(9);
   });
 
   it('Hold’em nine-handed', () => {
     expect(cardsNeeded(rulesFor(GameVariant.Holdem), 9)).toBe(26);
+    expect(maxSeatsForVariant(GameVariant.Holdem)).toBe(9);
+  });
+
+  it('five-card Omaha only fits eight-handed', () => {
+    expect(cardsNeeded(rulesFor(GameVariant.Omaha5HiLo), 9)).toBe(53); // over 52
+    expect(cardsNeeded(rulesFor(GameVariant.Omaha5HiLo), 8)).toBe(48);
+    expect(maxSeatsForVariant(GameVariant.Omaha5HiLo)).toBe(8);
   });
 });
