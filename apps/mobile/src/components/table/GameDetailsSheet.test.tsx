@@ -54,6 +54,13 @@ describe('GameDetailsSheet', () => {
     expect(screen.getByText('Pot-Limit Omaha')).toBeTruthy();
   });
 
+  it('labels a Big O table', () => {
+    render(
+      <GameDetailsSheet visible view={view({ gameType: 'OMAHA5_HILO' })} onClose={jest.fn()} />,
+    );
+    expect(screen.getByText('Big O (Hi-Lo)')).toBeTruthy();
+  });
+
   it('closes on the ✕ button', () => {
     const onClose = jest.fn();
     render(<GameDetailsSheet visible view={view()} onClose={onClose} />);

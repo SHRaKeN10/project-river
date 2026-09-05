@@ -9,6 +9,8 @@ export function variantForGameType(gameType: string): GameVariant {
   switch (gameType) {
     case 'PLO':
       return GameVariant.Omaha;
+    case 'OMAHA5_HILO':
+      return GameVariant.Omaha5HiLo;
     case 'NLHE':
     default:
       return GameVariant.Holdem;

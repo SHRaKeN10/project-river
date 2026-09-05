@@ -34,6 +34,9 @@ enum PokerGameType {
   /// Pot-Limit Omaha - four hole cards, exactly two play. Maps to the engine's
   /// GameVariant.Omaha (see apps/api/src/tables/game-variant.ts).
   PLO
+  /// "Big O" - five-card Pot-Limit Omaha, eight-or-better hi/lo split. Maps to
+  /// GameVariant.Omaha5HiLo. Fits at most eight seats (5 hole cards per deck).
+  OMAHA5_HILO
 }
 
 enum PokerTableStatus {

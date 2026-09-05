@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import type { LobbyTableView } from '@river/shared-types';
+import { GAME_TYPE_TAG, type GameType, type LobbyTableView } from '@river/shared-types';
 import { Button, Card, Tag } from '../../components';
 import { colors, spacing, typography } from '../../theme/tokens';
 
@@ -29,7 +29,9 @@ function LobbyTableCardBase({
             {table.name}
           </Text>
           <Text style={styles.stakes}>
-            {table.gameType === 'PLO' ? 'PLO · ' : ''}
+            {GAME_TYPE_TAG[table.gameType as GameType]
+              ? `${GAME_TYPE_TAG[table.gameType as GameType]} · `
+              : ''}
             {table.smallBlind}/{table.bigBlind}
             {table.ante > 0 ? ` · ante ${table.ante}` : ''} · {table.maxSeats}-max
             {table.timeChargeAmount > 0

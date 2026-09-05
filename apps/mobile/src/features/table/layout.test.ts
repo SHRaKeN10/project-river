@@ -143,6 +143,35 @@ describe('describeEvent', () => {
     );
   });
 
+  it('labels the high and low halves of a split pot', () => {
+    expect(
+      describeEvent(
+        { type: 'POT_AWARDED', portion: 'HIGH', winners: [{ seat: 1, amount: 150 }] },
+        name,
+      ),
+    ).toBe('High pot to P1 150');
+    expect(
+      describeEvent(
+        { type: 'POT_AWARDED', portion: 'LOW', winners: [{ seat: 2, amount: 150 }] },
+        name,
+      ),
+    ).toBe('Low pot to P2 150');
+  });
+
+  it('shows a revealed low alongside the high', () => {
+    expect(
+      describeEvent(
+        {
+          type: 'HAND_REVEALED',
+          seat: 0,
+          hand: { description: 'Two Pair, Aces and Twos' },
+          low: { description: '7-5-3-2-A low' },
+        },
+        name,
+      ),
+    ).toBe('P0 shows Two Pair, Aces and Twos (low: 7-5-3-2-A low)');
+  });
+
   it('returns null for events with no feed line', () => {
     expect(describeEvent({ type: 'SHOWDOWN_STARTED' }, name)).toBeNull();
   });
