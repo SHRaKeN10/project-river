@@ -111,20 +111,15 @@ describe('useTable', () => {
     await waitFor(() => expect(result.current.feed.at(-1)?.text).toBe('Me folds'));
   });
 
-  it('turns a time-charge event into a feed line and tallies the session total', async () => {
+  it('turns a time-charge event into a feed line', async () => {
     const { result } = renderHook(() => useTable('t-1'));
     act(() => mockFake.server('table:state', view()));
     act(() => mockFake.server('table:timeCharge', { tableId: 't-1', seatNumber: 0, amount: 5 }));
     await waitFor(() => expect(result.current.feed.at(-1)?.text).toBe('Table fee: -5'));
-    expect(result.current.sessionFeesPaid).toBe(5);
-
-    act(() => mockFake.server('table:timeCharge', { tableId: 't-1', seatNumber: 0, amount: 5 }));
-    await waitFor(() => expect(result.current.sessionFeesPaid).toBe(10));
 
     // a charge for a different table is ignored
     act(() => mockFake.server('table:timeCharge', { tableId: 'other', seatNumber: 0, amount: 9 }));
     expect(result.current.feed.at(-1)?.text).toBe('Table fee: -5');
-    expect(result.current.sessionFeesPaid).toBe(10);
   });
 
   it('surfaces and clears socket errors', async () => {

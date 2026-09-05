@@ -5,20 +5,17 @@ interface Props {
   /** Chips taken per interval, straight from the table config. */
   amount: number;
   intervalMs: number;
-  /** Total charged to the viewer at this table so far this session, if seated. */
-  paid?: number;
 }
 
-/** A static billing-rate label ("Table fee: 63 / 15 min · paid 126") - the
- * membership-club model Texas card rooms like Texas Card House/Hijack use
- * instead of a pot rake. Deliberately static: no per-seat countdown to the
- * next charge. */
-export function TimeChargeBadge({ amount, intervalMs, paid }: Props): JSX.Element {
+/** A static billing-rate label ("Table fee: 63 / 15 min") - the membership-
+ * club model Texas card rooms like Texas Card House/Hijack use instead of a
+ * pot rake. Deliberately static: no countdown to the next charge, and no
+ * running total of what's been paid. */
+export function TimeChargeBadge({ amount, intervalMs }: Props): JSX.Element {
   const minutes = Math.round(intervalMs / 60_000);
   return (
     <Text style={styles.text}>
       Table fee: {amount} / {minutes} min
-      {paid ? ` · paid ${paid}` : ''}
     </Text>
   );
 }
