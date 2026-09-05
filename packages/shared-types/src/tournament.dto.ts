@@ -24,10 +24,11 @@ export const createTournamentSchema = z.object({
 });
 export type CreateTournamentInput = z.infer<typeof createTournamentSchema>;
 
-/** Pre-start lifecycle transitions. RUNNING / PAUSED / FINISHED are driven by
- * the tournament runner, not this endpoint. */
+/** Admin lifecycle transitions. `REGISTERING` opens sign-ups pre-start;
+ * `RUNNING` draws seats and starts the clock; `CANCELLED` refunds every
+ * entrant. `PAUSED` / `FINISHED` are driven by the runner, not this endpoint. */
 export const setTournamentStatusSchema = z.object({
-  status: z.enum(['REGISTERING', 'CANCELLED']),
+  status: z.enum(['REGISTERING', 'RUNNING', 'CANCELLED']),
 });
 
 export interface TournamentEntryView {
