@@ -88,11 +88,12 @@ function fakeChips() {
   };
 }
 
+/** Let the coordinator's async tail (persist + balance + finish check) settle.
+ * Its awaits are all on already-resolved promises, so one macrotask tick after
+ * the microtask queue drains is enough. */
 const flush = async (): Promise<void> => {
-  for (let round = 0; round < 3; round += 1) {
-    for (let i = 0; i < 40; i += 1) await Promise.resolve();
-    await new Promise((r) => setImmediate(r));
-  }
+  await new Promise((r) => setImmediate(r));
+  await new Promise((r) => setImmediate(r));
 };
 
 const callStation = (s: GameState, seat: number): PlayerAction => {
@@ -172,7 +173,7 @@ async function runToCompletion(
   onStep?: () => void,
 ): Promise<void> {
   let seq = 0;
-  for (let step = 0; step < 60_000 && runner.running; step += 1) {
+  for (let step = 0; step < 250_000 && runner.running; step += 1) {
     let acted = false;
     for (const { state: s } of runner.tableStates()) {
       const live = s.street !== Street.Waiting && s.street !== Street.Complete;
@@ -420,6 +421,51 @@ describe('TournamentRunner', () => {
       expect(paid[i]!.payout).toBeLessThanOrEqual(paid[i - 1]!.payout);
     }
   }, 30_000);
+
+  it('runs a 200-player, 23-table field to a single winner with the full payout ladder', async () => {
+    const row = makeRow({ entrants: 200, seatsPerTable: 9, startingStack: 150 });
+    const { runner, timers, chips } = makeRunner(row, 200);
+    await runner.start();
+    expect(runner.tableCount).toBe(23); // ceil(200 / 9)
+    // even split: 200 = 16*9 + 7*8
+    const startSeats = runner.tableSeatCounts().sort((a, b) => a - b);
+    expect(startSeats.filter((c) => c === 8)).toHaveLength(7);
+    expect(startSeats.filter((c) => c === 9)).toHaveLength(16);
+    expect(startSeats.reduce((a, b) => a + b, 0)).toBe(200);
+
+    let sawFinalTable = false;
+    await runToCompletion(
+      runner,
+      timers,
+      () => allIn(),
+      () => {
+        if (runner.running) {
+          if (runner.tableCount === 1) sawFinalTable = true;
+          expect([...runner.stacks().values()].reduce((a, b) => a + b, 0)).toBe(30_000);
+          for (const c of runner.tableSeatCounts()) expect(c).toBeLessThanOrEqual(9);
+          // tables only ever shrink in number
+          expect(runner.tableCount).toBeLessThanOrEqual(23);
+        }
+      },
+    );
+
+    expect(row.status).toBe('FINISHED');
+    expect(sawFinalTable).toBe(true);
+
+    const positions = row.entries.map((e) => e.finishPosition).sort((a, b) => (a ?? 0) - (b ?? 0));
+    expect(positions).toEqual(Array.from({ length: 200 }, (_, i) => i + 1));
+    expect(row.entries.find((e) => e.finishPosition === 1)?.stack).toBe(30_000);
+
+    // placesPaid(200) === 24; the whole 20000 pool is split, non-increasing
+    const results = row.resultsJson as { position: number; payout: number }[];
+    const paid = results.filter((r) => r.payout > 0);
+    expect(paid).toHaveLength(24);
+    expect(paid.reduce((a, r) => a + r.payout, 0)).toBe(20_000);
+    for (let i = 1; i < paid.length; i += 1) {
+      expect(paid[i]!.payout).toBeLessThanOrEqual(paid[i - 1]!.payout);
+    }
+    expect(chips.moves.filter((m) => m.reason === 'TOURNAMENT_PAYOUT')).toHaveLength(24);
+  }, 60_000);
 
   it('refuses a heads-up multi-table field', async () => {
     const row = makeRow({ entrants: 3, seatsPerTable: 2 });
