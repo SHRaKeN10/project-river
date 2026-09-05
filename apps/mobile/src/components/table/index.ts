@@ -5,3 +5,4 @@ export { ActionBar } from './ActionBar';
 export { BuyInSheet } from './BuyInSheet';
 export { TurnTimer } from './TurnTimer';
 export { GameDetailsSheet } from './GameDetailsSheet';
+export { TableMenuSheet } from './TableMenuSheet';

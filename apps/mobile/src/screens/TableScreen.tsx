@@ -8,6 +8,7 @@ import {
   CommunityBoard,
   GameDetailsSheet,
   SeatPod,
+  TableMenuSheet,
 } from '../components/table';
 import { useChips, useRebuy } from '../features/api/queries';
 import {
@@ -34,6 +35,7 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
 
   const [buyInSeat, setBuyInSeat] = useState<number | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
   // Standing up is handled by useTable's unmount cleanup, so every exit path
@@ -97,8 +99,13 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
   return (
     <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
       <View style={styles.header}>
-        <Pressable onPress={goBack} hitSlop={10} accessibilityRole="button">
-          <Text style={styles.link}>‹ Lobby</Text>
+        <Pressable
+          onPress={() => setMenuOpen(true)}
+          hitSlop={10}
+          accessibilityRole="button"
+          accessibilityLabel="Table menu"
+        >
+          <Text style={styles.menuIcon}>☰</Text>
         </Pressable>
         <Pressable
           style={styles.headerCenter}
@@ -114,17 +121,7 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
             {!connected ? ' · offline' : ''}
           </Text>
         </Pressable>
-        {hero ? (
-          <Pressable
-            onPress={() => toggleSitOut(hero.status !== 'SITTING_OUT')}
-            hitSlop={10}
-            accessibilityRole="button"
-          >
-            <Text style={styles.link}>{hero.status === 'SITTING_OUT' ? 'Sit in' : 'Sit out'}</Text>
-          </Pressable>
-        ) : (
-          <View style={styles.headerSpacer} />
-        )}
+        <View style={styles.headerSpacer} />
       </View>
 
       {error ? (
@@ -220,6 +217,15 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
       />
 
       <GameDetailsSheet visible={detailsOpen} view={view} onClose={() => setDetailsOpen(false)} />
+
+      <TableMenuSheet
+        visible={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        onGameDetails={() => setDetailsOpen(true)}
+        onLeave={goBack}
+        sittingOut={hero ? hero.status === 'SITTING_OUT' : null}
+        onToggleSitOut={toggleSitOut}
+      />
     </SafeAreaView>
   );
 }
@@ -242,7 +248,8 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
   },
   headerCenter: { flex: 1, alignItems: 'center' },
-  headerSpacer: { width: 44 },
+  headerSpacer: { width: 28 },
+  menuIcon: { ...typography.h2, color: colors.accent, width: 28 },
   tableName: { ...typography.h3, color: colors.textPrimary },
   stakes: { ...typography.caption, color: colors.textSecondary },
   link: { ...typography.label, color: colors.accent },
