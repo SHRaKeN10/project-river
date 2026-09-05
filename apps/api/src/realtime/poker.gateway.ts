@@ -424,11 +424,18 @@ export class PokerGateway
         return;
       }
       case 'timeCharge': {
-        this.server.to(ROOM(tableId)).emit(ServerToClient.TIME_CHARGE, {
-          tableId,
-          seatNumber: notification.seatNumber,
-          amount: notification.amount,
-        });
+        // Private to the charged player - what they're billed isn't table
+        // chat, nobody else at the table should see it.
+        for (const s of sockets) {
+          const user = (s.data as { user?: { userId: string } }).user;
+          if (user?.userId === notification.userId) {
+            s.emit(ServerToClient.TIME_CHARGE, {
+              tableId,
+              seatNumber: notification.seatNumber,
+              amount: notification.amount,
+            });
+          }
+        }
         return;
       }
       case 'handComplete':

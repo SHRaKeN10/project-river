@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { Injectable, Logger, NotFoundException, OnModuleDestroy } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { ChipMovementReason, Prisma } from '@prisma/client';
 import {
   CryptoRandomProvider,
   createTableConfig,
   type GameState,
   type PreviousPositions,
 } from '@river/poker-engine';
+import { ChipsService } from '../chips/chips.service';
 import { AppConfigService } from '../config/app-config.service';
 import { PrismaService } from '../infra/prisma/prisma.service';
 import { RedisService } from '../infra/redis/redis.service';
@@ -61,6 +62,7 @@ export class TableManager implements OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly config: AppConfigService,
+    private readonly chips: ChipsService,
   ) {}
 
   onModuleDestroy(): void {
@@ -274,6 +276,21 @@ export class TableManager implements OnModuleDestroy {
           })
           .catch((err) =>
             this.logger.warn(`recordHand ${tableId}#${hand.handNumber}: ${(err as Error).message}`),
+          );
+      },
+      chargeAccount: ({ userId, amount, idemKey }) => {
+        void this.chips
+          .move({
+            userId,
+            amount: -amount,
+            reason: ChipMovementReason.TABLE_TIME_CHARGE,
+            idemKey,
+            tableId,
+          })
+          .catch((err) =>
+            this.logger.warn(
+              `time charge ${userId} (-${amount}) at ${tableId}: ${(err as Error).message}`,
+            ),
           );
       },
     });

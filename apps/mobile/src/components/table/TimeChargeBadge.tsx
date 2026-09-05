@@ -1,34 +1,20 @@
-import { useEffect, useState } from 'react';
 import { StyleSheet, Text } from 'react-native';
 import { colors, typography } from '../../theme/tokens';
 
 interface Props {
-  /** Chips taken per interval - just for display, the server owns the charge itself. */
+  /** Chips taken per interval, straight from the table config. */
   amount: number;
-  /** Epoch millis of this seat's next charge. */
-  nextChargeAt: number;
+  intervalMs: number;
 }
 
-/** The membership-club billing readout ("Table fee 5 in 12:34") that stands in
- * for a pot rake - mirrors how Texas card rooms like Texas Card House/Hijack
- * bill by time instead of taking a cut of the pot. */
-export function TimeChargeBadge({ amount, nextChargeAt }: Props): JSX.Element {
-  const [remainingMs, setRemainingMs] = useState(() => Math.max(0, nextChargeAt - Date.now()));
-
-  useEffect(() => {
-    const tick = (): void => setRemainingMs(Math.max(0, nextChargeAt - Date.now()));
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [nextChargeAt]);
-
-  const totalSeconds = Math.ceil(remainingMs / 1000);
-  const mm = Math.floor(totalSeconds / 60);
-  const ss = totalSeconds % 60;
-
+/** A static billing-rate label ("Table fee: 63 / 15 min") - the membership-
+ * club model Texas card rooms like Texas Card House/Hijack use instead of a
+ * pot rake. Deliberately static: no per-seat countdown to the next charge. */
+export function TimeChargeBadge({ amount, intervalMs }: Props): JSX.Element {
+  const minutes = Math.round(intervalMs / 60_000);
   return (
     <Text style={styles.text}>
-      Table fee {amount} in {mm}:{ss.toString().padStart(2, '0')}
+      Table fee: {amount} / {minutes} min
     </Text>
   );
 }

@@ -60,6 +60,7 @@ function harness(seed = 7, metaOverrides: Partial<TableMeta> = {}) {
   const notifications: RunnerNotification[] = [];
   const vacated: { userId: string; seatNumber: number; stack: number; idemKey: string }[] = [];
   const hands: CompletedHand[] = [];
+  const charged: { userId: string; seatNumber: number; amount: number; idemKey: string }[] = [];
   const timers = new FakeTimers();
   const clock = { ms: 1_000_000 };
   const advance = (ms: number): void => {
@@ -82,6 +83,7 @@ function harness(seed = 7, metaOverrides: Partial<TableMeta> = {}) {
     onSeatVacated: (v) => vacated.push(v),
     recordHandStats: () => undefined,
     recordHand: (h) => hands.push(h),
+    chargeAccount: (c) => charged.push(c),
   };
   const runner = new TableRunner(
     { ...meta, ...metaOverrides },
@@ -113,6 +115,7 @@ function harness(seed = 7, metaOverrides: Partial<TableMeta> = {}) {
     notifications,
     vacated,
     hands,
+    charged,
     timers,
     advance,
     join,
@@ -524,7 +527,7 @@ describe('TableRunner - closed-alpha regressions', () => {
     expect(h.runner.seatOf('cara')).toBeNull(); // still eventually removed
   });
 
-  it('charges each seated player after a hand once the time-charge interval has elapsed', () => {
+  it('bills the wallet (not the stack) once the time-charge interval has elapsed', () => {
     const h = harness(7, { timeChargeAmount: 5, timeChargeIntervalMs: 1000 });
     h.join('alice', 0);
     h.join('bob', 1);
@@ -541,13 +544,16 @@ describe('TableRunner - closed-alpha regressions', () => {
     const charges = h.timeCharges();
     expect(charges).toHaveLength(2); // one per seated player, win or lose
     expect(charges.every((c) => c.amount === 5)).toBe(true);
-    // the fold moved the blind between the two (2000 total, zero-sum); the
-    // two 5-chip time charges then leave the table entirely (see the comment
-    // on applyTimeCharges) - so the total is down by exactly 10, not 0.
-    expect(h.rosterTotal()).toBe(2000 - 10);
+    expect(h.charged).toHaveLength(2);
+    expect(h.charged.every((c) => c.amount === 5 && c.idemKey.startsWith('timecharge:'))).toBe(
+      true,
+    );
+    // the fold moved the blind between the two - the table's own stack total
+    // is untouched by the charge, because it's billed against the wallet.
+    expect(h.rosterTotal()).toBe(2000);
   });
 
-  it('stands a player up when a time charge exceeds their remaining stack', () => {
+  it('never touches a seat or stack, even for a charge bigger than any stack', () => {
     const h = harness(7, { timeChargeAmount: 999_999, timeChargeIntervalMs: 1000 });
     h.join('alice', 0);
     h.join('bob', 1);
@@ -561,16 +567,53 @@ describe('TableRunner - closed-alpha regressions', () => {
     h.advance(1000);
     h.runner.submitAction(actingUser, state.handId, 1, fold());
 
-    // Neither seat could cover a charge that big - both are stood up, each
-    // charged only what they actually had (never negative, never a top-up).
-    expect(h.runner.rosterEntries.size).toBe(0);
-    expect(h.vacated).toHaveLength(2);
-    expect(h.vacated.every((v) => v.stack === 0 && v.idemKey.startsWith('timecharge:'))).toBe(true);
-    expect(
-      h.notifications.filter((n) => n.kind === 'rejected' && n.code === 'TIME_CHARGE_BUSTED'),
-    ).toHaveLength(2);
-    const totalCharged = h.timeCharges().reduce((t, c) => t + c.amount, 0);
-    expect(totalCharged).toBe(2000); // every remaining chip went to the charge, none minted
+    // The runner never learns whether chargeAccount actually succeeded (it's
+    // fire-and-forget against the wallet), so it can't and doesn't act on an
+    // oversized charge - both seats stay exactly as the hand left them.
+    expect(h.runner.rosterEntries.size).toBe(2);
+    expect(h.vacated).toHaveLength(0);
+    expect(h.rosterTotal()).toBe(2000);
+    expect(h.charged).toHaveLength(2);
+    expect(h.charged.every((c) => c.amount === 999_999)).toBe(true);
+  });
+
+  it('catches up on several missed intervals at once for an idle table', () => {
+    const h = harness(7, { timeChargeAmount: 5, timeChargeIntervalMs: 1000 });
+    h.join('alice', 0);
+    h.join('bob', 1);
+    h.timers.runPending();
+
+    const state = h.runner.gameState;
+    const actingUser = [...h.runner.rosterEntries.entries()].find(
+      ([seat]) => seat === state.actingSeat,
+    )![1].userId;
+
+    h.advance(3_000); // three intervals elapsed before this hand settles
+    h.runner.submitAction(actingUser, state.handId, 1, fold());
+
+    // 2 seats x 3 owed intervals = 6 charges, each with its own idemKey.
+    expect(h.charged).toHaveLength(6);
+    expect(new Set(h.charged.map((c) => c.idemKey)).size).toBe(6);
+  });
+
+  it('pauses the time-charge clock while a seat sits out', () => {
+    const h = harness(7, { timeChargeAmount: 5, timeChargeIntervalMs: 1000 });
+    h.join('alice', 0);
+    h.join('bob', 1);
+    h.timers.runPending();
+    h.runner.setSittingOut('bob', true);
+
+    const state = h.runner.gameState;
+    const actingUser = [...h.runner.rosterEntries.entries()].find(
+      ([seat]) => seat === state.actingSeat,
+    )![1].userId;
+
+    h.advance(1000);
+    h.runner.submitAction(actingUser, state.handId, 1, fold());
+
+    // alice is charged for the elapsed interval; bob, sitting out the whole
+    // time, isn't.
+    expect(h.charged.map((c) => c.userId)).toEqual(['alice']);
   });
 
   it('frees a pending-leave seat (crediting the stack) when the table cannot start a hand', () => {
