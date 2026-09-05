@@ -380,6 +380,47 @@ describe('TournamentRunner', () => {
     expect(chips.moves.filter((m) => m.reason === 'TOURNAMENT_PAYOUT')).toHaveLength(4);
   });
 
+  it('scales to ten full nine-handed tables (90 entrants) and resolves to one winner', async () => {
+    const row = makeRow({ entrants: 90, seatsPerTable: 9, startingStack: 200 });
+    const { runner, timers, chips } = makeRunner(row, 90);
+    await runner.start();
+    expect(runner.tableCount).toBe(10);
+    expect(runner.tableSeatCounts()).toEqual(Array.from({ length: 10 }, () => 9));
+
+    const seenCounts = new Set<number>();
+    await runToCompletion(
+      runner,
+      timers,
+      () => allIn(),
+      () => {
+        if (runner.running) {
+          seenCounts.add(runner.tableCount);
+          expect([...runner.stacks().values()].reduce((a, b) => a + b, 0)).toBe(18_000);
+          for (const c of runner.tableSeatCounts()) expect(c).toBeLessThanOrEqual(9);
+        }
+      },
+    );
+
+    expect(row.status).toBe('FINISHED');
+    expect(seenCounts.has(10)).toBe(true);
+    expect(seenCounts.has(1)).toBe(true);
+
+    const positions = row.entries.map((e) => e.finishPosition).sort((a, b) => (a ?? 0) - (b ?? 0));
+    expect(positions).toEqual(Array.from({ length: 90 }, (_, i) => i + 1));
+    expect(row.entries.find((e) => e.finishPosition === 1)?.stack).toBe(18_000);
+
+    // placesPaid(90) === 11; the pool (9000) is split among them
+    const results = row.resultsJson as { position: number; payout: number }[];
+    const paid = results.filter((r) => r.payout > 0);
+    expect(paid).toHaveLength(11);
+    expect(paid.reduce((a, r) => a + r.payout, 0)).toBe(9000);
+    expect(chips.moves.filter((m) => m.reason === 'TOURNAMENT_PAYOUT')).toHaveLength(11);
+    // non-increasing ladder
+    for (let i = 1; i < paid.length; i += 1) {
+      expect(paid[i]!.payout).toBeLessThanOrEqual(paid[i - 1]!.payout);
+    }
+  }, 30_000);
+
   it('refuses a heads-up multi-table field', async () => {
     const row = makeRow({ entrants: 3, seatsPerTable: 2 });
     const { runner } = makeRunner(row, 1);
