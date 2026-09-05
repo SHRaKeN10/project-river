@@ -8,6 +8,9 @@ interface Props {
   bigBlind: number;
   pot: number;
   currentBet: number;
+  /** Pot-Limit table: the raise ceiling IS the pot, so "Pot" and "Max" are the
+   * same chip - show just one, and make it exact. */
+  potLimit?: boolean;
   busy?: boolean;
   onAct: (action: WirePlayerAction) => void;
 }
@@ -16,7 +19,15 @@ function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, Math.round(n)));
 }
 
-export function ActionBar({ options, bigBlind, pot, currentBet, busy, onAct }: Props): JSX.Element {
+export function ActionBar({
+  options,
+  bigBlind,
+  pot,
+  currentBet,
+  potLimit,
+  busy,
+  onAct,
+}: Props): JSX.Element {
   const fold = options.find((o) => o.kind === 'FOLD');
   const check = options.find((o) => o.kind === 'CHECK');
   const call = options.find((o) => o.kind === 'CALL');
@@ -42,13 +53,20 @@ export function ActionBar({ options, bigBlind, pot, currentBet, busy, onAct }: P
     range ? clamp(currentBet + f * (pot + callTo), range.min, range.max) : 0;
 
   if (sizing && range) {
-    const presets: { label: string; value: number }[] = [
-      { label: 'Min', value: range.min },
-      { label: '½', value: fraction(0.5) },
-      { label: '¾', value: fraction(0.75) },
-      { label: 'Pot', value: fraction(1) },
-      { label: 'Max', value: range.max },
-    ];
+    const presets: { label: string; value: number }[] = potLimit
+      ? [
+          { label: 'Min', value: range.min },
+          { label: '½', value: fraction(0.5) },
+          { label: '¾', value: fraction(0.75) },
+          { label: 'Pot', value: range.max },
+        ]
+      : [
+          { label: 'Min', value: range.min },
+          { label: '½', value: fraction(0.5) },
+          { label: '¾', value: fraction(0.75) },
+          { label: 'Pot', value: fraction(1) },
+          { label: 'Max', value: range.max },
+        ];
     return (
       <View style={styles.bar}>
         <View style={styles.sizingHeader}>

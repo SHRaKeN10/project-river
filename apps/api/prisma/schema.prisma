@@ -31,6 +31,9 @@ enum VerificationPurpose {
 
 enum PokerGameType {
   NLHE
+  /// Pot-Limit Omaha - four hole cards, exactly two play. Maps to the engine's
+  /// GameVariant.Omaha (see apps/api/src/tables/game-variant.ts).
+  PLO
 }
 
 enum PokerTableStatus {

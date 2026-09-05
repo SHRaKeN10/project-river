@@ -44,6 +44,16 @@ describe('GameDetailsSheet', () => {
     expect(screen.queryByText('Fees / interval')).toBeNull();
   });
 
+  it('spells out the game type', () => {
+    render(<GameDetailsSheet visible view={view()} onClose={jest.fn()} />);
+    expect(screen.getByText("No-Limit Hold'em")).toBeTruthy();
+  });
+
+  it('labels a Pot-Limit Omaha table', () => {
+    render(<GameDetailsSheet visible view={view({ gameType: 'PLO' })} onClose={jest.fn()} />);
+    expect(screen.getByText('Pot-Limit Omaha')).toBeTruthy();
+  });
+
   it('closes on the ✕ button', () => {
     const onClose = jest.fn();
     render(<GameDetailsSheet visible view={view()} onClose={onClose} />);

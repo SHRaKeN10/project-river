@@ -74,10 +74,16 @@ describe('PokerGateway (e2e)', () => {
 
   /** A fresh isolated table so a regression test never collides with others. */
   const makeTable = async (
-    over: Partial<{ maxSeats: number; minBuyIn: number; maxBuyIn: number }> = {},
+    over: Partial<{
+      maxSeats: number;
+      minBuyIn: number;
+      maxBuyIn: number;
+      gameType: 'NLHE' | 'PLO';
+    }> = {},
   ) => {
     const t = await app.get(TablesService).create({
       name: `e2e ${suffix} ${extraTableIds.length}`,
+      gameType: over.gameType ?? 'NLHE',
       smallBlind: 10,
       bigBlind: 20,
       maxSeats: over.maxSeats ?? 3,
@@ -233,6 +239,70 @@ describe('PokerGateway (e2e)', () => {
       select: { playChips: true },
     });
     for (const u of users) expect(u.playChips).toBe(9000); // 10000 grant - 1000 buy-in
+  }, 25000);
+
+  it('runs a Pot-Limit Omaha table: four hole cards, bet sizing capped at the pot', async () => {
+    const ploTable = await makeTable({ gameType: 'PLO', maxSeats: 2 });
+    const seen: any[] = [];
+    let seq = 0;
+
+    // Each client calls/checks, and every state is recorded for the assertions.
+    const drive = (socket: Socket) => {
+      const actedOn = new Set<string>();
+      socket.on('table:state', (state: any) => {
+        seen.push(state);
+        if (!state.handId || state.actingSeat !== state.youAreSeat) return;
+        if (!state.legalActions?.length) return;
+        const key = `${state.handId}:${state.actingSeat}:${state.currentBet}:${state.street}`;
+        if (actedOn.has(key)) return;
+        actedOn.add(key);
+        const kinds = state.legalActions.map((o: any) => o.kind);
+        const pick = kinds.includes('CHECK') ? 'CHECK' : kinds.includes('CALL') ? 'CALL' : 'FOLD';
+        socket.emit('player:action', {
+          tableId: ploTable,
+          handId: state.handId,
+          clientSeq: (seq += 1),
+          action: { type: pick },
+        });
+      });
+    };
+
+    const sA = await connect(tokens[0]!);
+    const sB = await connect(tokens[1]!);
+    drive(sA);
+    drive(sB);
+
+    const endA = waitFor(sA, 'hand:end', 25000);
+    const endB = waitFor(sB, 'hand:end', 25000);
+    await emitAck(sA, 'table:join', { tableId: ploTable, seatNumber: 0, buyIn: 2000 });
+    await emitAck(sB, 'table:join', { tableId: ploTable, seatNumber: 1, buyIn: 2000 });
+    await Promise.all([endA, endB]);
+
+    // the hero always holds exactly four cards; nobody ever holds more
+    const heroCardStates = seen.filter(
+      (s) =>
+        s.handId &&
+        s.street !== 'COMPLETE' &&
+        s.seats.some((seat: any) => seat.seatNumber === s.youAreSeat && seat.holeCards),
+    );
+    expect(heroCardStates.length).toBeGreaterThan(0);
+    for (const s of heroCardStates) {
+      const hero = s.seats.find((seat: any) => seat.seatNumber === s.youAreSeat);
+      expect(hero.holeCards).toHaveLength(4);
+    }
+
+    // every RAISE the server offered was capped at the pot-limit maximum:
+    // currentBet + pot + the amount owed
+    const raiseBounds = seen
+      .filter((s) => s.handId && s.actingSeat === s.youAreSeat && s.legalActions)
+      .flatMap((s) => {
+        const raise = s.legalActions.find((o: any) => o.kind === 'RAISE' || o.kind === 'BET');
+        if (!raise || raise.max === undefined) return [];
+        const owed = s.legalActions.find((o: any) => o.kind === 'CALL')?.callAmount ?? 0;
+        return [{ max: raise.max, cap: s.currentBet + s.pot + owed }];
+      });
+    expect(raiseBounds.length).toBeGreaterThan(0);
+    for (const b of raiseBounds) expect(b.max).toBe(b.cap);
   }, 25000);
 
   // --- regression: closed-alpha audit ------------------------------------

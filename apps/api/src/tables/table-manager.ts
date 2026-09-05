@@ -11,6 +11,7 @@ import { ChipsService } from '../chips/chips.service';
 import { AppConfigService } from '../config/app-config.service';
 import { PrismaService } from '../infra/prisma/prisma.service';
 import { RedisService } from '../infra/redis/redis.service';
+import { variantForGameType } from './game-variant';
 import { type RunnerNotification, TableRunner, realTimers } from './table-runner';
 import type { TableMeta } from './table-projection';
 import { TablesService } from './tables.service';
@@ -202,6 +203,7 @@ export class TableManager implements OnModuleDestroy {
       timeChargeIntervalMs: table.timeChargeIntervalMs,
     };
     const engineConfig = createTableConfig({
+      variant: variantForGameType(table.gameType),
       smallBlind: table.smallBlind,
       bigBlind: table.bigBlind,
       ante: table.ante,

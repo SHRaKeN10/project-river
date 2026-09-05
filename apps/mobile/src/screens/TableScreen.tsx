@@ -172,6 +172,7 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
                 isButton={seat.seatNumber === view.buttonSeat}
                 actionDeadline={view.actionDeadline}
                 width={podW}
+                holeCardCount={view.gameType === 'PLO' ? 4 : 2}
                 onSit={onSit}
               />
             </View>
@@ -186,6 +187,7 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
             bigBlind={view.bigBlind}
             pot={view.pot}
             currentBet={hero?.currentBet ?? 0}
+            potLimit={view.gameType === 'PLO'}
             busy={busy}
             onAct={onAct}
           />

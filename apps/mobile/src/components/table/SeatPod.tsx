@@ -13,6 +13,9 @@ interface Props {
   actionDeadline: number | null;
   /** Pod width in px (narrow screens shrink it). Defaults to the full size. */
   width?: number;
+  /** Face-down cards to draw for a seat still in the hand: 2 for Hold'em
+   * (default), 4 for Omaha. */
+  holeCardCount?: number;
   /** Called when an empty seat is tapped. */
   onSit?: (seatNumber: number) => void;
 }
@@ -29,6 +32,7 @@ function SeatPodBase({
   isButton,
   actionDeadline,
   width,
+  holeCardCount = 2,
   onSit,
 }: Props): JSX.Element {
   const sizeStyle = width ? { width } : null;
@@ -77,13 +81,21 @@ function SeatPodBase({
       {showCards ? (
         <View style={styles.cards}>
           {seat.holeCards?.map((c, i) => (
-            <PlayingCard key={i} card={c} size="sm" />
+            <View
+              key={i}
+              style={i > 0 && (seat.holeCards?.length ?? 0) > 3 ? styles.cardTuck : null}
+            >
+              <PlayingCard card={c} size="sm" />
+            </View>
           ))}
         </View>
       ) : seat.status === 'ACTIVE' || seat.status === 'ALL_IN' ? (
         <View style={styles.cards}>
-          <PlayingCard size="sm" />
-          <PlayingCard size="sm" />
+          {Array.from({ length: holeCardCount }, (_, i) => (
+            <View key={i} style={i > 0 && holeCardCount > 3 ? styles.cardTuck : null}>
+              <PlayingCard size="sm" />
+            </View>
+          ))}
         </View>
       ) : null}
 
@@ -146,6 +158,8 @@ const styles = StyleSheet.create({
   },
   buttonText: { fontSize: 10, fontWeight: '800', color: colors.bg },
   cards: { flexDirection: 'row', gap: 3 },
+  // Omaha's four cards overlap so the row still fits a narrow pod.
+  cardTuck: { marginLeft: -12 },
   bet: {
     alignSelf: 'flex-start',
     backgroundColor: '#00000055',

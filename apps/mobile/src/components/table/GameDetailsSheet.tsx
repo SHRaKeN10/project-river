@@ -1,6 +1,10 @@
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import type { TableStateView } from '@river/shared-types';
+import { GAME_TYPE_LABEL, GameType, type TableStateView } from '@river/shared-types';
 import { colors, radius, spacing, typography } from '../../theme/tokens';
+
+function gameLabel(gameType: string): string {
+  return GAME_TYPE_LABEL[gameType as GameType] ?? gameType;
+}
 
 interface Props {
   visible: boolean;
@@ -12,7 +16,7 @@ interface Props {
  * time charge ("Fees / interval") lives here, not on the table itself. */
 export function GameDetailsSheet({ visible, view, onClose }: Props): JSX.Element {
   const rows: [string, string][] = [
-    ['Game', view.gameType],
+    ['Game', gameLabel(view.gameType)],
     ['Stakes', `${view.smallBlind}/${view.bigBlind}`],
     ['Buy-in', `${view.minBuyIn.toLocaleString()}–${view.maxBuyIn.toLocaleString()}`],
     ['Max players', String(view.maxSeats)],

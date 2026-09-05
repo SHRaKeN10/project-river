@@ -55,4 +55,25 @@ describe('ActionBar', () => {
     fireEvent.press(screen.getByText('Pot')); // pot-size would exceed 50
     expect(screen.getByText('Bet to 50')).toBeTruthy();
   });
+
+  it('on a pot-limit table, "Pot" is the exact ceiling and there is no separate "Max"', () => {
+    render(
+      <ActionBar
+        options={[
+          { kind: 'FOLD' },
+          { kind: 'CALL', callAmount: 20 },
+          { kind: 'RAISE', min: 60, max: 240 },
+        ]}
+        bigBlind={10}
+        pot={100}
+        currentBet={0}
+        potLimit
+        onAct={jest.fn()}
+      />,
+    );
+    fireEvent.press(screen.getByText('Raise'));
+    expect(screen.queryByText('Max')).toBeNull();
+    fireEvent.press(screen.getByText('Pot'));
+    expect(screen.getByText('Raise to 240')).toBeTruthy();
+  });
 });

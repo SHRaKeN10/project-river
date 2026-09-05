@@ -12,6 +12,7 @@ import {
 import { UserRole } from '@river/shared-types';
 import type { RequestUser } from '../common/decorators/current-user.decorator';
 import { PrismaService } from '../infra/prisma/prisma.service';
+import { variantForGameType } from '../tables/game-variant';
 
 interface HandSeat {
   seat: number;
@@ -110,6 +111,7 @@ export class HandsService {
     return replayHand({
       tableId: hand.tableId,
       config: createTableConfig({
+        variant: variantForGameType(table.gameType),
         smallBlind: table.smallBlind,
         bigBlind: table.bigBlind,
         ante: table.ante,

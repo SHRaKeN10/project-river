@@ -14,6 +14,9 @@ const LADDER = [
   { name: 'Silver Stakes', smallBlind: 10, bigBlind: 20, maxSeats: 6 },
   { name: 'Gold Stakes', smallBlind: 25, bigBlind: 50, maxSeats: 6 },
   { name: 'Diamond Stakes', smallBlind: 50, bigBlind: 100, maxSeats: 9 },
+  // Pot-Limit Omaha - four hole cards, exactly two play.
+  { name: 'Bronze PLO', gameType: 'PLO', smallBlind: 5, bigBlind: 10, maxSeats: 6 },
+  { name: 'Silver PLO', gameType: 'PLO', smallBlind: 10, bigBlind: 20, maxSeats: 6 },
 ];
 
 // A flat per-seat charge every 15 minutes - the membership-club billing model
@@ -54,13 +57,17 @@ async function main() {
     const charge = timeChargeFor(t.bigBlind);
     const existing = await prisma.pokerTable.findFirst({ where: { name: t.name } });
     if (existing) {
-      await prisma.pokerTable.update({ where: { id: existing.id }, data: charge });
-      console.log(`· ${t.name} — already present (time charge backfilled)`);
+      await prisma.pokerTable.update({
+        where: { id: existing.id },
+        data: { ...charge, gameType: t.gameType ?? 'NLHE' },
+      });
+      console.log(`· ${t.name} — already present (config backfilled)`);
       continue;
     }
     await prisma.pokerTable.create({
       data: {
         name: t.name,
+        gameType: t.gameType ?? 'NLHE',
         smallBlind: t.smallBlind,
         bigBlind: t.bigBlind,
         maxSeats: t.maxSeats,
@@ -72,7 +79,9 @@ async function main() {
         },
       },
     });
-    console.log(`+ ${t.name} — ${t.smallBlind}/${t.bigBlind}, ${t.maxSeats}-max`);
+    console.log(
+      `+ ${t.name} — ${t.gameType ?? 'NLHE'} ${t.smallBlind}/${t.bigBlind}, ${t.maxSeats}-max`,
+    );
   }
 }
 

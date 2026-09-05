@@ -20,7 +20,12 @@ export function PlayingCard({ card, size = 'md' }: Props): JSX.Element {
   const d = DIMENSIONS[size];
 
   if (!card) {
-    return <View style={[styles.back, { width: d.w, height: d.h }]} />;
+    return (
+      <View
+        style={[styles.back, { width: d.w, height: d.h }]}
+        accessibilityLabel="Face-down card"
+      />
+    );
   }
 
   const rank = card.slice(0, -1).replace('T', '10');
