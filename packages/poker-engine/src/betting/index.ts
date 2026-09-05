@@ -14,6 +14,7 @@ export {
   createBettingRound,
   amountToCall,
   minRaiseTo,
+  potLimitMaxTo,
   applyFold,
   applyCheck,
   applyCall,

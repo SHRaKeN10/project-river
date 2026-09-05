@@ -2,6 +2,7 @@ import { type Card } from '../cards/card';
 import { burnCard, dealCard, dealCards } from '../deck/deck';
 import { type GameState, Street } from '../game-state/game-state';
 import { canAct, isInHand, type PlayerState } from '../player/player';
+import { rulesFor } from '../variant/variant';
 
 /** Preflop -> Flop -> Turn -> River -> Showdown. Showdown/Complete stay put. */
 export function nextStreet(street: Street): Street {
@@ -31,8 +32,9 @@ export function dealOrder(state: GameState): number[] {
   return rotateToStart(seats, state.smallBlindSeat ?? state.buttonSeat + 1);
 }
 
-/** Deals two hole cards to each player in the hand (one card at a time, twice
- * around, starting at the small blind - matching a real deal). */
+/** Deals each player their hole cards (`config.variant` sets how many - two for
+ * Hold'em, four for Omaha), one card at a time around the table starting at the
+ * small blind, matching a real deal. */
 export function dealHoleCards(state: GameState): {
   state: GameState;
   hands: { seat: number; cards: Card[] }[];
@@ -41,7 +43,8 @@ export function dealHoleCards(state: GameState): {
   const dealt = new Map<number, Card[]>(order.map((seat) => [seat, []]));
   let deck = state.deck;
 
-  for (let round = 0; round < 2; round += 1) {
+  const holeCards = rulesFor(state.config.variant).holeCards;
+  for (let round = 0; round < holeCards; round += 1) {
     for (const seat of order) {
       const result = dealCard(deck);
       deck = result.deck;

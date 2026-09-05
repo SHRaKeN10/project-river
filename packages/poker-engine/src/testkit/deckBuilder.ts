@@ -10,6 +10,8 @@ export interface DeckSpec {
   board: string;
   /** Optional explicit burn cards (flop, turn, river). Defaults are filler. */
   burns?: string;
+  /** Hole cards per seat: 2 for Hold'em (default), 4 for Omaha. */
+  holeCount?: number;
 }
 
 /**
@@ -28,16 +30,20 @@ export function buildDeck(spec: DeckSpec): Card[] {
 
   const deck: (Card | null)[] = new Array(52).fill(null);
   const n = spec.order.length;
+  const holeCount = spec.holeCount ?? 2;
 
-  // hole cards: two passes over the deal order
+  // hole cards: `holeCount` passes over the deal order, matching a real deal
   spec.order.forEach((seat, seatIndex) => {
     const cards = holeCards.get(seat);
-    if (!cards || cards.length !== 2) throw new Error(`seat ${seat} needs exactly 2 hole cards`);
-    deck[seatIndex] = cards[0] as Card;
-    deck[n + seatIndex] = cards[1] as Card;
+    if (!cards || cards.length !== holeCount) {
+      throw new Error(`seat ${seat} needs exactly ${holeCount} hole cards`);
+    }
+    for (let pass = 0; pass < holeCount; pass += 1) {
+      deck[pass * n + seatIndex] = cards[pass] as Card;
+    }
   });
 
-  let pos = 2 * n;
+  let pos = holeCount * n;
   const placeBurn = () => {
     deck[pos] = burns.shift() ?? null; // null -> filled from remainder below
     pos += 1;

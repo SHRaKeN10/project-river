@@ -263,7 +263,14 @@ export class TableRunner {
     },
     usernames: ReadonlyMap<string, { username: string; avatarUrl: string | null }>,
   ): void {
-    this.state = { ...snapshot.state, actionDeadline: null };
+    // Backfill any config field absent from an older snapshot (e.g. `variant`,
+    // added in ADR-0013) from the freshly-built engine config; a present field
+    // in the snapshot still wins so an in-flight hand keeps its own terms.
+    this.state = {
+      ...snapshot.state,
+      config: { ...this.engineConfig, ...snapshot.state.config },
+      actionDeadline: null,
+    };
     this.handNumber = snapshot.handNumber;
     // Prefer an explicit record; otherwise recover it from the persisted state
     // (its button/blind seats still hold the last hand's until the next deal).

@@ -1,9 +1,9 @@
-import { evaluate } from '../hand-evaluator/evaluate';
-import { describeHand } from '../hand-evaluator/evaluate';
+import { describeHand, evaluateHand } from '../hand-evaluator/evaluate';
 import { type HandRank } from '../hand-evaluator/hand-rank';
 import { type HandRankSummary } from '../events/events';
 import { contestingPlayers, type GameState } from '../game-state/game-state';
 import { firstToActPostflop } from '../table/table';
+import { rulesFor } from '../variant/variant';
 
 /**
  * Order in which hands are revealed at showdown: the last player to bet or
@@ -26,11 +26,17 @@ export function showdownOrder(state: GameState): number[] {
   return [...seats.slice(pivot), ...seats.slice(0, pivot)];
 }
 
-/** Evaluates the best 5-card hand for every player still contesting the pot. */
+/** Evaluates the best 5-card hand for every player still contesting the pot,
+ * honouring the table variant's board-usage rule (Omaha must play exactly two
+ * hole cards). */
 export function evaluateShowdown(state: GameState): Map<number, HandRank> {
+  const { holeCardsUsed } = rulesFor(state.config.variant);
   const result = new Map<number, HandRank>();
   for (const player of contestingPlayers(state)) {
-    result.set(player.seatNumber, evaluate([...player.holeCards, ...state.communityCards]));
+    result.set(
+      player.seatNumber,
+      evaluateHand(player.holeCards, state.communityCards, holeCardsUsed),
+    );
   }
   return result;
 }

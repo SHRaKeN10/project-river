@@ -7,6 +7,7 @@ import {
   type PlayerState,
   PlayerActionType,
 } from '../player/player';
+import { type BettingLimit } from '../variant/variant';
 
 /** State of a single betting round (pre-flop, flop, turn, or river). */
 export interface BettingRound {
@@ -24,6 +25,33 @@ export interface BettingContext {
   readonly players: readonly PlayerState[];
   readonly round: BettingRound;
   readonly actingSeat: number;
+  /**
+   * Chips already collected into the pot from betting rounds that have closed
+   * this hand (`GameState.collectedPot`). Only consulted for `POT_LIMIT`
+   * sizing; defaults to 0 when omitted.
+   */
+  readonly potBeforeRound?: number;
+  /** `NO_LIMIT` (the default when omitted) or `POT_LIMIT`. */
+  readonly bettingLimit?: BettingLimit;
+}
+
+/**
+ * The largest legal "raise to" / "bet to" total under pot-limit rules for the
+ * seat about to act: the current bet, plus the whole pot after that seat calls.
+ * For an opening bet (`round.currentBet === 0`) this reduces to the pot size.
+ * The caller still clamps this to the player's stack.
+ */
+export function potLimitMaxTo(ctx: BettingContext, seat: number): number {
+  const player = ctx.players.find((p) => p.seatNumber === seat);
+  if (!player) return 0;
+  const onTable = ctx.players.reduce((sum, p) => sum + p.currentBet, 0);
+  const pot = (ctx.potBeforeRound ?? 0) + onTable;
+  const owed = Math.max(0, ctx.round.currentBet - player.currentBet);
+  return ctx.round.currentBet + pot + owed;
+}
+
+function isPotLimit(ctx: BettingContext): boolean {
+  return ctx.bettingLimit === 'POT_LIMIT';
 }
 
 export function createBettingRound(bigBlind: number, currentBet = 0): BettingRound {
@@ -106,6 +134,9 @@ export function applyBet(ctx: BettingContext, toAmount: number): BettingContext 
   if (toAmount < ctx.round.minOpen && !isAllIn) {
     throw new BettingRuleError(`minimum bet is ${ctx.round.minOpen}`);
   }
+  if (isPotLimit(ctx) && toAmount > potLimitMaxTo(ctx, ctx.actingSeat)) {
+    throw new BettingRuleError(`maximum bet is ${potLimitMaxTo(ctx, ctx.actingSeat)} (pot limit)`);
+  }
 
   const { player: committed } = commitChips(player, required);
   const betSize = committed.currentBet;
@@ -138,6 +169,11 @@ export function applyRaise(ctx: BettingContext, toAmount: number): BettingContex
   const raiseIncrement = toAmount - ctx.round.currentBet;
   if (raiseIncrement < ctx.round.lastRaiseSize && !isAllIn) {
     throw new BettingRuleError(`minimum raise is to ${minRaiseTo(ctx.round)}`);
+  }
+  if (isPotLimit(ctx) && toAmount > potLimitMaxTo(ctx, ctx.actingSeat)) {
+    throw new BettingRuleError(
+      `maximum raise is to ${potLimitMaxTo(ctx, ctx.actingSeat)} (pot limit)`,
+    );
   }
 
   const { player: committed } = commitChips(player, required);

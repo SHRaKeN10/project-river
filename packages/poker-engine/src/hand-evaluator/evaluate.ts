@@ -94,6 +94,61 @@ export function evaluate(cards: readonly Card[]): HandRank {
 /** Alias - Hold'em showdown always evaluates 7 cards. */
 export const evaluate7 = evaluate;
 
+/**
+ * Evaluate a player's hand under a variant's board-usage rule.
+ *
+ *  - `holeCardsUsed === null` (Hold'em): the strongest 5 of all hole + board
+ *    cards, exactly as `evaluate` - playing the board is legal.
+ *  - `holeCardsUsed === 2` (Omaha): exactly two hole cards and exactly three
+ *    board cards, the best of every such split.
+ *
+ * `board` is the full five community cards at showdown.
+ */
+export function evaluateHand(
+  hole: readonly Card[],
+  board: readonly Card[],
+  holeCardsUsed: number | null,
+): HandRank {
+  if (holeCardsUsed === null) {
+    return evaluate([...hole, ...board]);
+  }
+  return bestFixedSplit(hole, board, holeCardsUsed);
+}
+
+/** Best hand using exactly two hole cards and three board cards (Omaha). */
+export function evaluateOmaha(hole: readonly Card[], board: readonly Card[]): HandRank {
+  return bestFixedSplit(hole, board, 2);
+}
+
+function bestFixedSplit(
+  hole: readonly Card[],
+  board: readonly Card[],
+  holeCount: number,
+): HandRank {
+  const boardCount = 5 - holeCount;
+  if (hole.length < holeCount) {
+    throw new Error(`need at least ${holeCount} hole cards, got ${hole.length}`);
+  }
+  if (board.length < boardCount) {
+    throw new Error(`need at least ${boardCount} board cards, got ${board.length}`);
+  }
+  if (!allDistinct([...hole, ...board])) {
+    throw new Error(`cards must be distinct: ${cardsToString([...hole, ...board])}`);
+  }
+
+  let best: HandRank | null = null;
+  for (const holePart of combinations(hole, holeCount)) {
+    for (const boardPart of combinations(board, boardCount)) {
+      const candidate = evaluate5([...holePart, ...boardPart]);
+      if (best === null || compareHandRanks(candidate, best) > 0) {
+        best = candidate;
+      }
+    }
+  }
+  if (best === null) throw new Error('no 5-card hand could be formed');
+  return best;
+}
+
 /** Human-readable summary, e.g. "Full House, Kings full of Threes". */
 export function describeHand(rank: HandRank): string {
   const tiebreak = (index: number): Rank => {
@@ -177,6 +232,17 @@ function straightCards(byRankDesc: readonly Card[], straightHigh: Rank): Card[] 
     ];
   }
   return [...byRankDesc];
+}
+
+/** Every k-card subset of `items`, order-independent. k is tiny in practice
+ * (Omaha uses C(4,2)=6 and C(5,3)=10). */
+export function combinations<T>(items: readonly T[], k: number): T[][] {
+  if (k < 0 || k > items.length) return [];
+  if (k === 0) return [[]];
+  if (k === items.length) return [[...items]];
+  const [head, ...rest] = items as [T, ...T[]];
+  const withHead = combinations(rest, k - 1).map((combo) => [head, ...combo]);
+  return [...withHead, ...combinations(rest, k)];
 }
 
 /** All 5-card subsets of a 5-to-7 card list. */
