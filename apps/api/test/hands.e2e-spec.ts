@@ -87,6 +87,19 @@ describe('Hands + chip ledger (e2e)', () => {
   const emitAck = <T = unknown>(s: Socket, event: string, payload: unknown): Promise<T> =>
     new Promise((resolve) => s.emit(event, payload, (r: T) => resolve(r)));
 
+  /** Poll an async producer until `ok`, or give up and return the last value so
+   * the caller's `expect(...)` reports a readable failure. Hand persistence and
+   * cash-outs are fire-and-forget, so a fixed sleep races them under load. */
+  const eventually = async <T>(fn: () => Promise<T>, ok: (v: T) => boolean, timeoutMs = 8000) => {
+    const deadline = Date.now() + timeoutMs;
+    let last = await fn();
+    while (!ok(last) && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 100));
+      last = await fn();
+    }
+    return last;
+  };
+
   const waitFor = (s: Socket, event: string, timeoutMs = 15000): Promise<unknown> =>
     new Promise((resolve, reject) => {
       const t = setTimeout(() => reject(new Error(`timed out waiting for ${event}`)), timeoutMs);
@@ -162,10 +175,12 @@ describe('Hands + chip ledger (e2e)', () => {
     expect(buyIn?.amount).toBe(-1000);
 
     await endA;
-    await new Promise((r) => setTimeout(r, 300)); // let the async persist settle
 
-    // list by table - a participant sees their hands there
-    const list = await request(server).get(`/api/hands?tableId=${tableId}`).set(auth(0));
+    // list by table - a participant sees their hands there (persist is async)
+    const list = await eventually(
+      () => request(server).get(`/api/hands?tableId=${tableId}`).set(auth(0)),
+      (r) => r.status === 200 && r.body.length >= 1,
+    );
     expect(list.status).toBe(200);
     expect(list.body.length).toBeGreaterThanOrEqual(1);
     const handId = list.body[0].id;
@@ -199,10 +214,14 @@ describe('Hands + chip ledger (e2e)', () => {
   }, 30000);
 
   it('returns the stack to the wallet with a TABLE_CASHOUT ledger row on leave', async () => {
-    await new Promise((r) => setTimeout(r, 400));
-    const cashouts = await prisma.chipLedgerEntry.findMany({
-      where: { userId: { in: [userIds[0]!, userIds[1]!] }, reason: 'TABLE_CASHOUT', tableId },
-    });
+    // the prior test's table:leave fires the cash-out async - poll for it
+    const cashouts = await eventually(
+      () =>
+        prisma.chipLedgerEntry.findMany({
+          where: { userId: { in: [userIds[0]!, userIds[1]!] }, reason: 'TABLE_CASHOUT', tableId },
+        }),
+      (rows) => rows.length >= 1,
+    );
     expect(cashouts.length).toBeGreaterThanOrEqual(1);
     // every player is back to (near) their grant: no chips vanished
     for (const id of [userIds[0]!, userIds[1]!]) {
