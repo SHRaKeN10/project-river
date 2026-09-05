@@ -1,25 +1,30 @@
 /**
- * Design tokens. Dark, premium, minimal - not a casino skin. Consumed via
- * plain StyleSheet for now; a styling system (NativeWind) can be layered on
- * later without changing these values.
+ * Design tokens. Black-and-gold casino palette matched to Palace Poker
+ * (palacepoker.com) for the pitch build - warm near-black grounds, their
+ * brass gold as the primary accent, and a deep casino red for danger states.
+ * Values pulled from their site's own theme variables, not eyeballed:
+ * gold #c2a152, red #8b0000, black #000/#222. The felt runs near-black with
+ * a gold rail instead of the usual green-table look. Consumed via plain
+ * StyleSheet for now; a styling system (NativeWind) can be layered on later
+ * without changing these values.
  */
 export const colors = {
-  bg: '#0b0f14',
-  surface: '#141b23',
-  surfaceAlt: '#1c2530',
-  border: '#243040',
-  felt: '#0c3b2e',
-  feltRail: '#08251d',
+  bg: '#0d0d0c',
+  surface: '#1a1917',
+  surfaceAlt: '#242320',
+  border: '#332e22',
+  felt: '#12120f',
+  feltRail: '#c2a152', // brand gold rail, in place of a felt-green edge
 
-  textPrimary: '#f2f5f7',
-  textSecondary: '#9fb0bf',
-  textMuted: '#5f7385',
+  textPrimary: '#f5f1e8',
+  textSecondary: '#b8b0a0',
+  textMuted: '#7a7263',
 
-  accent: '#e8b923', // chip gold
-  accentText: '#1a1400',
+  accent: '#c2a152', // Palace Poker brass gold
+  accentText: '#171206',
   info: '#3b82f6',
   success: '#22c55e',
-  danger: '#ef4444',
+  danger: '#c0392b', // deep casino red, brightened off their #8b0000 for contrast on near-black
   warning: '#f59e0b',
 } as const;
 
