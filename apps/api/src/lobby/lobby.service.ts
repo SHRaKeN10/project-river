@@ -151,6 +151,8 @@ export class LobbyService {
       openSeats,
       minBuyIn: row.minBuyIn,
       maxBuyIn: row.maxBuyIn,
+      timeChargeAmount: row.timeChargeAmount,
+      timeChargeIntervalMs: row.timeChargeIntervalMs,
       status: row.status,
       isPrivate: row.isPrivate,
       handInProgress: runner?.handInProgress ?? false,

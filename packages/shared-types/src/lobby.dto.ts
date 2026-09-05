@@ -13,6 +13,10 @@ export interface LobbyTableView {
   openSeats: number;
   minBuyIn: number;
   maxBuyIn: number;
+  /** Flat per-seat time charge, billed to the wallet (0 = none). Shown so a
+   * player knows the fee before they sit, not just once seated. */
+  timeChargeAmount: number;
+  timeChargeIntervalMs: number;
   status: string;
   isPrivate: boolean;
   handInProgress: boolean;

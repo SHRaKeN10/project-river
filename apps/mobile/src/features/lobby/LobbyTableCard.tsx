@@ -31,6 +31,9 @@ function LobbyTableCardBase({
           <Text style={styles.stakes}>
             {table.smallBlind}/{table.bigBlind}
             {table.ante > 0 ? ` · ante ${table.ante}` : ''} · {table.maxSeats}-max
+            {table.timeChargeAmount > 0
+              ? ` · fee ${table.timeChargeAmount}/${Math.round(table.timeChargeIntervalMs / 60_000)}m`
+              : ''}
           </Text>
         </View>
         <Pressable
