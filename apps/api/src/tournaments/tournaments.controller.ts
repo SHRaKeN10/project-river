@@ -56,7 +56,7 @@ export class TournamentsController {
   setStatus(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(setTournamentStatusSchema))
-    body: { status: 'REGISTERING' | 'CANCELLED' },
+    body: { status: 'REGISTERING' | 'RUNNING' | 'CANCELLED' },
   ): Promise<TournamentView> {
     return this.tournaments.setStatus(id, body.status);
   }

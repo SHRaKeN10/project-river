@@ -193,4 +193,56 @@ describe('Tournaments (e2e)', () => {
       .expect(200);
     expect(res.body.status).toBe('REGISTERING');
   });
+
+  it('starts the tournament: draws seats, flips to RUNNING, and starts the clock', async () => {
+    const id = await create();
+    await request(server).post(`/api/tournaments/${id}/register`).set(auth(tokens[0]!)).expect(201);
+    await request(server).post(`/api/tournaments/${id}/register`).set(auth(tokens[1]!)).expect(201);
+
+    const res = await request(server)
+      .patch(`/api/tournaments/${id}/status`)
+      .set(auth(adminToken))
+      .send({ status: 'RUNNING' })
+      .expect(200);
+    expect(res.body.status).toBe('RUNNING');
+    expect(res.body.startedAt).not.toBeNull();
+    expect(res.body.currentLevel).toBe(1);
+
+    // seats are now recorded on the entries
+    const view = await request(server)
+      .get(`/api/tournaments/${id}`)
+      .set(auth(tokens[0]!))
+      .expect(200);
+    expect(view.body.you.stack).toBeGreaterThan(0);
+
+    // cannot start it twice
+    await request(server)
+      .patch(`/api/tournaments/${id}/status`)
+      .set(auth(adminToken))
+      .send({ status: 'RUNNING' })
+      .expect(400);
+
+    // aborting a running tournament refunds every entrant and stops the runner
+    const before0 = await balance(0);
+    const cancel = await request(server)
+      .patch(`/api/tournaments/${id}/status`)
+      .set(auth(adminToken))
+      .send({ status: 'CANCELLED' })
+      .expect(200);
+    expect(cancel.body.status).toBe('CANCELLED');
+    expect(await balance(0)).toBe(before0 + 1100);
+  });
+
+  it('will not start a field larger than one table (multi-table lands later)', async () => {
+    const id = await create({ seatsPerTable: 2 });
+    await request(server).post(`/api/tournaments/${id}/register`).set(auth(tokens[0]!)).expect(201);
+    await request(server).post(`/api/tournaments/${id}/register`).set(auth(tokens[1]!)).expect(201);
+    await request(server).post(`/api/tournaments/${id}/register`).set(auth(tokens[2]!)).expect(201);
+
+    await request(server)
+      .patch(`/api/tournaments/${id}/status`)
+      .set(auth(adminToken))
+      .send({ status: 'RUNNING' })
+      .expect(400);
+  });
 });

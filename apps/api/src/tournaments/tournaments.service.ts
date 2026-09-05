@@ -29,6 +29,7 @@ import { ChipsService } from '../chips/chips.service';
 import { PrismaService } from '../infra/prisma/prisma.service';
 import { variantForGameType } from '../tables/game-variant';
 import { currentLevel, levelEndsAt } from './tournament-clock';
+import { TournamentManager } from './tournament-manager';
 
 type TournamentRow = Tournament & {
   entries: (TournamentEntry & { user: { username: string } })[];
@@ -41,6 +42,7 @@ export class TournamentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly chips: ChipsService,
+    private readonly manager: TournamentManager,
   ) {}
 
   async create(input: CreateTournamentInput): Promise<TournamentView> {
@@ -153,7 +155,10 @@ export class TournamentsService {
    * The RUNNING / PAUSED / FINISHED transitions arrive with the tournament
    * runner.
    */
-  async setStatus(id: string, status: 'REGISTERING' | 'CANCELLED'): Promise<TournamentView> {
+  async setStatus(
+    id: string,
+    status: 'REGISTERING' | 'RUNNING' | 'CANCELLED',
+  ): Promise<TournamentView> {
     const row = await this.load(id);
 
     if (status === 'REGISTERING') {
@@ -164,10 +169,26 @@ export class TournamentsService {
       return this.get(id, null);
     }
 
+    if (status === 'RUNNING') {
+      if (row.status !== 'SCHEDULED' && row.status !== 'REGISTERING') {
+        throw new BadRequestException(`cannot start a ${row.status} tournament`);
+      }
+      try {
+        // The runner draws seats, flips the row to RUNNING, and starts the clock.
+        await this.manager.start(id);
+      } catch (err) {
+        throw new BadRequestException((err as Error).message);
+      }
+      return this.get(id, null);
+    }
+
     // CANCELLED
     if (row.status === 'FINISHED' || row.status === 'CANCELLED') {
       throw new BadRequestException(`cannot cancel a ${row.status} tournament`);
     }
+    // Stop the coordinator first so no hand completes (and no payout settles)
+    // while we are refunding every entrant.
+    this.manager.stop(id);
     await this.prisma.$transaction(async (tx) => {
       for (const e of row.entries) {
         await this.chips.move(
