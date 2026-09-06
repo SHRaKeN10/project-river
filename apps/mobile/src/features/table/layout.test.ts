@@ -86,6 +86,7 @@ const baseView = (over: Partial<TableStateView>): TableStateView => ({
   actionDeadline: null,
   youAreSeat: null,
   legalActions: null,
+  bombPot: null,
   ...over,
 });
 
@@ -137,6 +138,15 @@ describe('describeEvent', () => {
     );
     expect(describeEvent({ type: 'ANTE_POSTED', seat: 4, amount: 20 }, name)).toBe(
       'P4 posts ante 20',
+    );
+  });
+
+  it('describes bomb-pot events', () => {
+    expect(describeEvent({ type: 'BOMB_POT_STARTED', amount: 20 }, name)).toBe(
+      'Bomb pot! Everyone posts 20 - no preflop betting',
+    );
+    expect(describeEvent({ type: 'BOMB_POT_POSTED', seat: 2, amount: 20 }, name)).toBe(
+      'P2 posts bomb 20',
     );
   });
 

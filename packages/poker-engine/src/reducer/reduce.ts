@@ -89,6 +89,15 @@ export type EngineAction =
        * application persists `{ deck, actions[] }` and `replayHand` re-runs it.
        */
       readonly deck?: readonly Card[];
+      /**
+       * When present, this hand is a **bomb pot**: every player being dealt in
+       * posts `amount` as dead money before the deal (their whole stack, and
+       * all-in, if they cannot cover it), there is NO preflop betting round, and
+       * play goes straight to the flop. The blinds and antes are not posted -
+       * the bomb contribution replaces them. The application (never the client)
+       * decides when a hand is a bomb pot and passes this. Hold'em only.
+       */
+      readonly bombPot?: { readonly amount: number };
     }
   | { readonly type: 'PLAYER_ACTION'; readonly seat: number; readonly action: PlayerAction }
   | { readonly type: 'TIMEOUT'; readonly seat: number }
@@ -182,6 +191,14 @@ function startHand(
   if (state.street !== Street.Waiting && state.street !== Street.Complete) {
     return reject(state, -1, 'HAND_IN_PROGRESS', 'a hand is already in progress');
   }
+  if (action.bombPot) {
+    if (rulesFor(state.config.variant).holeCards !== 2) {
+      return reject(state, -1, 'BOMB_POT_HOLDEM_ONLY', 'bomb pots are only supported for Hold’em');
+    }
+    if (!Number.isInteger(action.bombPot.amount) || action.bombPot.amount <= 0) {
+      return reject(state, -1, 'BOMB_POT_AMOUNT', 'bomb-pot amount must be a positive integer');
+    }
+  }
 
   const reset = state.players.map(resetForHand);
   const seats = seatsForNextHand(reset);
@@ -219,6 +236,8 @@ function startHand(
     isBigBlind: p.seatNumber === positions.bigBlindSeat,
   }));
 
+  const bomb = action.bombPot;
+
   let working: GameState = {
     ...state,
     handId: action.handId,
@@ -233,7 +252,7 @@ function startHand(
     players,
     deck: action.deck ? deckFromCards(action.deck) : shuffledDeck(rng),
     round: {
-      currentBet: config.bigBlind,
+      currentBet: bomb ? 0 : config.bigBlind,
       lastRaiseSize: config.bigBlind,
       lastAggressorSeat: null,
       minOpen: config.bigBlind,
@@ -256,44 +275,74 @@ function startHand(
     },
   ];
 
-  // Antes first (dead money), then the blinds - matching a live-poker deal.
-  if (config.ante > 0) {
-    working = postAntes(working, config.ante, events);
+  if (bomb) {
+    // Bomb pot: everyone posts the bomb amount as dead money (their whole stack
+    // if short), the blinds and antes are not posted, and there is no preflop
+    // betting - play goes straight to the flop. The button/blind seats are
+    // still assigned above so rotation continuity is unaffected.
+    events.push({
+      type: 'BOMB_POT_STARTED',
+      amount: bomb.amount,
+      eligibleSeats: seats,
+    });
+    working = postDeadMoney(working, bomb.amount, 'BOMB', events);
+  } else {
+    // Antes first (dead money), then the blinds - matching a live-poker deal.
+    if (config.ante > 0) {
+      working = postDeadMoney(working, config.ante, 'ANTE', events);
+    }
+    if (positions.smallBlindSeat !== null) {
+      working = postBlind(working, positions.smallBlindSeat, config.smallBlind, 'SMALL', events);
+    }
+    working = postBlind(working, positions.bigBlindSeat, config.bigBlind, 'BIG', events);
   }
-
-  if (positions.smallBlindSeat !== null) {
-    working = postBlind(working, positions.smallBlindSeat, config.smallBlind, 'SMALL', events);
-  }
-  working = postBlind(working, positions.bigBlindSeat, config.bigBlind, 'BIG', events);
 
   const dealt = dealHoleCards(working);
   working = dealt.state;
   events.push({ type: 'HOLE_CARDS_DEALT', hands: dealt.hands });
 
-  working = { ...working, actingSeat: firstActionable(working, positions.firstToActPreflop) };
+  if (bomb) {
+    // Straight to the flop - the same street machinery `progress` uses, so the
+    // flop actor, run-outs, and settlement are all the existing NLHE logic.
+    working = openNextStreet(working, events);
+  } else {
+    working = { ...working, actingSeat: firstActionable(working, positions.firstToActPreflop) };
+  }
 
   return progress(working, events, rng);
 }
 
 /**
- * Every player being dealt in posts the ante before the blinds. The ante is
- * dead money - it goes straight into `collectedPot` and each player's
- * `totalInvested` (so it lands in the right pot / side pot), but never into
- * `currentBet`, so it does not reduce what anyone owes to call. A player the
- * ante empties is all-in for the hand.
+ * Every player being dealt in posts a forced dead-money contribution before the
+ * deal - an ante (`kind: 'ANTE'`), or the whole table's bomb-pot contribution
+ * (`kind: 'BOMB'`). It goes straight into `collectedPot` and each player's
+ * `totalInvested` (so `buildPots` puts it in the right main / side pot) but
+ * never into `currentBet`, so it does not reduce what anyone owes to call. A
+ * player the contribution empties is all-in for the hand. The two kinds are
+ * accounted identically - only the events and the `lastAction` tag differ.
  */
-function postAntes(state: GameState, ante: number, events: GameEvent[]): GameState {
+function postDeadMoney(
+  state: GameState,
+  amount: number,
+  kind: 'ANTE' | 'BOMB',
+  events: GameEvent[],
+): GameState {
   let players = state.players;
   let collectedPot = state.collectedPot;
   const seats = [...state.players].map((p) => p.seatNumber).sort((a, b) => a - b);
   for (const seat of seats) {
     const player = players.find((p) => p.seatNumber === seat);
     if (!player || player.status !== PlayerStatus.Active || player.stack <= 0) continue;
-    const { player: after, committed } = postAnte(player, ante);
+    const { player: posted, committed } = postAnte(player, amount);
     if (committed <= 0) continue;
+    const after = kind === 'BOMB' ? { ...posted, lastAction: PlayerActionType.PostBomb } : posted;
     players = replacePlayer(players, after);
     collectedPot += committed;
-    events.push({ type: 'ANTE_POSTED', seat, amount: committed });
+    events.push({
+      type: kind === 'BOMB' ? 'BOMB_POT_POSTED' : 'ANTE_POSTED',
+      seat,
+      amount: committed,
+    });
     if (after.status === PlayerStatus.AllIn) {
       events.push({ type: 'PLAYER_WENT_ALL_IN', seat, amount: after.totalInvested });
     }

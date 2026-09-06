@@ -76,6 +76,7 @@ const view = (over: Partial<TableStateView> = {}): TableStateView => ({
   actionDeadline: null,
   youAreSeat: 0,
   legalActions: [{ kind: 'CHECK' }],
+  bombPot: null,
   ...over,
 });
 

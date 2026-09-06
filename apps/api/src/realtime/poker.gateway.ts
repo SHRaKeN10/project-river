@@ -457,6 +457,7 @@ export class PokerGateway
       roster: runner.rosterEntries,
       revealedSeats: runner.revealed,
       viewerUserId,
+      bombPot: runner.bombPotView(),
     });
   }
 

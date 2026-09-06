@@ -363,6 +363,91 @@ describe('PokerGateway (e2e)', () => {
     }
   }, 25000);
 
+  it('runs a bomb-pot hand: everyone posts, no blinds, straight to the flop, spectator sees it', async () => {
+    const t = await makeTable({ maxSeats: 2, minBuyIn: 200, maxBuyIn: 2000 });
+    // Force the very first hand to be a bomb pot (0 + 1 >= 1).
+    await prisma.pokerTable.update({
+      where: { id: t },
+      data: { bombPotEnabled: true, bombPotIntervalHands: 1 },
+    });
+
+    const seen: any[] = [];
+    const updates: any[] = [];
+    let seq = 0;
+    const drive = (socket: Socket, recordUpdates = false) => {
+      const acted = new Set<string>();
+      if (recordUpdates) socket.on('hand:update', (e: any) => updates.push(e));
+      socket.on('table:state', (state: any) => {
+        seen.push(state);
+        if (!state.handId || state.actingSeat !== state.youAreSeat || !state.legalActions?.length) {
+          return;
+        }
+        const key = `${state.handId}:${state.street}:${state.currentBet}`;
+        if (acted.has(key)) return;
+        acted.add(key);
+        const kinds = state.legalActions.map((o: any) => o.kind);
+        const pick = kinds.includes('CHECK') ? 'CHECK' : kinds.includes('CALL') ? 'CALL' : 'FOLD';
+        socket.emit('player:action', {
+          tableId: t,
+          handId: state.handId,
+          clientSeq: (seq += 1),
+          action: { type: pick },
+        });
+      });
+    };
+
+    const sA = await connect(tokens[0]!);
+    const sB = await connect(tokens[1]!);
+    const watcher = await connect(tokens[2]!);
+    drive(sA, true);
+    drive(sB);
+
+    const watcherStates: any[] = [];
+    watcher.on('table:state', (s: any) => watcherStates.push(s));
+    await emitAck(watcher, 'table:watch', { tableId: t });
+
+    const endA = waitFor(sA, 'hand:end', 25000);
+    await emitAck(sA, 'table:join', { tableId: t, seatNumber: 0, buyIn: 1000 });
+    await emitAck(sB, 'table:join', { tableId: t, seatNumber: 1, buyIn: 1000 });
+    await endA;
+
+    // the first hand was a bomb pot ...
+    const bombActive = seen.filter((s) => s.bombPot?.active);
+    expect(bombActive.length).toBeGreaterThan(0);
+    expect(bombActive[0].bombPot.amount).toBe(20); // = the big blind
+
+    // ... nobody posted a blind, everyone posted the bomb ...
+    expect(updates.some((e) => e.type === 'BOMB_POT_STARTED')).toBe(true);
+    expect(updates.filter((e) => e.type === 'BOMB_POT_POSTED')).toHaveLength(2);
+    expect(updates.some((e) => e.type === 'BLIND_POSTED')).toBe(false);
+
+    // ... and the hand never had a preflop betting round
+    const midHand = seen.filter((s) => s.handId && s.street !== 'COMPLETE');
+    expect(midHand.length).toBeGreaterThan(0);
+    expect(midHand.some((s) => s.street === 'PREFLOP')).toBe(false);
+
+    // spectator saw the bomb pot but no hole cards while the hand was live
+    expect(watcherStates.some((s) => s.bombPot?.active)).toBe(true);
+    for (const s of watcherStates) {
+      if (s.street === 'COMPLETE' || s.street === 'SHOWDOWN') continue; // showdown reveals
+      for (const seat of s.seats) expect(seat.holeCards).toBeNull();
+    }
+
+    // chips conserved
+    const seats = await prisma.pokerTableSeat.findMany({ where: { tableId: t } });
+    expect(seats.reduce((sum, s) => sum + s.stack, 0)).toBe(2000);
+
+    // the counter reset and persisted
+    const row = await prisma.pokerTable.findUnique({ where: { id: t } });
+    expect(row?.handsSinceLastBomb).toBe(0);
+
+    sA.emit('table:leave', { tableId: t });
+    sB.emit('table:leave', { tableId: t });
+    sA.disconnect();
+    sB.disconnect();
+    watcher.disconnect();
+  }, 30000);
+
   // --- regression: closed-alpha audit ------------------------------------
 
   it('refunds the buy-in when the requested seat is already taken', async () => {

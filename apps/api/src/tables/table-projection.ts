@@ -34,6 +34,11 @@ export interface TableMeta {
    * Either being 0 disables it. */
   timeChargeAmount: number;
   timeChargeIntervalMs: number;
+  /** Bomb pots (NLHE cash only, ADR-0026). `bombPotAmount` 0 means "use the big
+   * blind". `bombPotEnabled` false leaves the table playing exactly as before. */
+  bombPotEnabled: boolean;
+  bombPotIntervalHands: number;
+  bombPotAmount: number;
 }
 
 export interface ProjectParams {
@@ -43,6 +48,9 @@ export interface ProjectParams {
   /** Seats whose hole cards have become public (showdown). */
   revealedSeats: ReadonlySet<number>;
   viewerUserId: string | null;
+  /** Public bomb-pot state (the runner owns "is this a bomb pot"). `null` on a
+   * table that doesn't run bomb pots. */
+  bombPot?: TableStateView['bombPot'];
 }
 
 /**
@@ -108,6 +116,7 @@ export function projectTableState(params: ProjectParams): TableStateView {
 
     youAreSeat: viewerSeat,
     legalActions: showLegal ? projectLegalActions(state) : null,
+    bombPot: params.bombPot ?? null,
   };
 }
 

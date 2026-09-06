@@ -108,6 +108,13 @@ export interface TableStateView {
   youAreSeat: number | null;
   /** Legal actions with sizing - present only when it is the viewer's turn. */
   legalActions: ActionOptionView[] | null;
+
+  /** Bomb-pot state for NLHE cash tables that have the feature enabled; `null`
+   * when the table doesn't run bomb pots. `active` is true only during a
+   * bomb-pot hand (every player posted, no preflop betting, straight to the
+   * flop); `amount` is the per-player contribution; `nextInHands` counts down to
+   * the next bomb pot (0 = this hand). */
+  bombPot: { active: boolean; amount: number; nextInHands: number } | null;
 }
 
 /** One entry of the hand event stream, forwarded to clients as `hand:update`. */

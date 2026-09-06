@@ -48,6 +48,16 @@ export type GameEvent =
       readonly blind: 'SMALL' | 'BIG';
     }
   | { readonly type: 'ANTE_POSTED'; readonly seat: number; readonly amount: number }
+  /** This hand is a bomb pot: every player posts `amount` before the deal and
+   * there is no preflop betting round - play goes straight to the flop. */
+  | {
+      readonly type: 'BOMB_POT_STARTED';
+      readonly amount: number;
+      readonly eligibleSeats: readonly number[];
+    }
+  /** One player's bomb-pot contribution (dead money, like an ante). `amount` is
+   * what they actually posted - their whole stack if they could not cover it. */
+  | { readonly type: 'BOMB_POT_POSTED'; readonly seat: number; readonly amount: number }
   | {
       readonly type: 'HOLE_CARDS_DEALT';
       readonly hands: readonly { readonly seat: number; readonly cards: readonly Card[] }[];

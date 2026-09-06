@@ -19,6 +19,8 @@ export interface HandRecord {
   readonly handNumber: number;
   readonly previousPositions: PreviousPositions | null;
   readonly deck: readonly Card[];
+  /** Present if this hand was a bomb pot (no preflop betting, everyone posts). */
+  readonly bombPot?: { readonly amount: number };
   /** The PLAYER_ACTION / TIMEOUT / SIT_OUT / RETURN sequence after START_HAND. */
   readonly actions: readonly EngineAction[];
 }
@@ -48,6 +50,7 @@ export function replayHand(record: HandRecord): ReplayResult {
       handNumber: record.handNumber,
       previousPositions: record.previousPositions,
       deck: record.deck,
+      ...(record.bombPot ? { bombPot: record.bombPot } : {}),
     },
     rng,
   );

@@ -146,6 +146,16 @@ model PokerTable {
   buttonSeat     Int?
   smallBlindSeat Int?
   bigBlindSeat   Int?
+  /// Bomb pots (NLHE cash only - ADR-0026). When enabled, the next eligible
+  /// hand after every `bombPotIntervalHands` completed hands is a bomb pot:
+  /// every player posts `bombPotAmount` (0 = use the big blind) as dead money
+  /// before the deal and there is no preflop betting. `handsSinceLastBomb` is
+  /// the completed-hand counter, persisted here so a cold restart with no Redis
+  /// snapshot cannot cause or skip a bomb pot (the warm path uses the snapshot).
+  bombPotEnabled       Boolean @default(false)
+  bombPotIntervalHands Int     @default(15)
+  bombPotAmount        Int     @default(0)
+  handsSinceLastBomb   Int     @default(0)
   /// Rolling stats for the lobby's "average pot" column.
   handsPlayed Int             @default(0)
   potSum     Int              @default(0)
@@ -185,6 +195,9 @@ model PokerHand {
   /// [{ seat, userId, net, endStack }]
   resultsJson    Json
   potTotal       Int
+  /// Per-player bomb-pot contribution if this hand was a bomb pot; 0 otherwise.
+  /// `replayHand` needs it to reproduce a bomb-pot hand (no preflop betting).
+  bombPotAmount  Int        @default(0)
   /// Denormalised for "my recent hands" lookups.
   userIds        String[]   @db.Uuid
   startedAt      DateTime

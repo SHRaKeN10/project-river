@@ -54,6 +54,9 @@ const meta: TableMeta = {
   maxBuyIn: 4000,
   timeChargeAmount: 0,
   timeChargeIntervalMs: 0,
+  bombPotEnabled: false,
+  bombPotIntervalHands: 15,
+  bombPotAmount: 0,
 };
 
 function harness(seed = 7, metaOverrides: Partial<TableMeta> = {}) {
@@ -633,6 +636,216 @@ describe('TableRunner - closed-alpha regressions', () => {
     expect(h.runner.seatOf(other)).toBeNull(); // seat freed
     expect(h.vacated.map((v) => v.userId)).toContain(other);
     void otherSeat;
+  });
+});
+
+// ---------------------------------------------------------------------------
+// bomb pots (ADR-0026)
+// ---------------------------------------------------------------------------
+
+describe('TableRunner - bomb pots', () => {
+  const drive = (runner: TableRunner, startSeq = 0): number => {
+    let seq = startSeq;
+    let guard = 0;
+    while (runner.gameState.street !== 'COMPLETE' && (guard += 1) < 60) {
+      const seat = runner.gameState.actingSeat;
+      if (seat === null) break;
+      const p = runner.gameState.players.find((x) => x.seatNumber === seat);
+      const owed = runner.gameState.round.currentBet - (p?.currentBet ?? 0);
+      runner.submitAction(
+        seatUser(runner, seat),
+        runner.gameState.handId,
+        (seq += 1),
+        owed > 0 ? { type: 'CALL' } : { type: 'CHECK' },
+      );
+    }
+    return seq;
+  };
+
+  /** Play a whole hand then let the next-hand delay fire. */
+  const nextHand = (h: ReturnType<typeof harness>, seq = 0): number => {
+    const s = drive(h.runner, seq);
+    h.timers.runPending();
+    return s;
+  };
+
+  it('never schedules a bomb pot on a table that has the feature disabled', () => {
+    const h = harness(7); // meta default: bombPotEnabled false
+    h.join('alice', 0);
+    h.join('bob', 1);
+    h.timers.runPending();
+    for (let i = 0; i < 20; i += 1) nextHand(h);
+    expect(h.runner.bombHandCounter).toBe(0);
+    expect(h.eventTypes()).not.toContain('BOMB_POT_STARTED');
+    expect(h.runner.bombPotView()).toBeNull();
+  });
+
+  it('advances the counter by exactly one per completed non-bomb hand', () => {
+    const h = harness(7, { bombPotEnabled: true, bombPotIntervalHands: 15 });
+    h.join('alice', 0);
+    h.join('bob', 1);
+    h.timers.runPending();
+    for (let n = 1; n <= 5; n += 1) {
+      expect(h.runner.bombHandCounter).toBe(n - 1);
+      nextHand(h);
+      expect(h.runner.bombHandCounter).toBe(n);
+    }
+  });
+
+  it('makes every Nth hand a bomb pot: no blinds, straight to the flop, counter resets', () => {
+    const h = harness(7, { bombPotEnabled: true, bombPotIntervalHands: 3 });
+    h.join('alice', 0);
+    h.join('bob', 1);
+    h.join('cara', 2);
+    h.timers.runPending();
+
+    nextHand(h); // drive hand 1 -> counter 1, hand 2 dealt
+    expect(h.runner.bombHandCounter).toBe(1);
+    expect(h.runner.bombPotView()).toMatchObject({ active: false, nextInHands: 2 });
+
+    nextHand(h); // drive hand 2 -> counter 2, hand 3 (the bomb) dealt
+    expect(h.runner.gameState.street).toBe('FLOP');
+    expect(h.runner.bombPotView()).toMatchObject({ active: true, amount: 20, nextInHands: 0 });
+
+    const bombEvents = h
+      .events()
+      .slice(-12)
+      .map((e) => e.type);
+    expect(bombEvents).toContain('BOMB_POT_STARTED');
+    expect(bombEvents).toContain('BOMB_POT_POSTED');
+
+    // every dealt-in player put in the bomb, nobody posted a blind this hand
+    const posted = h.events().filter((e) => e.type === 'BOMB_POT_POSTED').length;
+    expect(posted).toBe(3);
+
+    const potAfterContrib = h.runner.gameState.players.reduce((t, p) => t + p.totalInvested, 0);
+    expect(potAfterContrib).toBe(60);
+
+    nextHand(h); // finish the bomb pot
+    expect(h.runner.bombHandCounter).toBe(0); // reset
+  });
+
+  it('conserves chips through a bomb-pot hand', () => {
+    const h = harness(11, { bombPotEnabled: true, bombPotIntervalHands: 2 });
+    h.join('alice', 0, 1000);
+    h.join('bob', 1, 1000);
+    h.join('cara', 2, 1000);
+    h.timers.runPending();
+    nextHand(h); // hand 1
+    expect(h.runner.gameState.street).toBe('FLOP'); // hand 2 = bomb
+    nextHand(h);
+    expect(h.rosterTotal()).toBe(3000);
+  });
+
+  it('still records a replayable deck when a bomb pot runs straight to showdown (all short)', () => {
+    // Every dealt-in player is all-in from the bomb, so START_HAND runs the
+    // whole board out and completes the hand in one reduce() call.
+    const h = harness(11, {
+      bombPotEnabled: true,
+      bombPotIntervalHands: 1,
+      bombPotAmount: 5000, // larger than any legal stack -> everyone all-in
+    });
+    h.join('alice', 0, 1000);
+    h.join('bob', 1, 1000);
+    h.timers.runPending();
+
+    expect(h.runner.gameState.street).toBe('COMPLETE');
+    expect(h.hands).toHaveLength(1);
+    expect(h.hands[0].bombPotAmount).toBe(5000);
+    expect(h.hands[0].deck.length).toBe(52);
+    expect(h.rosterTotal()).toBe(2000);
+
+    // the recorded hand replays bit-identically
+    const rec = h.hands[0];
+    const replayed = replayHand({
+      tableId: 't-1',
+      config: createTableConfig({ smallBlind: 10, bigBlind: 20, maxSeats: 6 }),
+      seats: rec.seats.map((s) => ({
+        userId: s.userId,
+        seatNumber: s.seat,
+        stack: s.startStack,
+      })),
+      handId: rec.engineHandId,
+      handNumber: rec.handNumber,
+      previousPositions: rec.prevPositions,
+      deck: rec.deck.map(parseCard),
+      actions: rec.actions,
+      bombPot: { amount: rec.bombPotAmount },
+    });
+    expect(replayed.state.communityCards.map(cardToString)).toEqual(rec.board);
+  });
+
+  it('records bombPotAmount on the completed hand (0 for a normal hand)', () => {
+    const h = harness(7, { bombPotEnabled: true, bombPotIntervalHands: 2 });
+    h.join('alice', 0);
+    h.join('bob', 1);
+    h.timers.runPending();
+    nextHand(h); // hand 1, normal
+    nextHand(h); // hand 2, bomb
+    const [firstHand, bombHand] = h.hands;
+    expect(firstHand.bombPotAmount).toBe(0);
+    expect(bombHand.bombPotAmount).toBe(20);
+  });
+
+  it('carries the counter across a cold restart (hydrate)', () => {
+    const revived = harness(7, { bombPotEnabled: true, bombPotIntervalHands: 5 });
+    revived.runner.hydrate(
+      [
+        { seatNumber: 0, userId: 'alice', stack: 1000, sittingOut: false },
+        { seatNumber: 1, userId: 'bob', stack: 1000, sittingOut: false },
+      ],
+      new Map([
+        ['alice', { username: 'alice', avatarUrl: null }],
+        ['bob', { username: 'bob', avatarUrl: null }],
+      ]),
+      12,
+      null,
+      4,
+    );
+    expect(revived.runner.bombHandCounter).toBe(4);
+    expect(revived.runner.bombPotView()).toMatchObject({ active: false, nextInHands: 1 });
+    // the next dealt hand is the bomb pot (4 + 1 >= 5)
+    for (const s of [0, 1]) revived.runner.setConnected(seatUser(revived.runner, s), true);
+    revived.runner.requestStart();
+    revived.timers.runPending();
+    expect(revived.runner.gameState.street).toBe('FLOP');
+    expect(revived.runner.bombPotView()).toMatchObject({ active: true });
+  });
+
+  it('carries the counter across a warm restart (hydrateFromSnapshot)', () => {
+    const original = harness(7, { bombPotEnabled: true, bombPotIntervalHands: 15 });
+    original.join('alice', 0);
+    original.join('bob', 1);
+    original.timers.runPending();
+    nextHand(original);
+    nextHand(original);
+    nextHand(original);
+    const counter = original.runner.bombHandCounter;
+    expect(counter).toBe(3);
+
+    const snapshot = {
+      state: JSON.parse(JSON.stringify(original.runner.gameState)),
+      handNumber: original.runner.lastHandNumber,
+      previousPositions: original.runner.lastPositions,
+      bombPot: original.runner.bombPotSnapshot(),
+      roster: [...original.runner.rosterEntries.entries()].map(([seatNumber, e]) => ({
+        seatNumber,
+        userId: e.userId,
+        username: e.username,
+        avatarUrl: e.avatarUrl,
+        stack: e.stack,
+        sittingOut: e.sittingOut,
+      })),
+    };
+
+    const revived = harness(7, { bombPotEnabled: true, bombPotIntervalHands: 15 });
+    revived.runner.hydrateFromSnapshot(
+      snapshot,
+      new Map(
+        snapshot.roster.map((r) => [r.userId, { username: r.username, avatarUrl: r.avatarUrl }]),
+      ),
+    );
+    expect(revived.runner.bombHandCounter).toBe(counter);
   });
 });
 

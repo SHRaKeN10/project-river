@@ -57,7 +57,7 @@ export class HandRunner {
     );
   }
 
-  startHand(deck?: readonly Card[]): ReduceResult {
+  startHand(deck?: readonly Card[], bombPot?: { amount: number }): ReduceResult {
     this.handNo += 1;
     this.actionsThisHand = [];
     return this.dispatch({
@@ -66,6 +66,7 @@ export class HandRunner {
       handNumber: this.handNo,
       previousPositions: this.previousPositions,
       deck,
+      ...(bombPot ? { bombPot } : {}),
     });
   }
 

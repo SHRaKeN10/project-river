@@ -6,11 +6,23 @@ interface Props {
   cards: string[];
   pot: number;
   streetLabel: string;
+  /** Bomb-pot state for this table (ADR-0026). `null` when the table doesn't
+   * run bomb pots. Shows a banner during a bomb-pot hand so the missing preflop
+   * round is obvious. */
+  bombPot?: { active: boolean; amount: number; nextInHands: number } | null;
 }
 
-export function CommunityBoard({ cards, pot, streetLabel }: Props): JSX.Element {
+export function CommunityBoard({ cards, pot, streetLabel, bombPot }: Props): JSX.Element {
   return (
     <View style={styles.wrap}>
+      {bombPot?.active ? (
+        <View style={styles.bombBanner}>
+          <Text style={styles.bombTitle}>💣 BOMB POT</Text>
+          <Text style={styles.bombSub}>
+            Everyone posted {bombPot.amount.toLocaleString()} · no preflop betting
+          </Text>
+        </View>
+      ) : null}
       <View style={styles.cards}>
         {Array.from({ length: 5 }).map((_, i) =>
           cards[i] ? (
@@ -54,4 +66,16 @@ const styles = StyleSheet.create({
     borderColor: colors.accent,
   },
   potText: { ...typography.label, color: colors.accent },
+  bombBanner: {
+    alignItems: 'center',
+    gap: 2,
+    backgroundColor: '#00000066',
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.warning,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 4,
+  },
+  bombTitle: { ...typography.label, color: colors.warning, letterSpacing: 1.5 },
+  bombSub: { ...typography.caption, color: colors.textSecondary },
 });

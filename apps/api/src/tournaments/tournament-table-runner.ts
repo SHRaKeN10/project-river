@@ -160,6 +160,10 @@ export class TournamentTableRunner {
       maxBuyIn: 0,
       timeChargeAmount: 0,
       timeChargeIntervalMs: 0,
+      // Bomb pots are NLHE-cash-only (ADR-0026); tournaments never run them.
+      bombPotEnabled: false,
+      bombPotIntervalHands: 0,
+      bombPotAmount: 0,
     };
   }
 

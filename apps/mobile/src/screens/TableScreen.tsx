@@ -140,6 +140,7 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
             cards={view.communityCards}
             pot={view.pot}
             streetLabel={streetLabel(view.street)}
+            bombPot={view.bombPot}
           />
         </View>
 

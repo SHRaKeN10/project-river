@@ -105,6 +105,10 @@ export function describeEvent(
       return `${who} posts ${ev.blind === 'SMALL' ? 'small' : 'big'} blind ${amount ?? ''}`;
     case 'ANTE_POSTED':
       return `${who} posts ante ${amount ?? ''}`;
+    case 'BOMB_POT_STARTED':
+      return `Bomb pot! Everyone posts ${amount ?? ''} - no preflop betting`;
+    case 'BOMB_POT_POSTED':
+      return `${who} posts bomb ${amount ?? ''}`;
     case 'PLAYER_FOLDED':
       return `${who} folds`;
     case 'PLAYER_CHECKED':
