@@ -221,6 +221,32 @@ describe('useTable', () => {
       await waitFor(() => expect(result.current.finished?.results).toHaveLength(1));
     });
 
+    it('adopts tournament:clock snapshots for this tournament only', async () => {
+      const { result } = renderHook(() => useTable('tourney-1', { tournament: true }));
+      const snap = (over: Record<string, unknown> = {}) => ({
+        tournamentId: 'tourney-1',
+        level: 3,
+        smallBlind: 100,
+        bigBlind: 200,
+        ante: 0,
+        isBreak: false,
+        levelEndsAt: Date.now() + 60_000,
+        levelDurationMs: 600_000,
+        serverNow: Date.now(),
+        handForHand: false,
+        playersLeft: 12,
+        placesPaid: 3,
+        tableCount: 2,
+        ...over,
+      });
+
+      act(() => mockFake.server('tournament:clock', snap()));
+      await waitFor(() => expect(result.current.clock?.level).toBe(3));
+
+      act(() => mockFake.server('tournament:clock', snap({ tournamentId: 'other', level: 9 })));
+      expect(result.current.clock?.level).toBe(3); // ignored
+    });
+
     it('rejects taking a seat / chatting in a tournament', async () => {
       const { result } = renderHook(() => useTable('tourney-1', { tournament: true }));
       let err: string | null = 'x';

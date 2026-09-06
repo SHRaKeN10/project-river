@@ -10,8 +10,9 @@ import {
   standardBlindSchedule,
   Street,
 } from '@river/poker-engine';
+import type { TournamentClockState } from '@river/shared-types';
 import { type TimerScheduler } from '../tables/table-runner';
-import { TournamentRunner } from './tournament-runner';
+import { type TournamentPublicEvent, TournamentRunner } from './tournament-runner';
 
 // --- fakes ---------------------------------------------------------------
 
@@ -147,6 +148,7 @@ function makeRow(opts: { entrants: number; seatsPerTable: number; startingStack?
 function makeRunner(
   row: Record<string, unknown> & { entries: FakeEntry[] },
   seed: number,
+  publish?: (ev: TournamentPublicEvent) => void,
 ): {
   runner: TournamentRunner;
   timers: FakeTimers;
@@ -165,6 +167,7 @@ function makeRunner(
     actionTimeoutMs: 1_000,
     disconnectGraceMs: 200,
     nextHandDelayMs: 500,
+    publish,
   });
   return { runner, timers, chips };
 }
@@ -558,6 +561,46 @@ describe('TournamentRunner', () => {
     expect(sawFinalTable).toBe(true);
     expect(sawHeadsUp).toBe(true);
     assertStandingsInvariants(row.resultsJson as Result[], 15, 1500, placesPaidOf(15));
+  });
+
+  // --- level clock + public clock events ------------------------------
+
+  it('clockSnapshot tracks the blind schedule as running time advances', async () => {
+    const row = makeRow({ entrants: 3, seatsPerTable: 3, startingStack: 800 });
+    const { runner, timers } = makeRunner(row, 5);
+    await runner.start();
+
+    const first = runner.clockSnapshot();
+    expect(first.level).toBe(1);
+    expect(first.smallBlind).toBeGreaterThan(0);
+    expect(first.tableCount).toBe(1);
+    expect(first.handForHand).toBe(false);
+    expect(first.placesPaid).toBe(1); // placesPaid(3)
+    expect(first.levelEndsAt).not.toBeNull();
+
+    timers.advance(3_100); // makeRow uses 3s levels
+    await flush();
+    expect(runner.clockSnapshot().level).toBe(2);
+  });
+
+  it('publishes a clock event on start, and its player count falls to one by the finish', async () => {
+    const row = makeRow({ entrants: 6, seatsPerTable: 6, startingStack: 400 });
+    const clocks: TournamentClockState[] = [];
+    const { runner, timers } = makeRunner(row, 8, (ev) => {
+      if (ev.kind === 'clock') clocks.push(ev.snapshot);
+    });
+
+    await runner.start();
+    expect(clocks.length).toBeGreaterThanOrEqual(1);
+    expect(clocks[0]!.level).toBe(1);
+    expect(clocks[0]!.playersLeft).toBe(6);
+
+    await runToCompletion(runner, timers, () => allIn());
+
+    expect(row.status).toBe('FINISHED');
+    expect(clocks.at(-1)!.playersLeft).toBeLessThan(clocks[0]!.playersLeft);
+    // hand-for-hand kicked in near the bubble and a snapshot captured it
+    expect(clocks.some((c) => c.handForHand)).toBe(true);
   });
 
   it('an eliminated player has exactly one position and no position is used twice, hand by hand', async () => {

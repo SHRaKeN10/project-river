@@ -130,6 +130,12 @@ describe('Tournaments (e2e)', () => {
     expect(res.body.you.username).toBe(players[0]!.username);
     expect(res.body.prizePool).toBe(1000); // one buy-in, the fee is the house's
     expect(await balance(0)).toBe(before - 1100);
+
+    // pre-start public projection
+    expect(res.body.registrationOpen).toBe(true);
+    expect(res.body.canUnregister).toBe(true);
+    expect(res.body.clock).toBeNull();
+    expect(Array.isArray(res.body.payouts)).toBe(true);
   });
 
   it('registering twice is a conflict', async () => {
@@ -206,7 +212,14 @@ describe('Tournaments (e2e)', () => {
       .expect(200);
     expect(res.body.status).toBe('RUNNING');
     expect(res.body.startedAt).not.toBeNull();
-    expect(res.body.currentLevel).toBe(1);
+    expect(res.body.clock.level).toBe(1);
+    expect(res.body.clock.bigBlind).toBe(20);
+    expect(res.body.clock.levelEndsAt).toBeGreaterThan(Date.now());
+    expect(res.body.clock.tableCount).toBe(1);
+    expect(res.body.clock.handForHand).toBe(false);
+    expect(res.body.clock.playersLeft).toBe(2);
+    // registration has closed now the clock is running
+    expect(res.body.registrationOpen).toBe(false);
 
     // seats are now recorded on the entries
     const view = await request(server)
@@ -214,6 +227,7 @@ describe('Tournaments (e2e)', () => {
       .set(auth(tokens[0]!))
       .expect(200);
     expect(view.body.you.stack).toBeGreaterThan(0);
+    expect(view.body.canUnregister).toBe(false); // cannot unregister once running
 
     // cannot start it twice
     await request(server)

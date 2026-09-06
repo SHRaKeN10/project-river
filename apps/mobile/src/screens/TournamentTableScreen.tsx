@@ -12,6 +12,7 @@ import {
   streetLabel,
 } from '../features/table/layout';
 import { useTable } from '../features/table/useTable';
+import { TournamentClock } from '../features/tournament/TournamentClock';
 import { colors, radius, spacing, typography } from '../theme/tokens';
 import type { AppStackParams } from '../navigation/types';
 
@@ -26,7 +27,7 @@ type Props = NativeStackScreenProps<AppStackParams, 'TournamentTable'>;
 export function TournamentTableScreen({ navigation, route }: Props): JSX.Element {
   const { tournamentId } = route.params;
   const { width, height } = useWindowDimensions();
-  const { view, connected, error, feed, clearError, act, eliminated, finished } = useTable(
+  const { view, connected, error, feed, clearError, act, eliminated, finished, clock } = useTable(
     tournamentId,
     { tournament: true },
   );
@@ -108,6 +109,15 @@ export function TournamentTableScreen({ navigation, route }: Props): JSX.Element
         </View>
         <View style={styles.headerSpacer} />
       </View>
+
+      {clock ? (
+        <View style={styles.clockStrip}>
+          <TournamentClock clock={clock} variant="compact" />
+          <Text style={styles.clockMeta}>
+            {clock.playersLeft} left{clock.handForHand ? ' · hand-for-hand' : ''}
+          </Text>
+        </View>
+      ) : null}
 
       {error ? (
         <Pressable style={styles.errorBar} onPress={clearError}>
@@ -206,6 +216,15 @@ const styles = StyleSheet.create({
   headerSpacer: { width: 24 },
   tableName: { ...typography.h3, color: colors.textPrimary },
   stakes: { ...typography.caption, color: colors.textSecondary },
+  clockStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.xs,
+  },
+  clockMeta: { ...typography.caption, color: colors.textSecondary },
   errorBar: {
     backgroundColor: colors.danger,
     marginHorizontal: spacing.lg,

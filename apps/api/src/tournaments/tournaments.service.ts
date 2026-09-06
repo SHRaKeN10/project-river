@@ -22,6 +22,7 @@ import {
 import type {
   BlindLevelWire,
   CreateTournamentInput,
+  TournamentClockState,
   TournamentEntryView,
   TournamentView,
 } from '@river/shared-types';
@@ -249,14 +250,46 @@ export class TournamentsService {
 
   private toView(row: TournamentRow, userId: string | null): TournamentView {
     const blinds = this.blindsOf(row) as unknown as BlindLevelWire[];
+    const schedule = this.blindsOf(row);
     const entrants = row.entries.length;
-    const clock = {
+    const pool = poolFor(this.configOf(row), entrants);
+    const clockState = {
       startedAt: row.startedAt?.getTime() ?? null,
       pausedMs: row.pausedMs,
       pausedAt: row.pausedAt?.getTime() ?? null,
     };
     const running = row.status === 'RUNNING' || row.status === 'PAUSED';
+    const registrationOpen =
+      (row.status === 'SCHEDULED' || row.status === 'REGISTERING') &&
+      (row.maxEntrants === null || entrants < row.maxEntrants);
     const now = Date.now();
+    const rt = this.manager.get(row.id);
+
+    // The authoritative level clock: straight from the running coordinator, or
+    // reconstructed from the persisted bookmark when no runner is on this node.
+    let clock: TournamentClockState | null = null;
+    if (running && schedule.length > 0) {
+      if (rt) {
+        clock = rt.clockSnapshot();
+      } else {
+        const lvl = currentLevel(schedule, clockState, now);
+        clock = {
+          tournamentId: row.id,
+          level: lvl.level,
+          smallBlind: lvl.smallBlind,
+          bigBlind: lvl.bigBlind,
+          ante: lvl.ante,
+          isBreak: lvl.isBreak,
+          levelEndsAt: levelEndsAt(schedule, clockState, now),
+          levelDurationMs: lvl.durationMs,
+          serverNow: now,
+          handForHand: false,
+          playersLeft: row.entries.filter((e) => e.eliminatedAt === null).length,
+          placesPaid: entrants >= 2 ? placesPaid(entrants) : 1,
+          tableCount: 0,
+        };
+      }
+    }
 
     const entryView = (
       e: TournamentEntry & { user: { username: string } },
@@ -271,7 +304,7 @@ export class TournamentsService {
     });
 
     const mine = userId ? (row.entries.find((e) => e.userId === userId) ?? null) : null;
-    const mySeat = mine && running ? this.manager.get(row.id)?.entrantView(mine.userId) : undefined;
+    const mySeat = mine && running ? rt?.entrantView(mine.userId) : undefined;
 
     const results =
       row.status === 'FINISHED' && Array.isArray(row.resultsJson)
@@ -298,12 +331,15 @@ export class TournamentsService {
 
       entrantCount: entrants,
       playersLeft: row.entries.filter((e) => e.eliminatedAt === null).length,
-      prizePool: poolFor(this.configOf(row), entrants),
+      prizePool: pool,
       placesPaid: entrants >= 2 ? placesPaid(entrants) : 0,
+      payouts: entrants >= 2 ? payoutSchedule(entrants, pool) : [],
 
-      startedAt: clock.startedAt,
-      currentLevel: running ? currentLevel(blinds as BlindSchedule, clock, now).level : null,
-      levelEndsAt: running ? levelEndsAt(blinds as BlindSchedule, clock, now) : null,
+      registrationOpen,
+      canUnregister: mine !== null && (row.status === 'SCHEDULED' || row.status === 'REGISTERING'),
+
+      startedAt: clockState.startedAt,
+      clock,
 
       you: mine
         ? { ...entryView(mine), tableId: mySeat?.tableId ?? null, seat: mySeat?.seat ?? null }

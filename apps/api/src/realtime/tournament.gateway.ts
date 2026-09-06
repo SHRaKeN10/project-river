@@ -101,6 +101,7 @@ export class TournamentGateway implements OnGatewayInit, OnGatewayDisconnect {
 
     const view = this.viewFor(runner, parsed.data.tournamentId, tableId, user.userId);
     if (view) socket.emit(ServerToClient.TABLE_STATE, view);
+    if (runner.running) socket.emit(ServerToClient.TOURNAMENT_CLOCK, runner.clockSnapshot());
     if (seatedTable !== null) {
       const seat = runner.entrantView(user.userId)?.seat ?? null;
       if (seat !== null) {
@@ -170,6 +171,14 @@ export class TournamentGateway implements OnGatewayInit, OnGatewayDisconnect {
     switch (ev.kind) {
       case 'tableUpdate':
         return this.onTableUpdate(tournamentId, ev.tableId, ev.notification);
+      case 'clock':
+        for (const [socketId, t] of this.tracked) {
+          if (t.tournamentId !== tournamentId) continue;
+          this.server.sockets.sockets
+            .get(socketId)
+            ?.emit(ServerToClient.TOURNAMENT_CLOCK, ev.snapshot);
+        }
+        return;
       case 'assigned':
         return this.onAssigned(tournamentId, ev.userId, ev.tableId, ev.seat);
       case 'eliminated':

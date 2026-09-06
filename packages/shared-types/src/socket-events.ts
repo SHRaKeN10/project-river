@@ -36,6 +36,10 @@ export const ServerToClient = {
   /** A seat's flat time charge fired (membership-club billing, not a pot rake). */
   TIME_CHARGE: 'table:timeCharge',
 
+  /** An authoritative tournament level-clock snapshot: on watch, on every blind
+   * change, and after each hand-for-hand round. The client runs a local
+   * countdown between these and never broadcasts per second. */
+  TOURNAMENT_CLOCK: 'tournament:clock',
   /** Your seat in a tournament changed (initial draw, or a balance move). The
    * `table:state` that follows carries the new table. */
   TOURNAMENT_ASSIGNMENT: 'tournament:assignment',

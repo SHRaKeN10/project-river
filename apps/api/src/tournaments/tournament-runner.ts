@@ -12,6 +12,7 @@ import {
   seatDraw,
   type TournamentTable,
 } from '@river/poker-engine';
+import type { TournamentClockState } from '@river/shared-types';
 import { ChipsService } from '../chips/chips.service';
 import { PrismaService } from '../infra/prisma/prisma.service';
 import { variantForGameType } from '../tables/game-variant';
@@ -32,6 +33,9 @@ export type TournamentPublicEvent =
       tableId: string;
       notification: Extract<TournamentTableNotification, { kind: 'state' | 'events' | 'rejected' }>;
     }
+  /** The authoritative level-clock snapshot - on start, every blind change, and
+   * after each hand-for-hand round. Not a per-second tick. */
+  | { kind: 'clock'; snapshot: TournamentClockState }
   /** A player is (re)seated at a table - initial draw, or a balance move. */
   | { kind: 'assigned'; userId: string; tableId: string; seat: number }
   | { kind: 'eliminated'; userId: string; finishPosition: number }
@@ -131,6 +135,39 @@ export class TournamentRunner {
 
   get tableCount(): number {
     return this.tables.size;
+  }
+
+  /** Players still in the tournament (no finishing position assigned yet). */
+  get playersRemaining(): number {
+    let n = 0;
+    for (const e of this.entries.values()) if (e.finishPosition === null) n += 1;
+    return n;
+  }
+
+  /** Hand-for-hand play is active (at/near the money bubble). */
+  get handForHandActive(): boolean {
+    return this.handForHand;
+  }
+
+  /** The authoritative level-clock snapshot for the gateway / REST view. */
+  clockSnapshot(): TournamentClockState {
+    const now = this.deps.now();
+    const lvl = currentLevel(this.schedule, this.clock(), now);
+    return {
+      tournamentId: this.tournamentId,
+      level: lvl.level,
+      smallBlind: lvl.smallBlind,
+      bigBlind: lvl.bigBlind,
+      ante: lvl.ante,
+      isBreak: lvl.isBreak,
+      levelEndsAt: levelEndsAt(this.schedule, this.clock(), now),
+      levelDurationMs: lvl.durationMs,
+      serverNow: now,
+      handForHand: this.handForHand,
+      playersLeft: this.playersRemaining,
+      placesPaid: this.paidPlaces,
+      tableCount: this.tables.size,
+    };
   }
 
   /** Test / diagnostics: every live table's authoritative game state. */
@@ -409,6 +446,7 @@ export class TournamentRunner {
     this.clearLevelTimer();
     if (this.disposed || this.tables.size === 0) return;
     this.applyCurrentLevel();
+    this.publish({ kind: 'clock', snapshot: this.clockSnapshot() });
     const endsAt = levelEndsAt(this.schedule, this.clock(), this.deps.now());
     if (endsAt === null) return; // on the final level - nothing more to schedule
     const delay = Math.max(0, endsAt - this.deps.now());
@@ -508,6 +546,11 @@ export class TournamentRunner {
     try {
       this.finalizeRound();
       this.runBalance();
+      // Correct every watcher's clock at the round boundary - the field size,
+      // table count or hand-for-hand flag may have just moved. Not per-second.
+      if (this.tables.size > 0) {
+        this.publish({ kind: 'clock', snapshot: this.clockSnapshot() });
+      }
     } finally {
       this.balancing = false;
     }

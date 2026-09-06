@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { TournamentView } from '@river/shared-types';
@@ -9,6 +9,7 @@ import {
   useTournaments,
   useUnregisterTournament,
 } from '../features/api/queries';
+import { TournamentClock } from '../features/tournament/TournamentClock';
 import { colors, radius, spacing, typography } from '../theme/tokens';
 import type { AppStackParams } from '../navigation/types';
 
@@ -32,17 +33,24 @@ export function TournamentsScreen({ navigation }: Props): JSX.Element {
     (id: string) => navigation.navigate('TournamentTable', { tournamentId: id }),
     [navigation],
   );
+  const openDetail = useCallback(
+    (id: string) => navigation.navigate('TournamentDetail', { tournamentId: id }),
+    [navigation],
+  );
 
   const renderItem = useCallback(
     ({ item }: { item: TournamentView }) => {
       const registered = item.you !== null;
-      const canRegister =
-        !registered && (item.status === 'SCHEDULED' || item.status === 'REGISTERING');
+      const canRegister = !registered && item.registrationOpen;
       const running = item.status === 'RUNNING' || item.status === 'PAUSED';
       const eliminated = item.you?.eliminated ?? false;
 
       return (
-        <View style={styles.card}>
+        <Pressable
+          style={styles.card}
+          onPress={() => openDetail(item.id)}
+          accessibilityRole="button"
+        >
           <View style={styles.cardTop}>
             <Text style={styles.name} numberOfLines={1}>
               {item.name}
@@ -54,8 +62,11 @@ export function TournamentsScreen({ navigation }: Props): JSX.Element {
           </Text>
           <Text style={styles.meta}>
             {item.entrantCount} entered
+            {item.maxEntrants ? ` / ${item.maxEntrants}` : ''}
+            {item.prizePool > 0 ? ` · ${item.prizePool.toLocaleString()} pool` : ''}
             {running ? ` · ${item.playersLeft} left · ${item.placesPaid} paid` : ''}
           </Text>
+          {item.clock ? <TournamentClock clock={item.clock} variant="compact" /> : null}
 
           <View style={styles.actions}>
             {canRegister ? (
@@ -64,7 +75,7 @@ export function TournamentsScreen({ navigation }: Props): JSX.Element {
                 onPress={() => register.mutate(item.id)}
               />
             ) : null}
-            {registered && !running && item.status !== 'FINISHED' ? (
+            {registered && item.canUnregister ? (
               <Button
                 label="Unregister"
                 variant="secondary"
@@ -80,10 +91,10 @@ export function TournamentsScreen({ navigation }: Props): JSX.Element {
               </Text>
             ) : null}
           </View>
-        </View>
+        </Pressable>
       );
     },
-    [enter, register, unregister],
+    [enter, openDetail, register, unregister],
   );
 
   return (

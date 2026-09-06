@@ -8,6 +8,7 @@ export type AppStackParams = {
   Lobby: undefined;
   Table: { tableId: string };
   Tournaments: undefined;
+  TournamentDetail: { tournamentId: string };
   TournamentTable: { tournamentId: string };
   Profile: undefined;
   Settings: undefined;

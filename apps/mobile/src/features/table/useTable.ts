@@ -7,6 +7,7 @@ import {
   type TableStateView,
   type TableTimeChargeMessage,
   type TournamentAssignment,
+  type TournamentClockState,
   type TournamentElimination,
   type TournamentFinished,
   type WirePlayerAction,
@@ -31,6 +32,8 @@ export interface UseTable {
   eliminated: number | null;
   /** Tournament only: the final standings once the event ends, else null. */
   finished: TournamentFinished | null;
+  /** Tournament only: the latest authoritative level-clock snapshot, else null. */
+  clock: TournamentClockState | null;
   clearError: () => void;
   takeSeat: (seatNumber: number, buyIn: number) => Promise<string | null>;
   leaveSeat: () => Promise<void>;
@@ -58,6 +61,7 @@ export function useTable(id: string, opts: UseTableOptions = {}): UseTable {
   const [chat, setChat] = useState<TableChatMessage[]>([]);
   const [eliminated, setEliminated] = useState<number | null>(null);
   const [finished, setFinished] = useState<TournamentFinished | null>(null);
+  const [clock, setClock] = useState<TournamentClockState | null>(null);
 
   const viewRef = useRef<TableStateView | null>(null);
   viewRef.current = view;
@@ -117,6 +121,9 @@ export function useTable(id: string, opts: UseTableOptions = {}): UseTable {
     const onFinished = (f: TournamentFinished): void => {
       if (f.tournamentId === id) setFinished(f);
     };
+    const onClock = (c: TournamentClockState): void => {
+      if (c.tournamentId === id) setClock(c);
+    };
 
     socket.on(ServerToClient.TABLE_STATE, onState);
     socket.on(ServerToClient.HAND_UPDATE, onUpdate);
@@ -128,6 +135,7 @@ export function useTable(id: string, opts: UseTableOptions = {}): UseTable {
     socket.on(ServerToClient.TOURNAMENT_ASSIGNMENT, onAssignment);
     socket.on(ServerToClient.TOURNAMENT_ELIMINATED, onEliminated);
     socket.on(ServerToClient.TOURNAMENT_FINISHED, onFinished);
+    socket.on(ServerToClient.TOURNAMENT_CLOCK, onClock);
 
     void watch().then((ack) => {
       if ('error' in ack) setError({ code: 'WATCH_FAILED', message: ack.error });
@@ -151,6 +159,7 @@ export function useTable(id: string, opts: UseTableOptions = {}): UseTable {
       socket.off(ServerToClient.TOURNAMENT_ASSIGNMENT, onAssignment);
       socket.off(ServerToClient.TOURNAMENT_ELIMINATED, onEliminated);
       socket.off(ServerToClient.TOURNAMENT_FINISHED, onFinished);
+      socket.off(ServerToClient.TOURNAMENT_CLOCK, onClock);
     };
   }, [id, isTournament, nameForSeat, pushFeed, watch]);
 
@@ -213,6 +222,7 @@ export function useTable(id: string, opts: UseTableOptions = {}): UseTable {
     chat,
     eliminated,
     finished,
+    clock,
     clearError,
     takeSeat,
     leaveSeat,

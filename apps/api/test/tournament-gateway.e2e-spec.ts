@@ -137,6 +137,7 @@ describe('TournamentGateway (e2e)', () => {
     eliminated: any[];
     tableClosed: any[];
     finished: any[];
+    clocks: any[];
   }
 
   /** Attach every listener + a jam bot, and return the collected event log. */
@@ -154,6 +155,7 @@ describe('TournamentGateway (e2e)', () => {
       eliminated: [],
       tableClosed: [],
       finished: [],
+      clocks: [],
     };
     let seq = 0;
     const acted = new Set<string>();
@@ -188,6 +190,7 @@ describe('TournamentGateway (e2e)', () => {
     socket.on('tournament:eliminated', (e: any) => c.eliminated.push(e));
     socket.on('tournament:tableClosed', (e: any) => c.tableClosed.push(e));
     socket.on('tournament:finished', (e: any) => c.finished.push(e));
+    socket.on('tournament:clock', (e: any) => c.clocks.push(e));
     return c;
   };
 
@@ -315,6 +318,14 @@ describe('TournamentGateway (e2e)', () => {
     const initialTables = new Set(logs.map((l) => l.assignments[0].tableId));
     expect(initialTables.size).toBe(2);
 
+    // every watcher got an authoritative clock snapshot on watch
+    for (const l of logs) {
+      expect(l.clocks.length).toBeGreaterThanOrEqual(1);
+      expect(l.clocks[0].tournamentId).toBe(id);
+      expect(l.clocks[0].level).toBeGreaterThanOrEqual(1);
+      expect(l.clocks[0].playersLeft).toBe(6);
+    }
+
     // let it run to a winner
     const winnerFinish: any = await Promise.race(
       sockets.map((s) => waitFor(s, 'tournament:finished', 40_000)),
@@ -347,6 +358,13 @@ describe('TournamentGateway (e2e)', () => {
       l.updates.some((u: any) => u.type === 'POT_AWARDED' || u.type === 'HAND_COMPLETED'),
     );
     expect(sawPotAward).toBe(true);
+
+    // the clock tracked the field shrinking, and hand-for-hand fired at the bubble
+    const minLeft = Math.min(
+      ...logs.flatMap((l) => l.clocks.map((c: any) => c.playersLeft as number)),
+    );
+    expect(minLeft).toBeLessThan(6);
+    expect(logs.some((l) => l.clocks.some((c: any) => c.handForHand))).toBe(true);
 
     manager.stop(id);
   }, 60000);
