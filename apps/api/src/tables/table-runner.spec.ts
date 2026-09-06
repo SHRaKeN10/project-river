@@ -60,6 +60,7 @@ const meta: TableMeta = {
   straddleEnabled: false,
   straddleMultiplier: 2,
   runItTwiceEnabled: false,
+  antiRatholeMinutes: 0,
 };
 
 function harness(seed = 7, metaOverrides: Partial<TableMeta> = {}) {

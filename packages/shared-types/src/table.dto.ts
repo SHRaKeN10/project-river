@@ -103,6 +103,10 @@ export interface TableStateView {
    * countdown on the wire, deliberately. */
   timeChargeAmount: number;
   timeChargeIntervalMs: number;
+  /** Anti-ratholing cooldown in minutes (ADR-0029); 0 = the table doesn't apply
+   * it. Within this window after voluntarily leaving, you must return with at
+   * least the stack you left with (capped at the max buy-in). */
+  antiRatholeMinutes: number;
 
   handId: string | null;
   handNumber: number;

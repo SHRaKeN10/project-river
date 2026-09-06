@@ -372,6 +372,7 @@ export class TableRunner {
     straddleEnabled?: boolean;
     straddleMultiplier?: number;
     runItTwiceEnabled?: boolean;
+    antiRatholeMinutes?: number;
   }): void {
     if (patch.bombPotEnabled !== undefined) this.meta.bombPotEnabled = patch.bombPotEnabled;
     if (patch.bombPotIntervalHands !== undefined) {
@@ -384,6 +385,9 @@ export class TableRunner {
     }
     if (patch.runItTwiceEnabled !== undefined) {
       this.meta.runItTwiceEnabled = patch.runItTwiceEnabled;
+    }
+    if (patch.antiRatholeMinutes !== undefined) {
+      this.meta.antiRatholeMinutes = patch.antiRatholeMinutes;
     }
     this.deps.notify({ kind: 'state' });
   }

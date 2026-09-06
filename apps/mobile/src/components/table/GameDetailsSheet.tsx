@@ -27,6 +27,13 @@ export function GameDetailsSheet({ visible, view, onClose }: Props): JSX.Element
       `${view.timeChargeAmount} / ${Math.round(view.timeChargeIntervalMs / 60_000)} min`,
     ]);
   }
+  if (view.runItTwice) rows.push(['Run it twice', 'Available']);
+  if (view.antiRatholeMinutes > 0) {
+    rows.push([
+      'Re-buy policy',
+      `Return with your leaving stack for ${view.antiRatholeMinutes} min`,
+    ]);
+  }
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>

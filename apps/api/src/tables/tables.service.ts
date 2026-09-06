@@ -34,6 +34,7 @@ export interface TableConfigPatch {
   straddleEnabled?: boolean;
   straddleMultiplier?: number;
   runItTwiceEnabled?: boolean;
+  antiRatholeMinutes?: number;
 }
 
 export type TableWithSeats = PokerTable & { seats: PokerTableSeat[] };
@@ -118,6 +119,9 @@ export class TablesService {
     if (patch.straddleMultiplier !== undefined && patch.straddleMultiplier < 2) {
       throw new BadRequestException('straddleMultiplier must be at least 2');
     }
+    if (patch.antiRatholeMinutes !== undefined && patch.antiRatholeMinutes < 0) {
+      throw new BadRequestException('antiRatholeMinutes cannot be negative');
+    }
     return this.prisma.pokerTable.update({
       where: { id: tableId },
       data: {
@@ -133,6 +137,9 @@ export class TablesService {
         }),
         ...(patch.runItTwiceEnabled !== undefined && {
           runItTwiceEnabled: patch.runItTwiceEnabled,
+        }),
+        ...(patch.antiRatholeMinutes !== undefined && {
+          antiRatholeMinutes: patch.antiRatholeMinutes,
         }),
       },
       include: { seats: { orderBy: { seatNumber: 'asc' } } },
@@ -213,7 +220,7 @@ export class TablesService {
       await this.prisma.$transaction(async (tx) => {
         const table = await tx.pokerTable.findUnique({
           where: { id: args.tableId },
-          select: { status: true },
+          select: { status: true, maxBuyIn: true, antiRatholeMinutes: true },
         });
         if (!table) throw new BadRequestException('table not found');
         if (table.status !== 'ACTIVE') throw new BadRequestException('this table is not open');
@@ -222,6 +229,27 @@ export class TablesService {
           where: { tableId: args.tableId, userId: args.userId },
         });
         if (already > 0) throw new BadRequestException('you are already at this table');
+
+        // Anti-ratholing (ADR-0029): a player who voluntarily left this table
+        // cannot come back short for `antiRatholeMinutes`. Their leaving stack is
+        // the floor, capped at the table max. Losing chips elsewhere, a
+        // disconnect removal, or waiting out the cooldown do not restrict them.
+        if (table.antiRatholeMinutes > 0) {
+          const departure = await tx.tableDeparture.findUnique({
+            where: { tableId_userId: { tableId: args.tableId, userId: args.userId } },
+          });
+          if (departure) {
+            const cooldownMs = table.antiRatholeMinutes * 60_000;
+            const elapsedMs = Date.now() - departure.leftAt.getTime();
+            const floor = Math.min(departure.stack, table.maxBuyIn);
+            if (elapsedMs < cooldownMs && args.buyIn < floor) {
+              const waitMin = Math.ceil((cooldownMs - elapsedMs) / 60_000);
+              throw new BadRequestException(
+                `you left this table with ${departure.stack} - come back with at least ${floor}, or wait ${waitMin} more minute${waitMin === 1 ? '' : 's'}`,
+              );
+            }
+          }
+        }
 
         const claimed = await tx.pokerTableSeat.updateMany({
           where: { tableId: args.tableId, seatNumber: args.seatNumber, userId: null },
@@ -244,6 +272,11 @@ export class TablesService {
           },
           tx,
         );
+
+        // They took a seat within the rules - the anti-rathole clock resets.
+        await tx.tableDeparture.deleteMany({
+          where: { tableId: args.tableId, userId: args.userId },
+        });
       });
       return { ok: true };
     } catch (err) {
@@ -265,12 +298,28 @@ export class TablesService {
     userId: string;
     finalStack: number;
     idemKey: string;
+    /** The stack to record for anti-ratholing (ADR-0029). Set only for a
+     * VOLUNTARY leave - a disconnect removal or table close passes nothing. */
+    recordDepartureStack?: number | null;
   }): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       await tx.pokerTableSeat.updateMany({
         where: { tableId: args.tableId, seatNumber: args.seatNumber, userId: args.userId },
         data: { userId: null, stack: 0, sittingOut: false, joinedAt: null },
       });
+      if (args.recordDepartureStack != null && args.recordDepartureStack > 0) {
+        const leftAt = new Date();
+        await tx.tableDeparture.upsert({
+          where: { tableId_userId: { tableId: args.tableId, userId: args.userId } },
+          create: {
+            tableId: args.tableId,
+            userId: args.userId,
+            stack: args.recordDepartureStack,
+            leftAt,
+          },
+          update: { stack: args.recordDepartureStack, leftAt },
+        });
+      }
       if (args.finalStack > 0) {
         await this.chips.move(
           {

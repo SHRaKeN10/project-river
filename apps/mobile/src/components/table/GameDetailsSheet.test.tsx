@@ -49,6 +49,24 @@ describe('GameDetailsSheet', () => {
     expect(screen.getByText("No-Limit Hold'em")).toBeTruthy();
   });
 
+  it('shows the re-buy policy and run-it-twice rows when the table has them', () => {
+    render(
+      <GameDetailsSheet
+        visible
+        view={view({ antiRatholeMinutes: 30, runItTwice: { enabled: true, armed: false } })}
+        onClose={jest.fn()}
+      />,
+    );
+    expect(screen.getByText('Re-buy policy')).toBeTruthy();
+    expect(screen.getByText(/leaving stack for 30 min/)).toBeTruthy();
+    expect(screen.getByText('Run it twice')).toBeTruthy();
+  });
+
+  it('omits the re-buy policy row when anti-ratholing is off', () => {
+    render(<GameDetailsSheet visible view={view({ antiRatholeMinutes: 0 })} onClose={jest.fn()} />);
+    expect(screen.queryByText('Re-buy policy')).toBeNull();
+  });
+
   it('labels a Pot-Limit Omaha table', () => {
     render(<GameDetailsSheet visible view={view({ gameType: 'PLO' })} onClose={jest.fn()} />);
     expect(screen.getByText('Pot-Limit Omaha')).toBeTruthy();

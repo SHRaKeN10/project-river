@@ -207,6 +207,14 @@ board). Reuses `buildPots` / `evaluateShowdown` / `awardPots` unchanged — no
 second showdown engine. `table:state` carries `secondBoard` + `runItTwice`. See
 `docs/architecture/ADR-0028-run-it-twice.md`.
 
+**Anti-ratholing** (cash tables, `PokerTable.antiRatholeMinutes`, default 30, 0 =
+off): a player who **voluntarily** leaves can't rebuy at that same table for less
+than the stack they left with (capped at max buy-in) until the cooldown passes.
+Enforced server-side in `TablesService.sitDown`; the departure is recorded in the
+same transaction as the cash-out, only for a voluntary leave (not a disconnect
+sweep or admin close), and cleared on a legitimate return. See
+`docs/architecture/ADR-0029-anti-ratholing.md`.
+
 ## Conventions
 
 - Server is the only authority for cards, shuffles, legal actions, winners, pots.

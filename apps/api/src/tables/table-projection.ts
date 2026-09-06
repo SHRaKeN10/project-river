@@ -49,6 +49,9 @@ export interface TableMeta {
   straddleMultiplier: number;
   /** Run It Twice (NLHE cash only, ADR-0028). */
   runItTwiceEnabled: boolean;
+  /** Anti-ratholing cooldown in minutes (ADR-0029); 0 = off. Enforced in
+   * `TablesService.sitDown`, surfaced here for the buy-in UI. */
+  antiRatholeMinutes: number;
 }
 
 export interface ProjectParams {
@@ -115,6 +118,7 @@ export function projectTableState(params: ProjectParams): TableStateView {
     maxBuyIn: table.maxBuyIn,
     timeChargeAmount: table.timeChargeAmount,
     timeChargeIntervalMs: table.timeChargeIntervalMs,
+    antiRatholeMinutes: table.antiRatholeMinutes,
 
     handId: handInProgress ? state.handId : null,
     handNumber: state.handNumber,
