@@ -51,6 +51,7 @@ const view = (over: Partial<TableStateView> = {}): TableStateView => ({
   street: 'PREFLOP',
   buttonSeat: 0,
   communityCards: [],
+  secondBoard: [],
   pot: 30,
   pots: [],
   currentBet: 10,
@@ -80,6 +81,8 @@ const view = (over: Partial<TableStateView> = {}): TableStateView => ({
   bombPot: null,
   straddle: null,
   youStraddleNext: false,
+  runItTwice: null,
+  youRunItTwice: false,
   ...over,
 });
 

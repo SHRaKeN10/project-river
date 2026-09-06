@@ -534,6 +534,87 @@ describe('PokerGateway (e2e)', () => {
     sC.disconnect();
   }, 30000);
 
+  it('runs it twice: an all-in run-out with everyone armed deals two boards and splits every pot', async () => {
+    const t = await makeTable({ maxSeats: 2, minBuyIn: 200, maxBuyIn: 2000 });
+    const rows = await prisma.pokerTable.findUnique({ where: { id: t } });
+    expect(rows?.runItTwiceEnabled).toBe(true); // on by default for NLHE
+
+    const seen: any[] = [];
+    const updates: any[] = [];
+    let seq = 0;
+    const drive = (socket: Socket, record = false) => {
+      const acted = new Set<string>();
+      if (record) socket.on('hand:update', (e: any) => updates.push(e));
+      socket.on('table:state', (state: any) => {
+        seen.push(state);
+        if (!state.handId || state.actingSeat !== state.youAreSeat || !state.legalActions?.length) {
+          return;
+        }
+        const key = `${state.handId}:${state.street}`;
+        if (acted.has(key)) return;
+        acted.add(key);
+        // shove all-in whenever possible
+        const kinds = state.legalActions.map((o: any) => o.kind);
+        const pick = kinds.includes('ALL_IN')
+          ? 'ALL_IN'
+          : kinds.includes('CHECK')
+            ? 'CHECK'
+            : 'CALL';
+        socket.emit('player:action', {
+          tableId: t,
+          handId: state.handId,
+          clientSeq: (seq += 1),
+          action: { type: pick },
+        });
+      });
+    };
+
+    const sA = await connect(tokens[0]!);
+    const sB = await connect(tokens[1]!);
+    drive(sA, true);
+    drive(sB);
+
+    const endA = waitFor(sA, 'hand:end', 25000);
+    await emitAck(sA, 'table:join', { tableId: t, seatNumber: 0, buyIn: 1000 });
+    await emitAck(sB, 'table:join', { tableId: t, seatNumber: 1, buyIn: 1000 });
+    expect((await emitAck<any>(sA, 'player:runItTwice', { tableId: t, on: true })).ok).toBe(true);
+    expect((await emitAck<any>(sB, 'player:runItTwice', { tableId: t, on: true })).ok).toBe(true);
+    await endA;
+
+    // two boards dealt
+    expect(updates.some((e) => e.type === 'SECOND_BOARD_DEALT')).toBe(true);
+    const withTwo = seen.filter((s) => Array.isArray(s.secondBoard) && s.secondBoard.length === 5);
+    expect(withTwo.length).toBeGreaterThan(0);
+    expect(seen.some((s) => s.runItTwice?.armed === true)).toBe(true);
+
+    // every POT_AWARDED carries a board, one per board, summing to the pot
+    const potAwards = updates.filter((e) => e.type === 'POT_AWARDED');
+    expect(potAwards.length).toBeGreaterThanOrEqual(2);
+    expect(potAwards.every((a) => a.board === 1 || a.board === 2)).toBe(true);
+    const total = potAwards.reduce(
+      (t2: number, a: any) => t2 + a.winners.reduce((s: number, w: any) => s + w.amount, 0),
+      0,
+    );
+    expect(total).toBe(2000);
+
+    // chips conserved + the outcome persisted
+    const seats = await prisma.pokerTableSeat.findMany({ where: { tableId: t } });
+    expect(seats.reduce((sum, s) => sum + s.stack, 0)).toBe(2000);
+    expect(seats.find((s) => s.seatNumber === 0)?.runItTwiceOn).toBe(true);
+    // hand history is written fire-and-forget - give it a beat
+    let hand = null as Awaited<ReturnType<typeof prisma.pokerHand.findFirst>>;
+    for (let i = 0; i < 20 && !hand; i += 1) {
+      hand = await prisma.pokerHand.findFirst({ where: { tableId: t } });
+      if (!hand) await new Promise((r) => setTimeout(r, 100));
+    }
+    expect(hand?.ranItTwice).toBe(true);
+
+    sA.emit('table:leave', { tableId: t });
+    sB.emit('table:leave', { tableId: t });
+    sA.disconnect();
+    sB.disconnect();
+  }, 30000);
+
   // --- regression: closed-alpha audit ------------------------------------
 
   it('refunds the buy-in when the requested seat is already taken', async () => {

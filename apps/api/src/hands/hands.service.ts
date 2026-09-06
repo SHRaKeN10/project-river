@@ -142,6 +142,7 @@ export class HandsService {
       actions: hand.actionsJson as unknown as EngineAction[],
       ...(hand.bombPotAmount > 0 ? { bombPot: { amount: hand.bombPotAmount } } : {}),
       ...(straddle ? { straddle } : {}),
+      ...(hand.ranItTwice ? { runItTwice: true } : {}),
     });
   }
 

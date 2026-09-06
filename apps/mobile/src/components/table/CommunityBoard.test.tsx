@@ -32,4 +32,24 @@ describe('CommunityBoard', () => {
     );
     expect(screen.queryByText(/BOMB POT/i)).toBeNull();
   });
+
+  it('renders a single board normally and two boards when the hand ran twice', () => {
+    const { rerender } = render(
+      <CommunityBoard cards={['As', 'Kd', '7c', '2h', '9s']} pot={200} streetLabel="River" />,
+    );
+    expect(screen.queryByText('RUNNING IT TWICE')).toBeNull();
+
+    rerender(
+      <CommunityBoard
+        cards={['As', 'Kd', '7c', '2h', '9s']}
+        secondBoard={['Qc', 'Jc', 'Tc', '3d', '4d']}
+        pot={200}
+        streetLabel="River"
+      />,
+    );
+    expect(screen.getByText('RUNNING IT TWICE')).toBeTruthy();
+    // both boards' cards are on screen
+    expect(screen.getByText('Q')).toBeTruthy();
+    expect(screen.getByText('9')).toBeTruthy();
+  });
 });

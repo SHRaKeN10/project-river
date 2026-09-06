@@ -200,6 +200,13 @@ flag is sticky and persists (`PokerTableSeat.straddleOn` + Redis snapshot).
 `table:state` carries `straddle` / `youStraddleNext`. See
 `docs/architecture/ADR-0027-straddle.md`.
 
+**Run It Twice** (NLHE cash only): when every dealt-in player has armed it
+(`player:runItTwice`), an all-in run-out with cards still to come deals two
+boards from the same deck and splits every pot in half (odd chip to the first
+board). Reuses `buildPots` / `evaluateShowdown` / `awardPots` unchanged — no
+second showdown engine. `table:state` carries `secondBoard` + `runItTwice`. See
+`docs/architecture/ADR-0028-run-it-twice.md`.
+
 ## Conventions
 
 - Server is the only authority for cards, shuffles, legal actions, winners, pots.

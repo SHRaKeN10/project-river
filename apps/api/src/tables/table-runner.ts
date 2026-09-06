@@ -126,6 +126,8 @@ export interface CompletedHand {
   bombPotAmount: number;
   /** The straddle amount if this hand was straddled; 0 otherwise. */
   straddleAmount: number;
+  /** True if this hand ran two boards (ADR-0028). */
+  ranItTwice: boolean;
 }
 
 /** Bomb-pot runtime state - the per-table completed-hand counter and whether
@@ -142,6 +144,7 @@ type Command =
   | { type: 'CONNECTED'; userId: string; connected: boolean }
   | { type: 'SIT'; userId: string; sittingOut: boolean }
   | { type: 'STRADDLE'; userId: string; on: boolean }
+  | { type: 'RUN_IT_TWICE'; userId: string; on: boolean }
   | {
       type: 'ACTION';
       userId: string;
@@ -198,6 +201,7 @@ export class TableRunner {
     actions: EngineAction[];
     bombPotAmount: number;
     straddleAmount: number;
+    ranItTwice: boolean;
   } | null = null;
 
   constructor(
@@ -245,6 +249,7 @@ export class TableRunner {
     stack: number;
     sittingOut: boolean;
     straddleOn: boolean;
+    runItTwiceOn: boolean;
   }[] {
     const rows: {
       seatNumber: number;
@@ -252,6 +257,7 @@ export class TableRunner {
       stack: number;
       sittingOut: boolean;
       straddleOn: boolean;
+      runItTwiceOn: boolean;
     }[] = [];
     for (let seat = 0; seat < this.meta.maxSeats; seat += 1) {
       const entry = this.roster.get(seat);
@@ -263,8 +269,16 @@ export class TableRunner {
               stack: entry.stack,
               sittingOut: entry.sittingOut,
               straddleOn: entry.straddleOn,
+              runItTwiceOn: entry.runItTwiceOn,
             }
-          : { seatNumber: seat, userId: null, stack: 0, sittingOut: false, straddleOn: false },
+          : {
+              seatNumber: seat,
+              userId: null,
+              stack: 0,
+              sittingOut: false,
+              straddleOn: false,
+              runItTwiceOn: false,
+            },
       );
     }
     return rows;
@@ -357,6 +371,7 @@ export class TableRunner {
     bombPotAmount?: number;
     straddleEnabled?: boolean;
     straddleMultiplier?: number;
+    runItTwiceEnabled?: boolean;
   }): void {
     if (patch.bombPotEnabled !== undefined) this.meta.bombPotEnabled = patch.bombPotEnabled;
     if (patch.bombPotIntervalHands !== undefined) {
@@ -366,6 +381,9 @@ export class TableRunner {
     if (patch.straddleEnabled !== undefined) this.meta.straddleEnabled = patch.straddleEnabled;
     if (patch.straddleMultiplier !== undefined) {
       this.meta.straddleMultiplier = patch.straddleMultiplier;
+    }
+    if (patch.runItTwiceEnabled !== undefined) {
+      this.meta.runItTwiceEnabled = patch.runItTwiceEnabled;
     }
     this.deps.notify({ kind: 'state' });
   }
@@ -386,6 +404,7 @@ export class TableRunner {
         stack: number;
         sittingOut: boolean;
         straddleOn?: boolean;
+        runItTwiceOn?: boolean;
       }[];
     },
     usernames: ReadonlyMap<string, { username: string; avatarUrl: string | null }>,
@@ -422,6 +441,7 @@ export class TableRunner {
         stack: r.stack,
         sittingOut: r.sittingOut,
         straddleOn: r.straddleOn ?? false,
+        runItTwiceOn: r.runItTwiceOn ?? false,
         pendingLeave: false,
         awaySince: this.deps.now(),
         missedHands: 0,
@@ -443,6 +463,7 @@ export class TableRunner {
       stack: number;
       sittingOut: boolean;
       straddleOn?: boolean;
+      runItTwiceOn?: boolean;
     }[],
     usernames: ReadonlyMap<string, { username: string; avatarUrl: string | null }>,
     handNumber: number,
@@ -460,6 +481,7 @@ export class TableRunner {
         stack: seat.stack,
         sittingOut: seat.sittingOut,
         straddleOn: seat.straddleOn ?? false,
+        runItTwiceOn: seat.runItTwiceOn ?? false,
         pendingLeave: false,
         awaySince: this.deps.now(),
         missedHands: 0,
@@ -499,6 +521,11 @@ export class TableRunner {
    * turn it off; only takes effect when they are next under the gun. */
   setStraddle(userId: string, on: boolean): void {
     this.enqueue({ type: 'STRADDLE', userId, on });
+  }
+  /** Arm / disarm "run it twice" for this player (ADR-0028). Sticky. A hand
+   * runs twice only if every dealt-in player has it armed. */
+  setRunItTwice(userId: string, on: boolean): void {
+    this.enqueue({ type: 'RUN_IT_TWICE', userId, on });
   }
   submitAction(userId: string, handId: string, clientSeq: number, action: PlayerAction): void {
     this.enqueue({ type: 'ACTION', userId, handId, clientSeq, action });
@@ -550,6 +577,8 @@ export class TableRunner {
         return this.onSit(cmd.userId, cmd.sittingOut);
       case 'STRADDLE':
         return this.onStraddle(cmd.userId, cmd.on);
+      case 'RUN_IT_TWICE':
+        return this.onRunItTwice(cmd.userId, cmd.on);
       case 'ACTION':
         return this.onAction(cmd);
       case 'TIMEOUT':
@@ -586,6 +615,7 @@ export class TableRunner {
       stack: args.stack,
       sittingOut: false,
       straddleOn: false,
+      runItTwiceOn: false,
       pendingLeave: false,
       awaySince: args.connected ? null : this.deps.now(),
       missedHands: 0,
@@ -814,6 +844,17 @@ export class TableRunner {
     this.deps.notify({ kind: 'state' });
   }
 
+  private onRunItTwice(userId: string, on: boolean): void {
+    if (!this.meta.runItTwiceEnabled) return;
+    const seat = this.seatOf(userId);
+    if (seat === null) return;
+    const entry = this.roster.get(seat);
+    if (!entry || entry.runItTwiceOn === on) return;
+    entry.runItTwiceOn = on;
+    this.deps.persistRoster(this);
+    this.deps.notify({ kind: 'state' });
+  }
+
   private onAction(cmd: Extract<Command, { type: 'ACTION' }>): void {
     const seat = this.seatOf(cmd.userId);
     if (seat === null) {
@@ -916,6 +957,14 @@ export class TableRunner {
       }
     }
 
+    // Run It Twice decision (ADR-0028). NLHE cash only, and only when EVERY
+    // dealt-in player has it armed - a subset that reaches an all-in run-out is
+    // then guaranteed to be all-armed too. Composes with bomb pot / straddle.
+    const runItTwice =
+      this.meta.runItTwiceEnabled &&
+      this.engineConfig.variant === GameVariant.Holdem &&
+      eligible.every(([, e]) => e.runItTwiceOn);
+
     const fresh = initGameState({
       tableId: this.meta.id,
       config: this.engineConfig,
@@ -940,6 +989,9 @@ export class TableRunner {
       actions: [],
       bombPotAmount: this.currentBombAmount,
       straddleAmount: this.currentStraddle?.amount ?? 0,
+      // Filled in at persist time from the engine's actual outcome (a hand set
+      // to run twice that ends on a fold never actually runs two boards).
+      ranItTwice: false,
     };
 
     this.applyEngine({
@@ -949,6 +1001,7 @@ export class TableRunner {
       previousPositions: this.previousPositions,
       ...(this.currentHandIsBomb ? { bombPot: { amount: this.currentBombAmount } } : {}),
       ...(this.currentStraddle ? { straddle: this.currentStraddle } : {}),
+      ...(runItTwice ? { runItTwice: true } : {}),
     });
     // Deck capture happens inside applyEngine (right after the state swap) so it
     // is recorded even when START_HAND runs straight to showdown - e.g. a bomb
@@ -1065,6 +1118,7 @@ export class TableRunner {
       potTotal,
       bombPotAmount: log.bombPotAmount,
       straddleAmount: log.straddleAmount,
+      ranItTwice: this.state.secondBoard.length > 0,
     });
   }
 

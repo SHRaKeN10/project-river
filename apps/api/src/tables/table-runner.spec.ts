@@ -59,6 +59,7 @@ const meta: TableMeta = {
   bombPotAmount: 0,
   straddleEnabled: false,
   straddleMultiplier: 2,
+  runItTwiceEnabled: false,
 };
 
 function harness(seed = 7, metaOverrides: Partial<TableMeta> = {}) {
@@ -995,6 +996,116 @@ describe('TableRunner - straddle', () => {
     expect(h.runner.straddleView()).toMatchObject({ active: false, multiplier: 3, amount: 60 });
     h.runner.applyConfigPatch({ straddleEnabled: false });
     expect(h.runner.straddleView()).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// run it twice (ADR-0028)
+// ---------------------------------------------------------------------------
+
+describe('TableRunner - run it twice', () => {
+  /** Shove the current hand all-in to a run-out. */
+  const shove = (runner: TableRunner, startSeq = 0): number => {
+    let seq = startSeq;
+    let guard = 0;
+    while (runner.gameState.street !== 'COMPLETE' && (guard += 1) < 40) {
+      const seat = runner.gameState.actingSeat;
+      if (seat === null) break;
+      const p = runner.gameState.players.find((x) => x.seatNumber === seat);
+      const owed = runner.gameState.round.currentBet - (p?.currentBet ?? 0);
+      runner.submitAction(
+        seatUser(runner, seat),
+        runner.gameState.handId,
+        (seq += 1),
+        (p?.stack ?? 0) > 0 ? { type: 'ALL_IN' } : owed > 0 ? { type: 'CALL' } : { type: 'CHECK' },
+      );
+    }
+    return seq;
+  };
+
+  const seat3 = (h: ReturnType<typeof harness>) => {
+    h.join('alice', 0, 1000);
+    h.join('bob', 1, 1000);
+    h.join('cara', 2, 1000);
+  };
+
+  it('does nothing on a table that has run-it-twice disabled', () => {
+    const h = harness(7); // runItTwiceEnabled false by default
+    seat3(h);
+    for (const u of ['alice', 'bob', 'cara']) h.runner.setRunItTwice(u, true);
+    h.timers.runPending();
+    shove(h.runner);
+    expect(h.runner.gameState.secondBoard).toEqual([]);
+    expect(h.hands[0]?.ranItTwice).toBe(false);
+  });
+
+  it('runs two boards when every dealt-in player has armed it', () => {
+    const h = harness(7, { runItTwiceEnabled: true });
+    seat3(h);
+    for (const u of ['alice', 'bob', 'cara']) h.runner.setRunItTwice(u, true);
+    h.timers.runPending();
+    expect(h.runner.gameState.runItTwice).toBe(true);
+    shove(h.runner);
+
+    expect(h.runner.gameState.street).toBe('COMPLETE');
+    expect(h.runner.gameState.secondBoard).toHaveLength(5);
+    expect(h.hands[0].ranItTwice).toBe(true);
+    expect(h.rosterTotal()).toBe(3000);
+    const boardEvents = h.events().filter((e) => e.type === 'SECOND_BOARD_DEALT');
+    expect(boardEvents).toHaveLength(1);
+  });
+
+  it('runs a single board if any dealt-in player has not armed it', () => {
+    const h = harness(7, { runItTwiceEnabled: true });
+    seat3(h);
+    h.runner.setRunItTwice('alice', true);
+    h.runner.setRunItTwice('bob', true);
+    // cara never arms it
+    h.timers.runPending();
+    expect(h.runner.gameState.runItTwice).toBe(false);
+    shove(h.runner);
+    expect(h.runner.gameState.secondBoard).toEqual([]);
+  });
+
+  it('persists the armed flag and carries it across a warm restart', () => {
+    const original = harness(7, { runItTwiceEnabled: true });
+    seat3(original);
+    original.runner.setRunItTwice('alice', true);
+    original.timers.runPending();
+
+    const snap = {
+      state: JSON.parse(JSON.stringify(original.runner.gameState)),
+      handNumber: original.runner.lastHandNumber,
+      previousPositions: original.runner.lastPositions,
+      roster: [...original.runner.rosterEntries.entries()].map(([seatNumber, e]) => ({
+        seatNumber,
+        userId: e.userId,
+        username: e.username,
+        avatarUrl: e.avatarUrl,
+        stack: e.stack,
+        sittingOut: e.sittingOut,
+        straddleOn: e.straddleOn,
+        runItTwiceOn: e.runItTwiceOn,
+      })),
+    };
+    const revived = harness(7, { runItTwiceEnabled: true });
+    revived.runner.hydrateFromSnapshot(
+      snap,
+      new Map(snap.roster.map((r) => [r.userId, { username: r.username, avatarUrl: r.avatarUrl }])),
+    );
+    expect(revived.runner.rosterEntries.get(0)?.runItTwiceOn).toBe(true);
+    expect(revived.runner.rosterEntries.get(1)?.runItTwiceOn).toBe(false);
+  });
+
+  it('applyConfigPatch turns run-it-twice on and off', () => {
+    const h = harness(7); // disabled
+    seat3(h);
+    for (const u of ['alice', 'bob', 'cara']) h.runner.setRunItTwice(u, true); // no-op while disabled
+    expect(h.runner.rosterEntries.get(0)?.runItTwiceOn).toBe(false);
+    h.runner.applyConfigPatch({ runItTwiceEnabled: true });
+    for (const u of ['alice', 'bob', 'cara']) h.runner.setRunItTwice(u, true);
+    h.timers.runPending();
+    expect(h.runner.gameState.runItTwice).toBe(true);
   });
 });
 

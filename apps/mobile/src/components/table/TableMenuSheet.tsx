@@ -13,6 +13,10 @@ interface Props {
    * otherwise whether the viewer has armed the UTG straddle (ADR-0027). */
   straddleOn: boolean | null;
   onToggleStraddle: (on: boolean) => void;
+  /** null when the table doesn't offer run-it-twice or the viewer isn't seated;
+   * otherwise whether the viewer has armed it (ADR-0028). */
+  runItTwiceOn: boolean | null;
+  onToggleRunItTwice: (on: boolean) => void;
 }
 
 /** The slide-out table menu, the way Texas Card House/Hijack organise the
@@ -26,6 +30,8 @@ export function TableMenuSheet({
   onToggleSitOut,
   straddleOn,
   onToggleStraddle,
+  runItTwiceOn,
+  onToggleRunItTwice,
 }: Props): JSX.Element {
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -72,6 +78,19 @@ export function TableMenuSheet({
             <Text style={styles.itemLabel}>Straddle (UTG)</Text>
             <Text style={[styles.chevron, straddleOn ? styles.on : styles.off]}>
               {straddleOn ? 'On' : 'Off'}
+            </Text>
+          </Pressable>
+        ) : null}
+
+        {runItTwiceOn !== null ? (
+          <Pressable
+            style={styles.item}
+            accessibilityRole="button"
+            onPress={() => onToggleRunItTwice(!runItTwiceOn)}
+          >
+            <Text style={styles.itemLabel}>Run it twice</Text>
+            <Text style={[styles.chevron, runItTwiceOn ? styles.on : styles.off]}>
+              {runItTwiceOn ? 'On' : 'Off'}
             </Text>
           </Pressable>
         ) : null}

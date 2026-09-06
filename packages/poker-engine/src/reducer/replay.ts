@@ -23,6 +23,8 @@ export interface HandRecord {
   readonly bombPot?: { readonly amount: number };
   /** Present if this hand was straddled: the UTG seat and the amount posted. */
   readonly straddle?: { readonly seat: number; readonly amount: number };
+  /** True if this hand ran two boards (ADR-0028). */
+  readonly runItTwice?: boolean;
   /** The PLAYER_ACTION / TIMEOUT / SIT_OUT / RETURN sequence after START_HAND. */
   readonly actions: readonly EngineAction[];
 }
@@ -54,6 +56,7 @@ export function replayHand(record: HandRecord): ReplayResult {
       deck: record.deck,
       ...(record.bombPot ? { bombPot: record.bombPot } : {}),
       ...(record.straddle ? { straddle: record.straddle } : {}),
+      ...(record.runItTwice ? { runItTwice: true } : {}),
     },
     rng,
   );

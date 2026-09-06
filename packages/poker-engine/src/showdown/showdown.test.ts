@@ -27,6 +27,8 @@ const state = (
   smallBlindSeat: 2,
   bigBlindSeat: 3,
   communityCards: parseCards(community),
+  secondBoard: [],
+  runItTwice: false,
   players: [...players].sort((a, b) => a.seatNumber - b.seatNumber),
   actingSeat: null,
   round: createBettingRound(20, 0),

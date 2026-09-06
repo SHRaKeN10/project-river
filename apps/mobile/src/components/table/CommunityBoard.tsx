@@ -6,13 +6,36 @@ interface Props {
   cards: string[];
   pot: number;
   streetLabel: string;
+  /** The second board when the hand ran twice (ADR-0028); empty otherwise. */
+  secondBoard?: string[];
   /** Bomb-pot state for this table (ADR-0026). `null` when the table doesn't
    * run bomb pots. Shows a banner during a bomb-pot hand so the missing preflop
    * round is obvious. */
   bombPot?: { active: boolean; amount: number; nextInHands: number } | null;
 }
 
-export function CommunityBoard({ cards, pot, streetLabel, bombPot }: Props): JSX.Element {
+function boardRow(cards: string[], key: string): JSX.Element {
+  return (
+    <View style={styles.cards} key={key}>
+      {Array.from({ length: 5 }).map((_, i) =>
+        cards[i] ? (
+          <PlayingCard key={i} card={cards[i]} size="md" />
+        ) : (
+          <View key={i} style={styles.slot} />
+        ),
+      )}
+    </View>
+  );
+}
+
+export function CommunityBoard({
+  cards,
+  pot,
+  streetLabel,
+  secondBoard = [],
+  bombPot,
+}: Props): JSX.Element {
+  const twoBoards = secondBoard.length > 0;
   return (
     <View style={styles.wrap}>
       {bombPot?.active ? (
@@ -23,15 +46,9 @@ export function CommunityBoard({ cards, pot, streetLabel, bombPot }: Props): JSX
           </Text>
         </View>
       ) : null}
-      <View style={styles.cards}>
-        {Array.from({ length: 5 }).map((_, i) =>
-          cards[i] ? (
-            <PlayingCard key={i} card={cards[i]} size="md" />
-          ) : (
-            <View key={i} style={styles.slot} />
-          ),
-        )}
-      </View>
+      {twoBoards ? <Text style={styles.ritLabel}>RUNNING IT TWICE</Text> : null}
+      {boardRow(cards, 'board1')}
+      {twoBoards ? boardRow(secondBoard, 'board2') : null}
       <View style={styles.potRow}>
         <Text style={styles.street}>{streetLabel}</Text>
         {pot > 0 ? (
@@ -78,4 +95,5 @@ const styles = StyleSheet.create({
   },
   bombTitle: { ...typography.label, color: colors.warning, letterSpacing: 1.5 },
   bombSub: { ...typography.caption, color: colors.textSecondary },
+  ritLabel: { ...typography.caption, color: colors.accent, letterSpacing: 1.5, fontWeight: '700' },
 });

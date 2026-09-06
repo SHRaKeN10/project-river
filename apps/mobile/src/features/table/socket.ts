@@ -53,6 +53,9 @@ export const tableSocket = {
   setStraddle: (tableId: string, on: boolean): void => {
     getSocket()?.emit(ClientToServer.PLAYER_STRADDLE, { tableId, on });
   },
+  setRunItTwice: (tableId: string, on: boolean): void => {
+    getSocket()?.emit(ClientToServer.PLAYER_RUN_IT_TWICE, { tableId, on });
+  },
   chat: (tableId: string, text: string): void => {
     getSocket()?.emit(ClientToServer.TABLE_CHAT, { tableId, text });
   },

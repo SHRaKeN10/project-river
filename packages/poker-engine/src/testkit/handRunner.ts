@@ -59,7 +59,11 @@ export class HandRunner {
 
   startHand(
     deck?: readonly Card[],
-    opts?: { bombPot?: { amount: number }; straddle?: { seat: number; amount: number } },
+    opts?: {
+      bombPot?: { amount: number };
+      straddle?: { seat: number; amount: number };
+      runItTwice?: boolean;
+    },
   ): ReduceResult {
     this.handNo += 1;
     this.actionsThisHand = [];
@@ -71,6 +75,7 @@ export class HandRunner {
       deck,
       ...(opts?.bombPot ? { bombPot: opts.bombPot } : {}),
       ...(opts?.straddle ? { straddle: opts.straddle } : {}),
+      ...(opts?.runItTwice ? { runItTwice: true } : {}),
     });
   }
 

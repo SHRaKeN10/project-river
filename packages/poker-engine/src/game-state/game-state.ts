@@ -40,6 +40,13 @@ export interface GameState {
   readonly bigBlindSeat: number;
 
   readonly communityCards: readonly Card[];
+  /** Run It Twice (ADR-0028): when the hand is running two boards, this is the
+   * complete second board. Empty otherwise. `communityCards` is always the
+   * first board. */
+  readonly secondBoard: readonly Card[];
+  /** Set at START_HAND from the table + player settings: if an all-in run-out
+   * happens with cards still to come, deal two boards instead of one. */
+  readonly runItTwice: boolean;
   /** Sorted ascending by seatNumber. */
   readonly players: readonly PlayerState[];
   readonly actingSeat: number | null;

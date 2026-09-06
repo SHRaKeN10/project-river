@@ -40,6 +40,7 @@ export interface UseTable {
   act: (action: WirePlayerAction) => Promise<string | null>;
   toggleSitOut: (sittingOut: boolean) => void;
   toggleStraddle: (on: boolean) => void;
+  toggleRunItTwice: (on: boolean) => void;
   sendChat: (text: string) => void;
 }
 
@@ -221,6 +222,14 @@ export function useTable(id: string, opts: UseTableOptions = {}): UseTable {
     [id, isTournament],
   );
 
+  const toggleRunItTwice = useCallback(
+    (on: boolean) => {
+      if (isTournament) return;
+      tableSocket.setRunItTwice(id, on);
+    },
+    [id, isTournament],
+  );
+
   const clearError = useCallback(() => setError(null), []);
 
   return {
@@ -238,6 +247,7 @@ export function useTable(id: string, opts: UseTableOptions = {}): UseTable {
     act,
     toggleSitOut,
     toggleStraddle,
+    toggleRunItTwice,
     sendChat,
   };
 }

@@ -31,8 +31,18 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
   const chips = useChips();
   const rebuy = useRebuy();
 
-  const { view, connected, error, feed, clearError, takeSeat, act, toggleSitOut, toggleStraddle } =
-    useTable(tableId);
+  const {
+    view,
+    connected,
+    error,
+    feed,
+    clearError,
+    takeSeat,
+    act,
+    toggleSitOut,
+    toggleStraddle,
+    toggleRunItTwice,
+  } = useTable(tableId);
 
   const [buyInSeat, setBuyInSeat] = useState<number | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -140,6 +150,7 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
             cards={view.communityCards}
             pot={view.pot}
             streetLabel={streetLabel(view.street)}
+            secondBoard={view.secondBoard}
             bombPot={view.bombPot}
           />
         </View>
@@ -234,6 +245,8 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
         onToggleSitOut={toggleSitOut}
         straddleOn={view.straddle && view.youAreSeat !== null ? view.youStraddleNext : null}
         onToggleStraddle={toggleStraddle}
+        runItTwiceOn={view.runItTwice && view.youAreSeat !== null ? view.youRunItTwice : null}
+        onToggleRunItTwice={toggleRunItTwice}
       />
     </SafeAreaView>
   );

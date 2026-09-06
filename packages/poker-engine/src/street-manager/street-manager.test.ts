@@ -30,6 +30,8 @@ const baseState = (seats: PlayerState[], overrides: Partial<GameState> = {}): Ga
   smallBlindSeat: seats[1]?.seatNumber ?? seats[0]?.seatNumber ?? 0,
   bigBlindSeat: seats[2]?.seatNumber ?? seats[0]?.seatNumber ?? 0,
   communityCards: [],
+  secondBoard: [],
+  runItTwice: false,
   players: [...seats].sort((a, b) => a.seatNumber - b.seatNumber),
   actingSeat: null,
   round: createBettingRound(20, 20),

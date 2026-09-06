@@ -44,6 +44,8 @@ const state = (specs: SeatSpec[], overrides: Partial<GameState> = {}): GameState
   smallBlindSeat: 0,
   bigBlindSeat: 0,
   communityCards: [],
+  secondBoard: [],
+  runItTwice: false,
   players: specs.map(mk).sort((a, b) => a.seatNumber - b.seatNumber),
   actingSeat: specs[0]?.seat ?? null,
   round: createBettingRound(20, overrides.round?.currentBet ?? 0),

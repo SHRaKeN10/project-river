@@ -30,6 +30,12 @@ export const straddleToggleSchema = z.object({
 });
 export type StraddleTogglePayload = z.infer<typeof straddleToggleSchema>;
 
+export const runItTwiceToggleSchema = z.object({
+  tableId: z.string().uuid(),
+  on: z.boolean(),
+});
+export type RunItTwiceTogglePayload = z.infer<typeof runItTwiceToggleSchema>;
+
 export const tableActionSchema = z.object({
   tableId: z.string().uuid(),
   handId: z.string().min(1),
@@ -103,6 +109,9 @@ export interface TableStateView {
   street: string;
   buttonSeat: number | null;
   communityCards: WireCard[];
+  /** The second board when the hand ran twice (ADR-0028); empty otherwise.
+   * `communityCards` is always the first board. */
+  secondBoard: WireCard[];
   pot: number;
   pots: PotView[];
   currentBet: number;
@@ -136,6 +145,13 @@ export interface TableStateView {
   } | null;
   /** The viewer has armed the straddle for their next under-the-gun turn. */
   youStraddleNext: boolean;
+
+  /** Run It Twice state for NLHE cash tables that offer it (ADR-0028); `null`
+   * when the table doesn't. `armed` is true when this hand is set to run two
+   * boards on an all-in run-out (every dealt-in player had it on at the deal). */
+  runItTwice: { enabled: boolean; armed: boolean } | null;
+  /** The viewer has armed "run it twice". */
+  youRunItTwice: boolean;
 }
 
 /** One entry of the hand event stream, forwarded to clients as `hand:update`. */
