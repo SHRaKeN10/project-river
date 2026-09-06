@@ -21,6 +21,19 @@ const setStatusSchema = z.object({
   status: z.enum(['ACTIVE', 'PAUSED', 'CLOSED']),
 });
 
+/** Only settings that are safe to change on a live table. Blinds / buy-ins /
+ * seats / game type are baked into the running engine config and are not here. */
+const updateConfigSchema = z
+  .object({
+    isPrivate: z.boolean().optional(),
+    bombPotEnabled: z.boolean().optional(),
+    bombPotIntervalHands: z.number().int().min(1).max(1000).optional(),
+    bombPotAmount: z.number().int().min(0).optional(),
+  })
+  .refine((o) => Object.values(o).some((v) => v !== undefined), {
+    message: 'provide at least one setting to change',
+  });
+
 function toDto(table: TableWithSeats) {
   return {
     id: table.id,
@@ -33,6 +46,9 @@ function toDto(table: TableWithSeats) {
     minBuyIn: table.minBuyIn,
     maxBuyIn: table.maxBuyIn,
     isPrivate: table.isPrivate,
+    bombPotEnabled: table.bombPotEnabled,
+    bombPotIntervalHands: table.bombPotIntervalHands,
+    bombPotAmount: table.bombPotAmount,
     handNumber: table.handNumber,
     seats: table.seats.map((s) => ({
       seatNumber: s.seatNumber,
@@ -78,5 +94,17 @@ export class TablesController {
   ): Promise<ReturnType<typeof toDto>> {
     if (body.status === 'CLOSED') await this.manager.closeTable(id);
     return toDto(await this.tables.setStatus(id, body.status));
+  }
+
+  /** Admin: change table settings that are safe to apply mid-session - privacy
+   * and the bomb-pot cadence (ADR-0026). Persists the change and pushes it into
+   * a running table immediately; it takes effect on that table's next hand. */
+  @Patch(':id/config')
+  @Roles(UserRole.ADMIN)
+  async updateConfig(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(updateConfigSchema)) body: z.infer<typeof updateConfigSchema>,
+  ): Promise<ReturnType<typeof toDto>> {
+    return toDto(await this.manager.updateTableConfig(id, body));
   }
 }
