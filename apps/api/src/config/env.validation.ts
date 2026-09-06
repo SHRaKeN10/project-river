@@ -36,6 +36,14 @@ export const envSchema = z
     TABLE_AWAY_MAX_MS: z.coerce.number().int().positive().default(120_000),
     /** ...or once they have missed this many hands while away, whichever first. */
     TABLE_AWAY_MAX_MISSED_HANDS: z.coerce.number().int().positive().default(10),
+
+    /** Error reporting. Absent DSN => Sentry stays inert, errors go to structured
+     * logs only. `SENTRY_ENVIRONMENT` defaults to `NODE_ENV`; tracing is off
+     * unless `SENTRY_TRACES_SAMPLE_RATE` is set above 0. */
+    // Accept an empty string (the .env.example ships `SENTRY_DSN=`) as "unset".
+    SENTRY_DSN: z.string().url().or(z.literal('')).optional(),
+    SENTRY_ENVIRONMENT: z.string().optional(),
+    SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(0),
   })
   .superRefine((env, ctx) => {
     // Outside dev/test the browser client is served from a real origin, so an
