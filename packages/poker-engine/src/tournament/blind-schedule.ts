@@ -9,7 +9,8 @@ export interface BlindLevel {
   readonly level: number;
   readonly smallBlind: number;
   readonly bigBlind: number;
-  /** Big-blind ante posted by the player in the big blind. 0 = no ante. */
+  /** Per-player ante: every player dealt into the hand posts this before the
+   * blinds (dead money - it does not count toward a call). 0 = no ante. */
   readonly ante: number;
   readonly durationMs: number;
   /** A scheduled break - no new hands begin, blinds are unchanged for display. */
@@ -71,8 +72,9 @@ export function blindLevelAt(schedule: BlindSchedule, elapsedMs: number): BlindL
 /**
  * A conventional escalating structure for seeding and tests: the big blind
  * roughly doubles every couple of levels, the small blind is half of it, a
- * big-blind ante equal to the big blind kicks in from level 3, and a break
- * lands every `breakEvery` levels.
+ * per-player ante equal to the big blind kicks in from level 3, and a break
+ * lands every `breakEvery` levels. (A production tournament supplies its own
+ * `blinds` array with whatever ante schedule the room wants.)
  */
 export function standardBlindSchedule(opts: {
   startingBigBlind: number;

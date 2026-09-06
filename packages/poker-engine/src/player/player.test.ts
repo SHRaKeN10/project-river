@@ -7,6 +7,7 @@ import {
   markActed,
   PlayerActionType,
   PlayerStatus,
+  postAnte,
   resetForHand,
   resetForStreet,
 } from './player';
@@ -55,6 +56,50 @@ describe('player', () => {
     it('does not flip a waiting player to all-in', () => {
       const { player } = commitChips(createPlayer('u', 1, 50), 50);
       expect(player.status).toBe(PlayerStatus.Waiting);
+    });
+  });
+
+  describe('postAnte', () => {
+    it('moves chips to totalInvested only - never currentBet', () => {
+      const { player, committed } = postAnte(active(1000), 25);
+      expect(committed).toBe(25);
+      expect(player).toMatchObject({
+        stack: 975,
+        currentBet: 0,
+        totalInvested: 25,
+        status: PlayerStatus.Active,
+        lastAction: PlayerActionType.PostAnte,
+      });
+    });
+
+    it('caps at the stack and goes all-in when the ante is short', () => {
+      const { player, committed } = postAnte(active(15), 25);
+      expect(committed).toBe(15);
+      expect(player).toMatchObject({ stack: 0, currentBet: 0, totalInvested: 15 });
+      expect(player.status).toBe(PlayerStatus.AllIn);
+    });
+
+    it('an ante exactly equal to the stack is all-in', () => {
+      const { player, committed } = postAnte(active(25), 25);
+      expect(committed).toBe(25);
+      expect(player.status).toBe(PlayerStatus.AllIn);
+      expect(player.stack).toBe(0);
+    });
+
+    it('does not flip a non-in-hand player to all-in', () => {
+      const { player } = postAnte(createPlayer('u', 1, 25), 25);
+      expect(player.status).toBe(PlayerStatus.Waiting);
+    });
+
+    it('a zero ante is a no-op that keeps the prior lastAction', () => {
+      const { player, committed } = postAnte(active(1000), 0);
+      expect(committed).toBe(0);
+      expect(player).toMatchObject({ stack: 1000, totalInvested: 0, lastAction: null });
+    });
+
+    it('rejects a negative or fractional ante', () => {
+      expect(() => postAnte(active(1000), -1)).toThrow();
+      expect(() => postAnte(active(1000), 5.5)).toThrow();
     });
   });
 
