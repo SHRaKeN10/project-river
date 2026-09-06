@@ -64,6 +64,11 @@ export interface TournamentRunnerDeps {
   /** Persist a recovery checkpoint (fire-and-forget). The manager writes it to
    * Redis; absent in unit tests that don't exercise recovery. */
   persistSnapshot?: (snapshot: TournamentSnapshot) => void;
+  /** Report an orchestration failure (logged + Sentry + counted). Absent in
+   * unit tests, which assert on the thrown error directly. */
+  onError?: (error: unknown, detail: Record<string, unknown>) => void;
+  /** Bump the tournament hand-rate counter. Absent in unit tests. */
+  onHandComplete?: () => void;
 }
 
 interface EntryState {
@@ -706,6 +711,7 @@ export class TournamentRunner {
     n: Extract<TournamentTableNotification, { kind: 'handComplete' }>,
   ): Promise<void> {
     const table = this.tables.get(tableId);
+    this.deps.onHandComplete?.();
 
     // --- everything that touches seating / eliminations happens synchronously,
     // before any await, so an `afterHand` triggered by another table's
@@ -793,6 +799,7 @@ export class TournamentRunner {
     this.logger.error(
       `tournament ${this.tournamentId} orchestration error: ${(err as Error).message}`,
     );
+    this.deps.onError?.(err, { scope: 'tournament-runner', tournamentId: this.tournamentId });
   }
 
   /**

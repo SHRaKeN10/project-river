@@ -11,6 +11,7 @@ import { ChipsService } from '../chips/chips.service';
 import { AppConfigService } from '../config/app-config.service';
 import { PrismaService } from '../infra/prisma/prisma.service';
 import { RedisService } from '../infra/redis/redis.service';
+import { OrchestrationErrorsService } from '../observability/orchestration-errors.service';
 import { variantForGameType } from './game-variant';
 import { type RunnerNotification, TableRunner, realTimers } from './table-runner';
 import type { TableMeta } from './table-projection';
@@ -78,6 +79,7 @@ export class TableManager implements OnModuleDestroy {
     private readonly redis: RedisService,
     private readonly config: AppConfigService,
     private readonly chips: ChipsService,
+    private readonly orchestrationErrors: OrchestrationErrorsService,
   ) {}
 
   onModuleDestroy(): void {
@@ -441,9 +443,9 @@ export class TableManager implements OnModuleDestroy {
         await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
       }
     }
-    this.logger.error(
-      `cashOut FAILED for ${userId} (+${stack}) at table ${tableId} - manual reconciliation needed (idemKey ${idemKey})`,
-    );
+    const msg = `cashOut FAILED for ${userId} (+${stack}) at table ${tableId} - manual reconciliation needed (idemKey ${idemKey})`;
+    this.logger.error(msg);
+    this.orchestrationErrors.record('table-cashout', new Error(msg), { tableId, userId, stack });
   }
 
   private emit(tableId: string, notification: RunnerNotification, runner: TableRunner): void {
@@ -452,6 +454,7 @@ export class TableManager implements OnModuleDestroy {
         listener(tableId, notification, runner);
       } catch (err) {
         this.logger.error(`listener error: ${(err as Error).message}`);
+        this.orchestrationErrors.record('table-listener', err, { tableId });
       }
     }
   }

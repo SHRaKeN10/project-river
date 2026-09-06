@@ -222,6 +222,10 @@ sweep or admin close), and cleared on a legitimate return. See
 - Every hand is an append-only event log and must be fully replayable.
 - TypeScript strict mode everywhere.
 - Environments: `development` / `staging` / `production` — never commit `.env`.
+- Every API error returns `{ statusCode, code, message, requestId, timestamp }`;
+  `code` is a stable enum. Coordinator failures outside a request are counted on
+  `/ops/metrics` and sent to Sentry when `SENTRY_DSN` is set (inert otherwise).
+  See `docs/architecture/ADR-0030-observability.md`.
 
 ## Roadmap
 

@@ -6,6 +6,7 @@ import { PrismaModule } from './infra/prisma/prisma.module';
 import { RedisModule } from './infra/redis/redis.module';
 import { HealthModule } from './health/health.module';
 import { CommonModule } from './common/common.module';
+import { ObservabilityModule } from './observability/observability.module';
 import { AuditModule } from './audit/audit.module';
 import { AuthModule } from './auth/auth.module';
 import { ChipsModule } from './chips/chips.module';
@@ -35,6 +36,7 @@ import { OpsModule } from './ops/ops.module';
     PrismaModule,
     RedisModule,
     CommonModule,
+    ObservabilityModule,
     AuditModule,
     HealthModule,
     AuthModule,
