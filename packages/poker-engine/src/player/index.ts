@@ -7,6 +7,7 @@ export {
   canAct,
   isContesting,
   commitChips,
+  postAnte,
   foldPlayer,
   markActed,
   resetForStreet,

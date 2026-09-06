@@ -103,6 +103,8 @@ export function describeEvent(
       return `Hand #${ev.handNumber ?? ''} dealt`;
     case 'BLIND_POSTED':
       return `${who} posts ${ev.blind === 'SMALL' ? 'small' : 'big'} blind ${amount ?? ''}`;
+    case 'ANTE_POSTED':
+      return `${who} posts ante ${amount ?? ''}`;
     case 'PLAYER_FOLDED':
       return `${who} folds`;
     case 'PLAYER_CHECKED':

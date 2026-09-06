@@ -115,6 +115,35 @@ export function commitChips(
   };
 }
 
+/**
+ * Posts an ante: moves up to `amount` "dead" chips from the stack straight
+ * toward the pot. Unlike a bet or a blind it is **not** added to `currentBet`,
+ * so it never reduces what the player owes to call - the ante is dead money.
+ * It still counts as invested for pot / side-pot construction. A player whom
+ * the ante empties goes all-in.
+ * Returns the updated player and the number of chips actually posted.
+ */
+export function postAnte(
+  player: PlayerState,
+  amount: number,
+): { player: PlayerState; committed: number } {
+  if (!Number.isInteger(amount) || amount < 0) {
+    throw new Error(`ante amount must be a non-negative integer, got ${amount}`);
+  }
+  const committed = Math.min(amount, player.stack);
+  const stack = player.stack - committed;
+  return {
+    committed,
+    player: {
+      ...player,
+      stack,
+      totalInvested: player.totalInvested + committed,
+      lastAction: committed > 0 ? PlayerActionType.PostAnte : player.lastAction,
+      status: stack === 0 && isInHand(player) ? PlayerStatus.AllIn : player.status,
+    },
+  };
+}
+
 export function foldPlayer(player: PlayerState): PlayerState {
   return {
     ...player,

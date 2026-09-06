@@ -135,6 +135,9 @@ describe('describeEvent', () => {
     expect(describeEvent({ type: 'BLIND_POSTED', seat: 3, amount: 10, blind: 'BIG' }, name)).toBe(
       'P3 posts big blind 10',
     );
+    expect(describeEvent({ type: 'ANTE_POSTED', seat: 4, amount: 20 }, name)).toBe(
+      'P4 posts ante 20',
+    );
   });
 
   it('summarises a pot award', () => {

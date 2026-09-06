@@ -45,6 +45,7 @@ import {
   type PlayerState,
   PlayerActionType,
   PlayerStatus,
+  postAnte,
   resetForHand,
   resetForStreet,
 } from '../player/player';
@@ -255,6 +256,11 @@ function startHand(
     },
   ];
 
+  // Antes first (dead money), then the blinds - matching a live-poker deal.
+  if (config.ante > 0) {
+    working = postAntes(working, config.ante, events);
+  }
+
   if (positions.smallBlindSeat !== null) {
     working = postBlind(working, positions.smallBlindSeat, config.smallBlind, 'SMALL', events);
   }
@@ -269,6 +275,32 @@ function startHand(
   return progress(working, events, rng);
 }
 
+/**
+ * Every player being dealt in posts the ante before the blinds. The ante is
+ * dead money - it goes straight into `collectedPot` and each player's
+ * `totalInvested` (so it lands in the right pot / side pot), but never into
+ * `currentBet`, so it does not reduce what anyone owes to call. A player the
+ * ante empties is all-in for the hand.
+ */
+function postAntes(state: GameState, ante: number, events: GameEvent[]): GameState {
+  let players = state.players;
+  let collectedPot = state.collectedPot;
+  const seats = [...state.players].map((p) => p.seatNumber).sort((a, b) => a - b);
+  for (const seat of seats) {
+    const player = players.find((p) => p.seatNumber === seat);
+    if (!player || player.status !== PlayerStatus.Active || player.stack <= 0) continue;
+    const { player: after, committed } = postAnte(player, ante);
+    if (committed <= 0) continue;
+    players = replacePlayer(players, after);
+    collectedPot += committed;
+    events.push({ type: 'ANTE_POSTED', seat, amount: committed });
+    if (after.status === PlayerStatus.AllIn) {
+      events.push({ type: 'PLAYER_WENT_ALL_IN', seat, amount: after.totalInvested });
+    }
+  }
+  return { ...state, players, collectedPot };
+}
+
 function postBlind(
   state: GameState,
   seat: number,
@@ -279,12 +311,15 @@ function postBlind(
   const player = getPlayer(state, seat);
   if (!player) return state;
   const { player: committed, committed: paid } = commitChips(player, amount);
+  // The ante can already have moved this player all-in (stack 0). They post no
+  // blind and were flagged all-in when the ante was taken - leave them be.
+  if (paid === 0 && player.status === PlayerStatus.AllIn) return state;
   const withAction: PlayerState = {
     ...committed,
     lastAction: blind === 'SMALL' ? PlayerActionType.PostSmallBlind : PlayerActionType.PostBigBlind,
   };
-  events.push({ type: 'BLIND_POSTED', seat, amount: paid, blind });
-  if (withAction.status === PlayerStatus.AllIn) {
+  if (paid > 0) events.push({ type: 'BLIND_POSTED', seat, amount: paid, blind });
+  if (withAction.status === PlayerStatus.AllIn && player.status !== PlayerStatus.AllIn) {
     events.push({ type: 'PLAYER_WENT_ALL_IN', seat, amount: withAction.currentBet });
   }
   return { ...state, players: replacePlayer(state.players, withAction) };
