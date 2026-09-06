@@ -13,6 +13,8 @@ export const ClientToServer = {
   PLAYER_RETURN: 'player:return',
   /** Arm / disarm the UTG straddle for your next under-the-gun turn (ADR-0027). */
   PLAYER_STRADDLE: 'player:straddle',
+  /** Arm / disarm "run it twice" for all-in run-outs (ADR-0028). */
+  PLAYER_RUN_IT_TWICE: 'player:runItTwice',
   TABLE_CHAT: 'table:chat',
 
   /** Watch a tournament: the server routes you to your own table (or, if you

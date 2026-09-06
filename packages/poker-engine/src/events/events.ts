@@ -103,6 +103,10 @@ export type GameEvent =
   | { readonly type: 'FLOP_DEALT'; readonly cards: readonly Card[]; readonly burned: Card }
   | { readonly type: 'TURN_DEALT'; readonly card: Card; readonly burned: Card }
   | { readonly type: 'RIVER_DEALT'; readonly card: Card; readonly burned: Card }
+  /** Run It Twice (ADR-0028): the complete second board, dealt from the same
+   * deck right after the first. The first board's cards still arrive as the
+   * normal FLOP/TURN/RIVER_DEALT events. */
+  | { readonly type: 'SECOND_BOARD_DEALT'; readonly cards: readonly Card[] }
   | { readonly type: 'SHOWDOWN_STARTED' }
   | {
       readonly type: 'HAND_REVEALED';
@@ -122,6 +126,9 @@ export type GameEvent =
       /** Which half of a split pot this award is. Absent for a whole-pot award
        * (every non-hi/lo game, and a hi/lo pot with no qualifying low). */
       readonly portion?: 'HIGH' | 'LOW';
+      /** Which board this award is for, when the hand ran twice (ADR-0028).
+       * Absent when the hand ran a single board. */
+      readonly board?: 1 | 2;
     }
   | {
       readonly type: 'HAND_COMPLETED';

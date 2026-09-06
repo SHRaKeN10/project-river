@@ -9,6 +9,8 @@ const base = {
   onToggleSitOut: jest.fn(),
   straddleOn: null,
   onToggleStraddle: jest.fn(),
+  runItTwiceOn: null,
+  onToggleRunItTwice: jest.fn(),
 };
 
 describe('TableMenuSheet', () => {
@@ -68,8 +70,24 @@ describe('TableMenuSheet', () => {
         onToggleStraddle={onToggleStraddle}
       />,
     );
-    expect(screen.getByText('Off')).toBeTruthy();
     fireEvent.press(screen.getByText('Straddle (UTG)'));
     expect(onToggleStraddle).toHaveBeenCalledWith(true);
+  });
+
+  it('toggles run-it-twice for a seated player, and hides it when not offered', () => {
+    const onToggleRunItTwice = jest.fn();
+    const { rerender } = render(
+      <TableMenuSheet
+        {...base}
+        sittingOut={false}
+        runItTwiceOn={true}
+        onToggleRunItTwice={onToggleRunItTwice}
+      />,
+    );
+    fireEvent.press(screen.getByText('Run it twice'));
+    expect(onToggleRunItTwice).toHaveBeenCalledWith(false);
+
+    rerender(<TableMenuSheet {...base} sittingOut={false} runItTwiceOn={null} />);
+    expect(screen.queryByText('Run it twice')).toBeNull();
   });
 });

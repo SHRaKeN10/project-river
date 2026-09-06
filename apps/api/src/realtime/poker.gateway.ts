@@ -17,6 +17,7 @@ import {
   ClientToServer,
   joinTableSchema,
   leaveTableSchema,
+  runItTwiceToggleSchema,
   ServerToClient,
   straddleToggleSchema,
   tableActionSchema,
@@ -357,6 +358,19 @@ export class PokerGateway
     if (!parsed.success) return { error: 'invalid payload' };
     const user = socketUser(socket);
     this.manager.getRunner(parsed.data.tableId)?.setStraddle(user.userId, parsed.data.on);
+    return { ok: true };
+  }
+
+  @SubscribeMessage(ClientToServer.PLAYER_RUN_IT_TWICE)
+  onRunItTwice(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() body: unknown,
+  ): { ok: true } | { error: string } {
+    if (this.tooFast(socket, 'misc')) return { error: 'you are doing that too fast' };
+    const parsed = runItTwiceToggleSchema.safeParse(body);
+    if (!parsed.success) return { error: 'invalid payload' };
+    const user = socketUser(socket);
+    this.manager.getRunner(parsed.data.tableId)?.setRunItTwice(user.userId, parsed.data.on);
     return { ok: true };
   }
 

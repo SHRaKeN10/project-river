@@ -19,6 +19,8 @@ export interface RosterEntry {
   sittingOut: boolean;
   /** The player has armed the UTG straddle (ADR-0027). */
   straddleOn: boolean;
+  /** The player has armed "run it twice" (ADR-0028). */
+  runItTwiceOn: boolean;
   /** Epoch millis the seat's time charge was last applied (or joined-at, before the first one). */
   lastTimeChargeAt: number;
 }
@@ -45,6 +47,8 @@ export interface TableMeta {
    * leaves the table playing exactly as before. */
   straddleEnabled: boolean;
   straddleMultiplier: number;
+  /** Run It Twice (NLHE cash only, ADR-0028). */
+  runItTwiceEnabled: boolean;
 }
 
 export interface ProjectParams {
@@ -117,6 +121,7 @@ export function projectTableState(params: ProjectParams): TableStateView {
     street: state.street,
     buttonSeat: handInProgress ? state.buttonSeat : null,
     communityCards: state.communityCards.map(cardToString),
+    secondBoard: state.secondBoard.map(cardToString),
     pot: handInProgress ? totalPot(state) : 0,
     pots: state.pots.map((p) => ({ amount: p.amount, eligibleSeats: [...p.eligibleSeats] })),
     currentBet: state.round.currentBet,
@@ -130,6 +135,10 @@ export function projectTableState(params: ProjectParams): TableStateView {
     bombPot: params.bombPot ?? null,
     straddle: params.straddle ?? null,
     youStraddleNext: viewerSeat !== null && roster.get(viewerSeat)?.straddleOn === true,
+    runItTwice: table.runItTwiceEnabled
+      ? { enabled: true, armed: handInProgress && state.runItTwice }
+      : null,
+    youRunItTwice: viewerSeat !== null && roster.get(viewerSeat)?.runItTwiceOn === true,
   };
 }
 

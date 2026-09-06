@@ -94,6 +94,24 @@ describe('Table config (e2e)', () => {
     expect(res.body.bombPotAmount).toBe(0);
     expect(res.body.straddleEnabled).toBe(true);
     expect(res.body.straddleMultiplier).toBe(2);
+    expect(res.body.runItTwiceEnabled).toBe(true);
+  });
+
+  it('admin toggles run-it-twice live', async () => {
+    const id = await makeTable();
+    const watcher = await connect(playerToken);
+    await emitAck(watcher, 'table:watch', { tableId: id });
+    await settle();
+    expect(manager.getRunner(id)!.meta.runItTwiceEnabled).toBe(true);
+
+    await request(server)
+      .patch(`/api/tables/${id}/config`)
+      .set(auth(adminToken))
+      .send({ runItTwiceEnabled: false })
+      .expect(200)
+      .expect((r) => expect(r.body.runItTwiceEnabled).toBe(false));
+    expect(manager.getRunner(id)!.meta.runItTwiceEnabled).toBe(false);
+    watcher.disconnect();
   });
 
   it('admin updates the straddle settings; rejects a multiplier below 2', async () => {

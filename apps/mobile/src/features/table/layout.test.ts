@@ -78,6 +78,7 @@ const baseView = (over: Partial<TableStateView>): TableStateView => ({
   street: 'FLOP',
   buttonSeat: 0,
   communityCards: [],
+  secondBoard: [],
   pot: 0,
   pots: [],
   currentBet: 0,
@@ -89,6 +90,8 @@ const baseView = (over: Partial<TableStateView>): TableStateView => ({
   bombPot: null,
   straddle: null,
   youStraddleNext: false,
+  runItTwice: null,
+  youRunItTwice: false,
   ...over,
 });
 
@@ -156,6 +159,15 @@ describe('describeEvent', () => {
     expect(describeEvent({ type: 'STRADDLE_POSTED', seat: 3, amount: 40 }, name)).toBe(
       'P3 straddles 40',
     );
+  });
+
+  it('describes run-it-twice events', () => {
+    expect(describeEvent({ type: 'SECOND_BOARD_DEALT', cards: [] }, name)).toBe(
+      'Running it twice — second board',
+    );
+    expect(
+      describeEvent({ type: 'POT_AWARDED', board: 2, winners: [{ seat: 1, amount: 100 }] }, name),
+    ).toBe('Pot to P1 100 (board 2)');
   });
 
   it('summarises a pot award', () => {

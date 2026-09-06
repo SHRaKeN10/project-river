@@ -131,6 +131,8 @@ export function describeEvent(
       return 'Turn';
     case 'RIVER_DEALT':
       return 'River';
+    case 'SECOND_BOARD_DEALT':
+      return 'Running it twice — second board';
     case 'HAND_REVEALED': {
       const hi = (ev.hand as { description?: string } | undefined)?.description ?? '';
       const lo = (ev.low as { description?: string } | undefined)?.description;
@@ -143,7 +145,8 @@ export function describeEvent(
       const label = winners.map((w) => `${nameForSeat(w.seat)} ${w.amount}`).join(', ');
       if (!label) return null;
       const portion = ev.portion === 'HIGH' ? 'High pot' : ev.portion === 'LOW' ? 'Low pot' : 'Pot';
-      return `${portion} to ${label}`;
+      const board = ev.board === 1 ? ' (board 1)' : ev.board === 2 ? ' (board 2)' : '';
+      return `${portion} to ${label}${board}`;
     }
     default:
       return null;

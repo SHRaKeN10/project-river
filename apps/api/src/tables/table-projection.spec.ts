@@ -22,6 +22,7 @@ const meta: TableMeta = {
   bombPotAmount: 0,
   straddleEnabled: false,
   straddleMultiplier: 2,
+  runItTwiceEnabled: false,
 };
 
 const roster = new Map<number, RosterEntry>([
@@ -35,6 +36,7 @@ const roster = new Map<number, RosterEntry>([
       stack: 1000,
       sittingOut: false,
       straddleOn: false,
+      runItTwiceOn: false,
       lastTimeChargeAt: 0,
     },
   ],
@@ -48,6 +50,7 @@ const roster = new Map<number, RosterEntry>([
       stack: 1000,
       sittingOut: false,
       straddleOn: false,
+      runItTwiceOn: false,
       lastTimeChargeAt: 0,
     },
   ],
@@ -61,6 +64,7 @@ const roster = new Map<number, RosterEntry>([
       stack: 1000,
       sittingOut: false,
       straddleOn: false,
+      runItTwiceOn: false,
       lastTimeChargeAt: 0,
     },
   ],

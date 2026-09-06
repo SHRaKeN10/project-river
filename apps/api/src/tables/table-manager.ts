@@ -48,6 +48,7 @@ interface Snapshot {
     stack: number;
     sittingOut: boolean;
     straddleOn?: boolean;
+    runItTwiceOn?: boolean;
   }[];
 }
 
@@ -231,6 +232,7 @@ export class TableManager implements OnModuleDestroy {
       bombPotAmount: table.bombPotAmount,
       straddleEnabled: table.straddleEnabled,
       straddleMultiplier: table.straddleMultiplier,
+      runItTwiceEnabled: table.runItTwiceEnabled,
     };
     const engineConfig = createTableConfig({
       variant: variantForGameType(table.gameType),
@@ -310,6 +312,7 @@ export class TableManager implements OnModuleDestroy {
               userIds: [...new Set(hand.seats.map((s) => s.userId))],
               bombPotAmount: hand.bombPotAmount,
               straddleAmount: hand.straddleAmount,
+              ranItTwice: hand.ranItTwice,
               startedAt: new Date(hand.startedAt),
               endedAt: new Date(hand.endedAt),
             },
@@ -366,6 +369,7 @@ export class TableManager implements OnModuleDestroy {
           stack: s.stack,
           sittingOut: s.sittingOut,
           straddleOn: s.straddleOn,
+          runItTwiceOn: s.runItTwiceOn,
         })),
         userMeta,
         table.handNumber,
@@ -451,6 +455,7 @@ export class TableManager implements OnModuleDestroy {
           stack: e.stack,
           sittingOut: e.sittingOut,
           straddleOn: e.straddleOn,
+          runItTwiceOn: e.runItTwiceOn,
         })),
       };
       await this.redis.client.set(

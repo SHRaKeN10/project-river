@@ -29,6 +29,7 @@ import {
   type GameState,
   getPlayer,
   nextActingSeat,
+  type Pot,
   Street,
 } from '../game-state/game-state';
 import {
@@ -109,6 +110,16 @@ export type EngineAction =
        * it is never combined with `bombPot`, and needs at least three dealt-in seats.
        */
       readonly straddle?: { readonly seat: number; readonly amount: number };
+      /**
+       * When true, if an all-in run-out happens this hand with community cards
+       * still to come and at least two players contesting, the engine deals
+       * **two** boards from the same deck instead of one and each board wins half
+       * of every pot (odd chip to the first board). Set by the application from
+       * the table + per-player "run it twice" settings; Hold'em high only (it is
+       * silently ignored for other variants). Composes with `bombPot` /
+       * `straddle` - it is a run-out concern, not a pre-flop one.
+       */
+      readonly runItTwice?: boolean;
     }
   | { readonly type: 'PLAYER_ACTION'; readonly seat: number; readonly action: PlayerAction }
   | { readonly type: 'TIMEOUT'; readonly seat: number }
@@ -136,6 +147,8 @@ export function initGameState(params: {
     smallBlindSeat: -1,
     bigBlindSeat: -1,
     communityCards: [],
+    secondBoard: [],
+    runItTwice: false,
     players: [...params.players]
       .sort((a, b) => a.seatNumber - b.seatNumber)
       .map((p) => ({
@@ -238,6 +251,8 @@ function startHand(
         players: reset,
         street: Street.Waiting,
         communityCards: [],
+        secondBoard: [],
+        runItTwice: false,
         collectedPot: 0,
         pots: [],
         actingSeat: null,
@@ -283,6 +298,9 @@ function startHand(
     smallBlindSeat: positions.smallBlindSeat,
     bigBlindSeat: positions.bigBlindSeat,
     communityCards: [],
+    secondBoard: [],
+    // Hold'em high only; other variants ignore it and run one board.
+    runItTwice: action.runItTwice === true && rulesFor(state.config.variant).holeCards === 2,
     collectedPot: 0,
     pots: [],
     players,
@@ -612,6 +630,14 @@ function progress(state: GameState, events: GameEvent[], rng: RandomProvider): R
 
     if (shouldRunOut(working.players)) {
       working = collectBets(working, events).state;
+      if (
+        working.runItTwice &&
+        working.communityCards.length < 5 &&
+        contestingPlayers(working).length >= 2
+      ) {
+        working = runOutTwoBoards(working, events);
+        return settleTwoBoards(working, events);
+      }
       working = runOutBoard(working, events);
       return settleByShowdown(working, events, rng);
     }
@@ -674,6 +700,125 @@ function runOutBoard(state: GameState, events: GameEvent[]): GameState {
     working = dealStreet(working, events);
   }
   return working;
+}
+
+/**
+ * Run It Twice (ADR-0028). Deals the first board normally (the usual
+ * FLOP/TURN/RIVER_DEALT events), then deals every remaining street a second
+ * time from where the first board left the deck - the already-dealt cards are
+ * shared. The second board arrives as one `SECOND_BOARD_DEALT` event.
+ */
+function runOutTwoBoards(state: GameState, events: GameEvent[]): GameState {
+  const sharedCards = state.communityCards;
+  const sharedStreet = state.street;
+
+  const board1 = runOutBoard(state, events);
+
+  const scratch: GameEvent[] = [];
+  const board2 = runOutBoard(
+    { ...board1, street: sharedStreet, communityCards: sharedCards },
+    scratch,
+  );
+  events.push({ type: 'SECOND_BOARD_DEALT', cards: board2.communityCards });
+
+  return { ...board1, secondBoard: board2.communityCards };
+}
+
+/**
+ * Settles a hand that ran two boards: build the pots once (they are the same
+ * for both boards - `buildPots` works off `totalInvested`), table every hand
+ * (Run It Twice always follows an all-in run-out, so nobody mucks), then award
+ * each board half of every pot with the odd chip going to the first board.
+ * Reuses `buildPots`, `evaluateShowdown` and `awardPots` unchanged.
+ */
+function settleTwoBoards(state: GameState, events: GameEvent[]): ReduceResult {
+  const collected = collectBets(state, events).state;
+
+  const contributions: Contribution[] = collected.players
+    .filter((p) => p.totalInvested > 0)
+    .map((p) => ({
+      seat: p.seatNumber,
+      contributed: p.totalInvested,
+      folded: p.status === PlayerStatus.Folded,
+    }));
+  const { pots, deadRefunds } = buildPots(contributions);
+
+  let players = collected.players;
+  let collectedPot = collected.collectedPot;
+  for (const refund of deadRefunds) {
+    if (refund.amount <= 0) continue;
+    players = players.map((p) =>
+      p.seatNumber === refund.seat ? { ...p, stack: p.stack + refund.amount } : p,
+    );
+    collectedPot -= refund.amount;
+    events.push({ type: 'BET_RETURNED', seat: refund.seat, amount: refund.amount });
+  }
+  const base: GameState = { ...collected, players, collectedPot };
+
+  events.push({ type: 'SHOWDOWN_STARTED' });
+
+  const payoutBySeat = new Map<number, number>();
+  const credit = (seat: number, amount: number): void => {
+    payoutBySeat.set(seat, (payoutBySeat.get(seat) ?? 0) + amount);
+  };
+
+  // Reveal every tabled hand once (summarised against the first board).
+  const firstBoardRanks = evaluateShowdown(base);
+  for (const seat of showdownOrder(base)) {
+    const player = getPlayer(base, seat);
+    const rank = firstBoardRanks.get(seat);
+    if (!player || !rank) continue;
+    events.push({
+      type: 'HAND_REVEALED',
+      seat,
+      cards: player.holeCards,
+      hand: summarizeHand(rank),
+    });
+  }
+
+  const boards: readonly [readonly Card[], 1 | 2][] = [
+    [base.communityCards, 1],
+    [base.secondBoard, 2],
+  ];
+  for (const [boardCards, boardNo] of boards) {
+    const revealed = evaluateShowdown({ ...base, communityCards: boardCards });
+    const oddChipOrder = clockwiseFrom(
+      firstToActPostflop(
+        base.buttonSeat,
+        [...revealed.keys()].sort((a, b) => a - b),
+      ) ?? base.buttonSeat,
+      [...revealed.keys()],
+    );
+    const halfPots: Pot[] = pots.map((pot) => ({
+      ...pot,
+      amount: boardNo === 1 ? Math.ceil(pot.amount / 2) : Math.floor(pot.amount / 2),
+    }));
+    awardPots(halfPots, revealed, oddChipOrder).forEach((award, index) => {
+      for (const w of award.winners) credit(w.seat, w.amount);
+      events.push({
+        type: 'POT_AWARDED',
+        potIndex: index,
+        potType: index === 0 ? 'MAIN' : 'SIDE',
+        amount: award.amount,
+        winners: award.winners,
+        board: boardNo,
+      });
+    });
+  }
+
+  const finalPlayers = base.players.map((p) => ({
+    ...p,
+    stack: p.stack + (payoutBySeat.get(p.seatNumber) ?? 0),
+  }));
+  const finished: GameState = {
+    ...base,
+    players: finalPlayers,
+    pots,
+    street: Street.Complete,
+    actingSeat: null,
+  };
+  events.push(handCompleted(state, finished));
+  return { state: finished, events };
 }
 
 function dealStreet(state: GameState, events: GameEvent[]): GameState {

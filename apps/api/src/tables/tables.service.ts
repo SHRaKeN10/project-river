@@ -33,6 +33,7 @@ export interface TableConfigPatch {
   bombPotAmount?: number;
   straddleEnabled?: boolean;
   straddleMultiplier?: number;
+  runItTwiceEnabled?: boolean;
 }
 
 export type TableWithSeats = PokerTable & { seats: PokerTableSeat[] };
@@ -72,10 +73,11 @@ export class TablesService {
         minBuyIn,
         maxBuyIn,
         isPrivate: input.isPrivate ?? false,
-        // Bomb pots (ADR-0026) and straddles (ADR-0027) ship on for NLHE cash
-        // only; every other variant plays exactly as before.
+        // Bomb pots (ADR-0026), straddles (ADR-0027) and Run It Twice (ADR-0028)
+        // ship on for NLHE cash only; every other variant plays exactly as before.
         bombPotEnabled: gameType === 'NLHE',
         straddleEnabled: gameType === 'NLHE',
+        runItTwiceEnabled: gameType === 'NLHE',
         seats: {
           create: Array.from({ length: maxSeats }, (_, seatNumber) => ({ seatNumber })),
         },
@@ -129,6 +131,9 @@ export class TablesService {
         ...(patch.straddleMultiplier !== undefined && {
           straddleMultiplier: patch.straddleMultiplier,
         }),
+        ...(patch.runItTwiceEnabled !== undefined && {
+          runItTwiceEnabled: patch.runItTwiceEnabled,
+        }),
       },
       include: { seats: { orderBy: { seatNumber: 'asc' } } },
     });
@@ -154,6 +159,7 @@ export class TablesService {
       stack: number;
       sittingOut: boolean;
       straddleOn?: boolean;
+      runItTwiceOn?: boolean;
     }[],
     handNumber: number,
     previous: {
@@ -172,6 +178,7 @@ export class TablesService {
             stack: seat.stack,
             sittingOut: seat.sittingOut,
             straddleOn: seat.straddleOn ?? false,
+            runItTwiceOn: seat.runItTwiceOn ?? false,
             joinedAt: seat.userId ? undefined : null,
           },
         }),
