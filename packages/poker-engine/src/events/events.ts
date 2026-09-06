@@ -48,6 +48,10 @@ export type GameEvent =
       readonly blind: 'SMALL' | 'BIG';
     }
   | { readonly type: 'ANTE_POSTED'; readonly seat: number; readonly amount: number }
+  /** A voluntary UTG straddle: `seat` posted `amount` (>= 2x the big blind) as a
+   * live blind-raise before the deal. First pre-flop action is the seat after
+   * the straddle; the straddle keeps the option (acts last, may re-raise). */
+  | { readonly type: 'STRADDLE_POSTED'; readonly seat: number; readonly amount: number }
   /** This hand is a bomb pot: every player posts `amount` before the deal and
    * there is no preflop betting round - play goes straight to the flop. */
   | {

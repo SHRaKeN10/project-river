@@ -18,6 +18,7 @@ import {
   joinTableSchema,
   leaveTableSchema,
   ServerToClient,
+  straddleToggleSchema,
   tableActionSchema,
   tableChatSchema,
   tableRoomSchema,
@@ -346,6 +347,19 @@ export class PokerGateway
     return this.toggleSit(socket, body, false);
   }
 
+  @SubscribeMessage(ClientToServer.PLAYER_STRADDLE)
+  onStraddle(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() body: unknown,
+  ): { ok: true } | { error: string } {
+    if (this.tooFast(socket, 'misc')) return { error: 'you are doing that too fast' };
+    const parsed = straddleToggleSchema.safeParse(body);
+    if (!parsed.success) return { error: 'invalid payload' };
+    const user = socketUser(socket);
+    this.manager.getRunner(parsed.data.tableId)?.setStraddle(user.userId, parsed.data.on);
+    return { ok: true };
+  }
+
   @SubscribeMessage(ClientToServer.TABLE_CHAT)
   onChat(
     @ConnectedSocket() socket: Socket,
@@ -458,6 +472,7 @@ export class PokerGateway
       revealedSeats: runner.revealed,
       viewerUserId,
       bombPot: runner.bombPotView(),
+      straddle: runner.straddleView(),
     });
   }
 

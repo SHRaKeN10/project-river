@@ -50,6 +50,9 @@ export const tableSocket = {
   sitIn: (tableId: string): void => {
     getSocket()?.emit(ClientToServer.PLAYER_RETURN, { tableId });
   },
+  setStraddle: (tableId: string, on: boolean): void => {
+    getSocket()?.emit(ClientToServer.PLAYER_STRADDLE, { tableId, on });
+  },
   chat: (tableId: string, text: string): void => {
     getSocket()?.emit(ClientToServer.TABLE_CHAT, { tableId, text });
   },

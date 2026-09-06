@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
+  assignPositions,
   cardToString,
   type EngineAction,
   type GameEvent,
@@ -123,6 +124,8 @@ export interface CompletedHand {
   potTotal: number;
   /** Per-player bomb-pot contribution if this hand was a bomb pot; 0 otherwise. */
   bombPotAmount: number;
+  /** The straddle amount if this hand was straddled; 0 otherwise. */
+  straddleAmount: number;
 }
 
 /** Bomb-pot runtime state - the per-table completed-hand counter and whether
@@ -138,6 +141,7 @@ type Command =
   | { type: 'LEAVE'; userId: string }
   | { type: 'CONNECTED'; userId: string; connected: boolean }
   | { type: 'SIT'; userId: string; sittingOut: boolean }
+  | { type: 'STRADDLE'; userId: string; on: boolean }
   | {
       type: 'ACTION';
       userId: string;
@@ -174,6 +178,11 @@ export class TableRunner {
   private currentHandIsBomb = false;
   private currentBombAmount = 0;
 
+  /** The straddle in force for the current hand (ADR-0027), or null. Chosen once
+   * in `onStartHand` from the UTG seat's armed flag; cleared in `onHandComplete`.
+   * Restored from the Redis snapshot on a warm mid-hand restart. */
+  private currentStraddle: { seat: number; amount: number } | null = null;
+
   private actionTimer: unknown = null;
   private nextHandTimer: unknown = null;
   /** Periodic check that stands up players who've been away too long. Runs only
@@ -188,6 +197,7 @@ export class TableRunner {
     seats: CompletedHand['seats'];
     actions: EngineAction[];
     bombPotAmount: number;
+    straddleAmount: number;
   } | null = null;
 
   constructor(
@@ -234,12 +244,14 @@ export class TableRunner {
     userId: string | null;
     stack: number;
     sittingOut: boolean;
+    straddleOn: boolean;
   }[] {
     const rows: {
       seatNumber: number;
       userId: string | null;
       stack: number;
       sittingOut: boolean;
+      straddleOn: boolean;
     }[] = [];
     for (let seat = 0; seat < this.meta.maxSeats; seat += 1) {
       const entry = this.roster.get(seat);
@@ -250,8 +262,9 @@ export class TableRunner {
               userId: entry.userId,
               stack: entry.stack,
               sittingOut: entry.sittingOut,
+              straddleOn: entry.straddleOn,
             }
-          : { seatNumber: seat, userId: null, stack: 0, sittingOut: false },
+          : { seatNumber: seat, userId: null, stack: 0, sittingOut: false, straddleOn: false },
       );
     }
     return rows;
@@ -304,6 +317,34 @@ export class TableRunner {
     };
   }
 
+  /** The straddle size this table uses, in chips (`straddleMultiplier` x BB,
+   * floored at 2x). */
+  private straddleAmount(): number {
+    return Math.max(2, this.meta.straddleMultiplier) * this.engineConfig.bigBlind;
+  }
+
+  /** The straddle for the current hand, for the Redis snapshot. */
+  currentStraddleSnapshot(): { seat: number; amount: number } | null {
+    return this.currentStraddle;
+  }
+
+  /** Public straddle state for the projection; `null` when the table doesn't
+   * allow straddling. `active` / `seat` / `amount` describe the current hand. */
+  straddleView(): {
+    active: boolean;
+    seat: number | null;
+    amount: number;
+    multiplier: number;
+  } | null {
+    if (!this.meta.straddleEnabled) return null;
+    return {
+      active: this.currentStraddle !== null,
+      seat: this.currentStraddle?.seat ?? null,
+      amount: this.currentStraddle?.amount ?? this.straddleAmount(),
+      multiplier: Math.max(2, this.meta.straddleMultiplier),
+    };
+  }
+
   /** Apply an admin config change to this running table. Only the fields that
    * are safe to swap mid-session (bomb-pot cadence) live on `meta`; `isPrivate`
    * is lobby-only and needs nothing here. The completed-hand counter is left
@@ -314,12 +355,18 @@ export class TableRunner {
     bombPotEnabled?: boolean;
     bombPotIntervalHands?: number;
     bombPotAmount?: number;
+    straddleEnabled?: boolean;
+    straddleMultiplier?: number;
   }): void {
     if (patch.bombPotEnabled !== undefined) this.meta.bombPotEnabled = patch.bombPotEnabled;
     if (patch.bombPotIntervalHands !== undefined) {
       this.meta.bombPotIntervalHands = patch.bombPotIntervalHands;
     }
     if (patch.bombPotAmount !== undefined) this.meta.bombPotAmount = patch.bombPotAmount;
+    if (patch.straddleEnabled !== undefined) this.meta.straddleEnabled = patch.straddleEnabled;
+    if (patch.straddleMultiplier !== undefined) {
+      this.meta.straddleMultiplier = patch.straddleMultiplier;
+    }
     this.deps.notify({ kind: 'state' });
   }
 
@@ -330,6 +377,7 @@ export class TableRunner {
       handNumber: number;
       previousPositions?: PreviousPositions | null;
       bombPot?: BombPotState;
+      straddle?: { seat: number; amount: number } | null;
       roster: {
         seatNumber: number;
         userId: string;
@@ -337,6 +385,7 @@ export class TableRunner {
         avatarUrl: string | null;
         stack: number;
         sittingOut: boolean;
+        straddleOn?: boolean;
       }[];
     },
     usernames: ReadonlyMap<string, { username: string; avatarUrl: string | null }>,
@@ -360,6 +409,9 @@ export class TableRunner {
       this.currentHandIsBomb = snapshot.bombPot.currentHandIsBomb;
       this.currentBombAmount = snapshot.bombPot.currentBombAmount;
     }
+    // A straddled hand's straddle is already baked into `state`; this only keeps
+    // `straddleView()` / the completed-hand record correct after a warm restart.
+    if (snapshot.straddle !== undefined) this.currentStraddle = snapshot.straddle;
     for (const r of snapshot.roster) {
       const meta = usernames.get(r.userId);
       this.roster.set(r.seatNumber, {
@@ -369,6 +421,7 @@ export class TableRunner {
         connected: false,
         stack: r.stack,
         sittingOut: r.sittingOut,
+        straddleOn: r.straddleOn ?? false,
         pendingLeave: false,
         awaySince: this.deps.now(),
         missedHands: 0,
@@ -389,6 +442,7 @@ export class TableRunner {
       userId: string | null;
       stack: number;
       sittingOut: boolean;
+      straddleOn?: boolean;
     }[],
     usernames: ReadonlyMap<string, { username: string; avatarUrl: string | null }>,
     handNumber: number,
@@ -405,6 +459,7 @@ export class TableRunner {
         connected: false,
         stack: seat.stack,
         sittingOut: seat.sittingOut,
+        straddleOn: seat.straddleOn ?? false,
         pendingLeave: false,
         awaySince: this.deps.now(),
         missedHands: 0,
@@ -439,6 +494,11 @@ export class TableRunner {
   }
   setSittingOut(userId: string, sittingOut: boolean): void {
     this.enqueue({ type: 'SIT', userId, sittingOut });
+  }
+  /** Arm / disarm the UTG straddle for this player (ADR-0027). Sticky until they
+   * turn it off; only takes effect when they are next under the gun. */
+  setStraddle(userId: string, on: boolean): void {
+    this.enqueue({ type: 'STRADDLE', userId, on });
   }
   submitAction(userId: string, handId: string, clientSeq: number, action: PlayerAction): void {
     this.enqueue({ type: 'ACTION', userId, handId, clientSeq, action });
@@ -488,6 +548,8 @@ export class TableRunner {
         return this.onConnected(cmd.userId, cmd.connected);
       case 'SIT':
         return this.onSit(cmd.userId, cmd.sittingOut);
+      case 'STRADDLE':
+        return this.onStraddle(cmd.userId, cmd.on);
       case 'ACTION':
         return this.onAction(cmd);
       case 'TIMEOUT':
@@ -523,6 +585,7 @@ export class TableRunner {
       connected: args.connected,
       stack: args.stack,
       sittingOut: false,
+      straddleOn: false,
       pendingLeave: false,
       awaySince: args.connected ? null : this.deps.now(),
       missedHands: 0,
@@ -740,6 +803,17 @@ export class TableRunner {
     if (!sittingOut) this.maybeScheduleStart();
   }
 
+  private onStraddle(userId: string, on: boolean): void {
+    if (!this.meta.straddleEnabled) return;
+    const seat = this.seatOf(userId);
+    if (seat === null) return;
+    const entry = this.roster.get(seat);
+    if (!entry || entry.straddleOn === on) return;
+    entry.straddleOn = on;
+    this.deps.persistRoster(this);
+    this.deps.notify({ kind: 'state' });
+  }
+
   private onAction(cmd: Extract<Command, { type: 'ACTION' }>): void {
     const seat = this.seatOf(cmd.userId);
     if (seat === null) {
@@ -818,6 +892,30 @@ export class TableRunner {
       this.handsSinceLastBomb + 1 >= this.bombInterval();
     this.currentBombAmount = this.currentHandIsBomb ? this.bombAmount() : 0;
 
+    // Straddle decision (ADR-0027). NLHE cash only, never on a bomb hand, needs
+    // 3+ dealt-in seats, and the under-the-gun seat must have armed it and be
+    // able to cover the full amount. `assignPositions` here is the same pure
+    // computation the engine does - we just need to know who UTG is.
+    this.currentStraddle = null;
+    const eligibleSeatNumbers = eligible.map(([seat]) => seat);
+    if (
+      this.meta.straddleEnabled &&
+      !this.currentHandIsBomb &&
+      this.engineConfig.variant === GameVariant.Holdem &&
+      eligibleSeatNumbers.length >= 3
+    ) {
+      const utg = assignPositions(
+        eligibleSeatNumbers,
+        this.previousPositions,
+        this.engineConfig.maxSeats,
+      ).firstToActPreflop;
+      const utgEntry = this.roster.get(utg);
+      const amount = this.straddleAmount();
+      if (utgEntry?.straddleOn && utgEntry.stack >= amount) {
+        this.currentStraddle = { seat: utg, amount };
+      }
+    }
+
     const fresh = initGameState({
       tableId: this.meta.id,
       config: this.engineConfig,
@@ -841,6 +939,7 @@ export class TableRunner {
       })),
       actions: [],
       bombPotAmount: this.currentBombAmount,
+      straddleAmount: this.currentStraddle?.amount ?? 0,
     };
 
     this.applyEngine({
@@ -849,6 +948,7 @@ export class TableRunner {
       handNumber: this.handNumber,
       previousPositions: this.previousPositions,
       ...(this.currentHandIsBomb ? { bombPot: { amount: this.currentBombAmount } } : {}),
+      ...(this.currentStraddle ? { straddle: this.currentStraddle } : {}),
     });
     // Deck capture happens inside applyEngine (right after the state swap) so it
     // is recorded even when START_HAND runs straight to showdown - e.g. a bomb
@@ -923,6 +1023,9 @@ export class TableRunner {
     }
     this.currentHandIsBomb = false;
     this.currentBombAmount = 0;
+    // A straddle is per-hand: it does not carry to the next one (the player's
+    // armed flag does, and re-fires when they are UTG again).
+    this.currentStraddle = null;
 
     this.deps.persistRoster(this);
     this.deps.notify({ kind: 'handComplete' });
@@ -961,6 +1064,7 @@ export class TableRunner {
       results,
       potTotal,
       bombPotAmount: log.bombPotAmount,
+      straddleAmount: log.straddleAmount,
     });
   }
 

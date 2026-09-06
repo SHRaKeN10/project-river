@@ -24,6 +24,12 @@ export type JoinTablePayload = z.infer<typeof joinTableSchema>;
 export const leaveTableSchema = z.object({ tableId: z.string().uuid() });
 export type LeaveTablePayload = z.infer<typeof leaveTableSchema>;
 
+export const straddleToggleSchema = z.object({
+  tableId: z.string().uuid(),
+  on: z.boolean(),
+});
+export type StraddleTogglePayload = z.infer<typeof straddleToggleSchema>;
+
 export const tableActionSchema = z.object({
   tableId: z.string().uuid(),
   handId: z.string().min(1),
@@ -64,6 +70,8 @@ export interface PublicSeatView {
   connected: boolean;
   /** Present only for the viewer's own seat, or for any seat once revealed at showdown. */
   holeCards: WireCard[] | null;
+  /** This seat posted the UTG straddle this hand (ADR-0027). */
+  isStraddle: boolean;
 }
 
 export interface PotView {
@@ -115,6 +123,19 @@ export interface TableStateView {
    * flop); `amount` is the per-player contribution; `nextInHands` counts down to
    * the next bomb pot (0 = this hand). */
   bombPot: { active: boolean; amount: number; nextInHands: number } | null;
+
+  /** UTG straddle state for NLHE cash tables that allow it (ADR-0027); `null`
+   * when the table doesn't allow straddling. `active` is true on a hand that was
+   * straddled; `seat`/`amount` say who posted it and how much; `multiplier` is
+   * the table's straddle size in big blinds. */
+  straddle: {
+    active: boolean;
+    seat: number | null;
+    amount: number;
+    multiplier: number;
+  } | null;
+  /** The viewer has armed the straddle for their next under-the-gun turn. */
+  youStraddleNext: boolean;
 }
 
 /** One entry of the hand event stream, forwarded to clients as `hand:update`. */

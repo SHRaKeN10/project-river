@@ -70,6 +70,7 @@ const view = (over: Partial<TableStateView> = {}): TableStateView => ({
       isBigBlind: false,
       connected: true,
       holeCards: ['As', 'Kd'],
+      isStraddle: false,
     },
   ],
   actingSeat: 0,
@@ -77,6 +78,8 @@ const view = (over: Partial<TableStateView> = {}): TableStateView => ({
   youAreSeat: 0,
   legalActions: [{ kind: 'CHECK' }],
   bombPot: null,
+  straddle: null,
+  youStraddleNext: false,
   ...over,
 });
 

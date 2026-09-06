@@ -17,6 +17,7 @@ const seat = (over: Partial<PublicSeatView>): PublicSeatView => ({
   isBigBlind: false,
   connected: true,
   holeCards: null,
+  isStraddle: false,
   ...over,
 });
 
@@ -63,6 +64,29 @@ describe('SeatPod', () => {
     );
     expect(screen.getByText('A')).toBeTruthy();
     expect(screen.getByText('K')).toBeTruthy();
+  });
+
+  it('shows a STR chip for the straddle seat, and not otherwise', () => {
+    const { rerender } = render(
+      <SeatPod
+        seat={seat({ isStraddle: true })}
+        isHero
+        isActing={false}
+        isButton={false}
+        actionDeadline={null}
+      />,
+    );
+    expect(screen.getByText('STR')).toBeTruthy();
+    rerender(
+      <SeatPod
+        seat={seat({ isStraddle: false })}
+        isHero
+        isActing={false}
+        isButton={false}
+        actionDeadline={null}
+      />,
+    );
+    expect(screen.queryByText('STR')).toBeNull();
   });
 
   it('shows four face-up cards for an Omaha hero', () => {

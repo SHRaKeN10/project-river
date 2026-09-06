@@ -31,7 +31,7 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
   const chips = useChips();
   const rebuy = useRebuy();
 
-  const { view, connected, error, feed, clearError, takeSeat, act, toggleSitOut } =
+  const { view, connected, error, feed, clearError, takeSeat, act, toggleSitOut, toggleStraddle } =
     useTable(tableId);
 
   const [buyInSeat, setBuyInSeat] = useState<number | null>(null);
@@ -232,6 +232,8 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
         onLeave={goBack}
         sittingOut={hero ? hero.status === 'SITTING_OUT' : null}
         onToggleSitOut={toggleSitOut}
+        straddleOn={view.straddle && view.youAreSeat !== null ? view.youStraddleNext : null}
+        onToggleStraddle={toggleStraddle}
       />
     </SafeAreaView>
   );

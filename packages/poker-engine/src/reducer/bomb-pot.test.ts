@@ -43,7 +43,7 @@ describe('bomb pot - posting and flow', () => {
 
   it('every dealt-in player posts the bomb amount, no blinds, straight to the flop', () => {
     const h = new HandRunner(cfg(), seats([1000, 1000, 1000]));
-    h.startHand(undefined, { amount: 25 });
+    h.startHand(undefined, { bombPot: { amount: 25 } });
 
     expect(types(h.events)).toEqual([
       'HAND_STARTED',
@@ -72,7 +72,7 @@ describe('bomb pot - posting and flow', () => {
 
   it('the first action is a flop action - there is no preflop betting node', () => {
     const h = new HandRunner(cfg(), seats([1000, 1000, 1000]));
-    h.startHand(undefined, { amount: 10 });
+    h.startHand(undefined, { bombPot: { amount: 10 } });
     // 3-handed: button 0, and post-flop the first to act is the SB seat (1)
     expect(h.state.actingSeat).toBe(1);
     const ctx: BettingContext = {
@@ -90,14 +90,14 @@ describe('bomb pot - posting and flow', () => {
 
   it('the bomb amount is configurable (not tied to the big blind)', () => {
     const h = new HandRunner(cfg(), seats([1000, 1000]));
-    h.startHand(undefined, { amount: 3 });
+    h.startHand(undefined, { bombPot: { amount: 3 } });
     for (const p of h.state.players) expect(p.totalInvested).toBe(3);
     expect(h.state.collectedPot).toBe(6);
   });
 
   it('rejects a bomb pot for a non-Hold’em variant', () => {
     const h = new HandRunner(cfg({ variant: GameVariant.Omaha }), seats([1000, 1000]));
-    const res = h.startHand(undefined, { amount: 10 });
+    const res = h.startHand(undefined, { bombPot: { amount: 10 } });
     expect(res.events).toEqual([
       expect.objectContaining({ type: 'ACTION_REJECTED', code: 'BOMB_POT_HOLDEM_ONLY' }),
     ]);
@@ -106,7 +106,7 @@ describe('bomb pot - posting and flow', () => {
 
   it('rejects a non-positive bomb amount', () => {
     const h = new HandRunner(cfg(), seats([1000, 1000]));
-    expect(h.startHand(undefined, { amount: 0 }).events[0]).toMatchObject({
+    expect(h.startHand(undefined, { bombPot: { amount: 0 } }).events[0]).toMatchObject({
       type: 'ACTION_REJECTED',
       code: 'BOMB_POT_AMOUNT',
     });
@@ -114,7 +114,7 @@ describe('bomb pot - posting and flow', () => {
 
   it('the dealer button still rotates across a bomb pot', () => {
     const h = new HandRunner(cfg(), seats([1000, 1000, 1000]));
-    h.startHand(undefined, { amount: 10 });
+    h.startHand(undefined, { bombPot: { amount: 10 } });
     expect(h.state.buttonSeat).toBe(0);
     h.autoFinish(); // checks the board down
     expect(h.state.street).toBe(Street.Complete);
@@ -126,7 +126,7 @@ describe('bomb pot - posting and flow', () => {
 describe('bomb pot - short stacks and side pots', () => {
   it('a player who cannot cover the bomb is all-in for their whole stack', () => {
     const h = new HandRunner(cfg(), seats([1000, 1000, 8]));
-    h.startHand(undefined, { amount: 25 });
+    h.startHand(undefined, { bombPot: { amount: 25 } });
     const short = seatOf(h.state, 2);
     expect(short).toMatchObject({ stack: 0, currentBet: 0, totalInvested: 8 });
     expect(short.status).toBe(PlayerStatus.AllIn);
@@ -143,7 +143,7 @@ describe('bomb pot - short stacks and side pots', () => {
         holes: { 0: 'Ah As', 1: 'Kh Kd', 2: 'Qh Qd' },
         board: '2c 5d 9h Js 3c',
       }),
-      { amount: 20 },
+      { bombPot: { amount: 20 } },
     );
     // seat 0 is all-in from the bomb; seats 1 & 2 play the flop down
     h.autoFinish();
@@ -165,7 +165,7 @@ describe('bomb pot - short stacks and side pots', () => {
         holes: { 0: 'Ah As', 1: 'Kh Kd', 2: 'Qh Qd', 3: '7c 2d' },
         board: '3c 8s Tc Jd 4h',
       }),
-      { amount: 20 },
+      { bombPot: { amount: 20 } },
     );
     h.autoFinish();
     expect(h.state.street).toBe(Street.Complete);
@@ -187,7 +187,7 @@ describe('bomb pot - short stacks and side pots', () => {
         holes: { 0: '7c 2d', 1: 'Ah As', 2: 'Kh Kd' },
         board: '3c 8s Tc Jd 4h',
       }),
-      { amount: 10 },
+      { bombPot: { amount: 10 } },
     );
     // seat 1 acts first on the flop (SB seat); it bets, seat 2 folds, seat 0 folds
     h.act(h.state.actingSeat!, { type: 'BET', amount: 20 });
@@ -202,7 +202,7 @@ describe('bomb pot - short stacks and side pots', () => {
 
   it('heads-up bomb pot', () => {
     const h = new HandRunner(cfg(), seats([1000, 1000]));
-    h.startHand(undefined, { amount: 40 });
+    h.startHand(undefined, { bombPot: { amount: 40 } });
     expect(bombPosts(h.events)).toHaveLength(2);
     expect(h.state.street).toBe(Street.Flop);
     for (const p of h.state.players) expect(p.totalInvested).toBe(40);
@@ -213,7 +213,7 @@ describe('bomb pot - short stacks and side pots', () => {
 
   it('a full 9-handed bomb pot', () => {
     const h = new HandRunner(cfg({ maxSeats: 9 }), seats(Array.from({ length: 9 }, () => 5000)));
-    h.startHand(undefined, { amount: 50 });
+    h.startHand(undefined, { bombPot: { amount: 50 } });
     expect(bombPosts(h.events)).toHaveLength(9);
     expect(h.state.collectedPot).toBe(450);
     expect(h.state.street).toBe(Street.Flop);
@@ -225,7 +225,7 @@ describe('bomb pot - short stacks and side pots', () => {
     const order = h.nextDealOrder();
     h.startHand(
       buildDeck({ order, holes: { 0: 'Ah As', 1: 'Kh Kd', 2: 'Qh Qd' }, board: '2c 7d 9h Js 3s' }),
-      { amount: 50 },
+      { bombPot: { amount: 50 } },
     );
     expect(h.state.actingSeat).toBeNull();
     expect(h.state.street).toBe(Street.Complete);
@@ -238,7 +238,7 @@ describe('bomb pot - short stacks and side pots', () => {
 describe('bomb pot - conservation, determinism, replay', () => {
   it('holds chip conservation after every flop/turn/river action', () => {
     const h = new HandRunner(cfg(), seats([600, 600, 600, 600]));
-    h.startHand(undefined, { amount: 20 });
+    h.startHand(undefined, { bombPot: { amount: 20 } });
     let guard = 0;
     while (h.state.street !== Street.Complete && h.state.actingSeat !== null) {
       expect(h.chips()).toBe(2400);
@@ -298,7 +298,7 @@ describe('bomb pot - conservation, determinism, replay', () => {
       board: '2c 7d 9h Js 3s',
     });
     const bomb = new HandRunner(cfg(), seats([500, 500, 500]));
-    bomb.startHand(deck, { amount: 30 });
+    bomb.startHand(deck, { bombPot: { amount: 30 } });
     const normal = new HandRunner(cfg(), seats([500, 500, 500]));
     normal.startHand(deck);
     expect(bomb.state.street).toBe(Street.Flop);
@@ -335,7 +335,7 @@ describe('bomb pot - fuzz', () => {
         const isBomb = sinceBomb + 1 >= interval;
         const startEvents = h.startHand(
           undefined,
-          isBomb ? { amount: 5 + nextInt(20) } : undefined,
+          isBomb ? { bombPot: { amount: 5 + nextInt(20) } } : undefined,
         ).events;
         if (isBomb && h.state.street !== Street.Waiting) {
           bombs += 1;

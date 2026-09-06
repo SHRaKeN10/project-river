@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import type { PokerHand } from '@prisma/client';
 import {
+  assignPositions,
   type EngineAction,
   type GameEvent,
   type GameState,
@@ -108,6 +109,20 @@ export class HandsService {
     }));
     const prev = (hand.prevPositionsJson as unknown as PreviousPositions | null) ?? null;
 
+    // A straddled hand stored only the amount; the straddle seat is the computed
+    // UTG seat, the same pure calc the runner did.
+    const straddle =
+      hand.straddleAmount > 0
+        ? {
+            seat: assignPositions(
+              seats.map((s) => s.seatNumber).sort((a, b) => a - b),
+              prev,
+              table.maxSeats,
+            ).firstToActPreflop,
+            amount: hand.straddleAmount,
+          }
+        : undefined;
+
     return replayHand({
       tableId: hand.tableId,
       config: createTableConfig({
@@ -126,6 +141,7 @@ export class HandsService {
       deck: (hand.deck as unknown as string[]).map(parseCard),
       actions: hand.actionsJson as unknown as EngineAction[],
       ...(hand.bombPotAmount > 0 ? { bombPot: { amount: hand.bombPotAmount } } : {}),
+      ...(straddle ? { straddle } : {}),
     });
   }
 

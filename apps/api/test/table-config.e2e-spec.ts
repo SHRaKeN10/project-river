@@ -86,12 +86,30 @@ describe('Table config (e2e)', () => {
     new Promise((resolve) => s.emit(event, payload, (r: T) => resolve(r)));
   const settle = () => new Promise((r) => setTimeout(r, 250));
 
-  it('a fresh NLHE table has bomb pots on at the default cadence', async () => {
+  it('a fresh NLHE table has bomb pots and straddling on at the default cadence', async () => {
     const id = await makeTable();
     const res = await request(server).get(`/api/tables/${id}`).set(auth(playerToken)).expect(200);
     expect(res.body.bombPotEnabled).toBe(true);
     expect(res.body.bombPotIntervalHands).toBe(15);
     expect(res.body.bombPotAmount).toBe(0);
+    expect(res.body.straddleEnabled).toBe(true);
+    expect(res.body.straddleMultiplier).toBe(2);
+  });
+
+  it('admin updates the straddle settings; rejects a multiplier below 2', async () => {
+    const id = await makeTable();
+    const res = await request(server)
+      .patch(`/api/tables/${id}/config`)
+      .set(auth(adminToken))
+      .send({ straddleEnabled: false, straddleMultiplier: 3 })
+      .expect(200);
+    expect(res.body).toMatchObject({ straddleEnabled: false, straddleMultiplier: 3 });
+
+    await request(server)
+      .patch(`/api/tables/${id}/config`)
+      .set(auth(adminToken))
+      .send({ straddleMultiplier: 1 })
+      .expect(400);
   });
 
   it('rejects a config change from a non-admin', async () => {

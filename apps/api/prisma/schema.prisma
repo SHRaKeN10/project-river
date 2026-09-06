@@ -156,6 +156,12 @@ model PokerTable {
   bombPotIntervalHands Int     @default(15)
   bombPotAmount        Int     @default(0)
   handsSinceLastBomb   Int     @default(0)
+  /// Voluntary UTG straddle (NLHE cash only - ADR-0027). When enabled, a seated
+  /// player can arm "straddle" (PokerTableSeat.straddleOn); when they are next
+  /// under the gun and can cover it, they post `straddleMultiplier` x the big
+  /// blind as a live blind-raise before the deal. Never on a bomb-pot hand.
+  straddleEnabled      Boolean @default(false)
+  straddleMultiplier   Int     @default(2)
   /// Rolling stats for the lobby's "average pot" column.
   handsPlayed Int             @default(0)
   potSum     Int              @default(0)
@@ -198,6 +204,9 @@ model PokerHand {
   /// Per-player bomb-pot contribution if this hand was a bomb pot; 0 otherwise.
   /// `replayHand` needs it to reproduce a bomb-pot hand (no preflop betting).
   bombPotAmount  Int        @default(0)
+  /// The straddle amount if this hand was straddled; 0 otherwise. The straddle
+  /// seat is the computed UTG seat, so `replayHand` needs only the amount.
+  straddleAmount Int        @default(0)
   /// Denormalised for "my recent hands" lookups.
   userIds        String[]   @db.Uuid
   startedAt      DateTime
@@ -241,6 +250,9 @@ model PokerTableSeat {
   user       User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
   stack      Int         @default(0)
   sittingOut Boolean     @default(false)
+  /// The player has armed the UTG straddle (ADR-0027). Sticky until they turn it
+  /// off; only fires when they are under the gun and the table allows it.
+  straddleOn Boolean     @default(false)
   joinedAt   DateTime?
   updatedAt  DateTime    @updatedAt
 

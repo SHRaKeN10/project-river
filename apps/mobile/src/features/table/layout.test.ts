@@ -87,6 +87,8 @@ const baseView = (over: Partial<TableStateView>): TableStateView => ({
   youAreSeat: null,
   legalActions: null,
   bombPot: null,
+  straddle: null,
+  youStraddleNext: false,
   ...over,
 });
 
@@ -147,6 +149,12 @@ describe('describeEvent', () => {
     );
     expect(describeEvent({ type: 'BOMB_POT_POSTED', seat: 2, amount: 20 }, name)).toBe(
       'P2 posts bomb 20',
+    );
+  });
+
+  it('describes a straddle', () => {
+    expect(describeEvent({ type: 'STRADDLE_POSTED', seat: 3, amount: 40 }, name)).toBe(
+      'P3 straddles 40',
     );
   });
 

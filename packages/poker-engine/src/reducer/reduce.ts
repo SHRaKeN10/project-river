@@ -68,6 +68,7 @@ import {
 import {
   assignPositions,
   firstToActPostflop,
+  nextSeat,
   type PreviousPositions,
   type TableConfig,
   seatsForNextHand,
@@ -98,6 +99,16 @@ export type EngineAction =
        * decides when a hand is a bomb pot and passes this. Hold'em only.
        */
       readonly bombPot?: { readonly amount: number };
+      /**
+       * When present, this hand is **straddled**: the seat `straddle.seat` (which
+       * must be the computed UTG / first-to-act-preflop seat) posts `straddle.amount`
+       * - at least twice the big blind - as a live blind-raise before the deal, on
+       * top of the normal blinds. Pre-flop action then starts at the seat after the
+       * straddle, and the straddle keeps the option (acts last, may re-raise even if
+       * everyone just calls). The application decides who straddles and passes this;
+       * it is never combined with `bombPot`, and needs at least three dealt-in seats.
+       */
+      readonly straddle?: { readonly seat: number; readonly amount: number };
     }
   | { readonly type: 'PLAYER_ACTION'; readonly seat: number; readonly action: PlayerAction }
   | { readonly type: 'TIMEOUT'; readonly seat: number }
@@ -199,6 +210,22 @@ function startHand(
       return reject(state, -1, 'BOMB_POT_AMOUNT', 'bomb-pot amount must be a positive integer');
     }
   }
+  if (action.straddle) {
+    if (action.bombPot) {
+      return reject(state, -1, 'STRADDLE_ON_BOMB_POT', 'a bomb pot cannot be straddled');
+    }
+    if (
+      !Number.isInteger(action.straddle.amount) ||
+      action.straddle.amount < 2 * state.config.bigBlind
+    ) {
+      return reject(
+        state,
+        -1,
+        'STRADDLE_AMOUNT',
+        'a straddle must be at least twice the big blind',
+      );
+    }
+  }
 
   const reset = state.players.map(resetForHand);
   const seats = seatsForNextHand(reset);
@@ -237,6 +264,15 @@ function startHand(
   }));
 
   const bomb = action.bombPot;
+  const straddle = action.straddle;
+  if (straddle) {
+    if (seats.length < 3) {
+      return reject(state, -1, 'STRADDLE_MIN_PLAYERS', 'a straddle needs at least three players');
+    }
+    if (straddle.seat !== positions.firstToActPreflop) {
+      return reject(state, -1, 'STRADDLE_SEAT', 'only the under-the-gun seat may straddle');
+    }
+  }
 
   let working: GameState = {
     ...state,
@@ -295,6 +331,9 @@ function startHand(
       working = postBlind(working, positions.smallBlindSeat, config.smallBlind, 'SMALL', events);
     }
     working = postBlind(working, positions.bigBlindSeat, config.bigBlind, 'BIG', events);
+    if (straddle) {
+      working = postStraddle(working, straddle.seat, straddle.amount, events);
+    }
   }
 
   const dealt = dealHoleCards(working);
@@ -306,7 +345,10 @@ function startHand(
     // flop actor, run-outs, and settlement are all the existing NLHE logic.
     working = openNextStreet(working, events);
   } else {
-    working = { ...working, actingSeat: firstActionable(working, positions.firstToActPreflop) };
+    // A straddle pushes the first pre-flop action one seat past the straddle;
+    // the straddle itself keeps the option (it posted but did not act).
+    const firstPreflop = straddle ? nextSeat(straddle.seat, seats) : positions.firstToActPreflop;
+    working = { ...working, actingSeat: firstActionable(working, firstPreflop) };
   }
 
   return progress(working, events, rng);
@@ -372,6 +414,44 @@ function postBlind(
     events.push({ type: 'PLAYER_WENT_ALL_IN', seat, amount: withAction.currentBet });
   }
   return { ...state, players: replacePlayer(state.players, withAction) };
+}
+
+/**
+ * The UTG straddle: a live blind-raise posted before the deal. Mechanically it
+ * is "a second, bigger big blind one seat along" - it raises `round.currentBet`,
+ * becomes the new aggressor, and (like a blind) does **not** set `hasActed`, so
+ * the straddle keeps its option to act last pre-flop. `commitChips` already
+ * handles a straddler who cannot cover the full amount (all-in for less); a
+ * short all-in straddle that is under a full raise does not grow the next
+ * player's minimum raise, matching `applyRaise`.
+ */
+function postStraddle(
+  state: GameState,
+  seat: number,
+  amount: number,
+  events: GameEvent[],
+): GameState {
+  const player = getPlayer(state, seat);
+  if (!player) return state;
+  const { player: committed, committed: paid } = commitChips(player, amount);
+  if (paid <= 0) return state;
+  const withAction: PlayerState = { ...committed, lastAction: PlayerActionType.PostStraddle };
+  const bb = state.config.bigBlind;
+  const isFullRaise = paid - bb >= bb;
+  events.push({ type: 'STRADDLE_POSTED', seat, amount: paid });
+  if (withAction.status === PlayerStatus.AllIn && player.status !== PlayerStatus.AllIn) {
+    events.push({ type: 'PLAYER_WENT_ALL_IN', seat, amount: withAction.currentBet });
+  }
+  return {
+    ...state,
+    players: replacePlayer(state.players, withAction),
+    round: {
+      currentBet: Math.max(state.round.currentBet, withAction.currentBet),
+      lastRaiseSize: isFullRaise ? paid - bb : state.round.lastRaiseSize,
+      lastAggressorSeat: seat,
+      minOpen: state.round.minOpen,
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
