@@ -4,6 +4,7 @@ import { HomeScreen } from '../screens/HomeScreen';
 import { LobbyScreen } from '../screens/LobbyScreen';
 import { TableScreen } from '../screens/TableScreen';
 import { TournamentsScreen } from '../screens/TournamentsScreen';
+import { TournamentDetailScreen } from '../screens/TournamentDetailScreen';
 import { TournamentTableScreen } from '../screens/TournamentTableScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
@@ -27,6 +28,11 @@ export function AppNavigator(): JSX.Element {
         name="Tournaments"
         component={TournamentsScreen}
         options={{ title: 'Tournaments' }}
+      />
+      <Stack.Screen
+        name="TournamentDetail"
+        component={TournamentDetailScreen}
+        options={{ title: 'Tournament' }}
       />
       <Stack.Screen
         name="Table"

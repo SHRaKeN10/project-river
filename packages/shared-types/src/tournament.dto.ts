@@ -46,6 +46,43 @@ export const tournamentActionSchema = z.object({
 });
 export type TournamentActionPayload = z.infer<typeof tournamentActionSchema>;
 
+/**
+ * `tournament:clock` - the authoritative level-clock snapshot. The server sends
+ * one on watch, on every blind-level change, and after each hand-for-hand round
+ * (when the field / table count / hand-for-hand flag may have moved). The client
+ * renders a *local* countdown from `levelEndsAt` and only re-synchronises when a
+ * fresh snapshot arrives - there is no per-second server broadcast.
+ *
+ * `serverNow` is the server's wall clock at the moment the snapshot was taken;
+ * the client corrects its own countdown for clock skew against it rather than
+ * trusting its device clock.
+ */
+export interface TournamentClockState {
+  tournamentId: string;
+  /** Level in effect right now (1-indexed). */
+  level: number;
+  smallBlind: number;
+  bigBlind: number;
+  ante: number;
+  /** The current level is a scheduled break (no hands run). */
+  isBreak: boolean;
+  /** Epoch millis the current level ends (the next begins); null on the final
+   * level, which runs until the tournament ends. */
+  levelEndsAt: number | null;
+  /** The current level's configured length. */
+  levelDurationMs: number;
+  /** Server epoch millis when this snapshot was taken (skew reference). */
+  serverNow: number;
+  /** Hand-for-hand play is active (at/near the money bubble). */
+  handForHand: boolean;
+  /** Players still holding chips. */
+  playersLeft: number;
+  /** How many places are paid. */
+  placesPaid: number;
+  /** Live table count. */
+  tableCount: number;
+}
+
 /** `tournament:assignment` - your table / seat in a tournament. */
 export interface TournamentAssignment {
   tournamentId: string;
@@ -96,13 +133,19 @@ export interface TournamentView {
   playersLeft: number;
   prizePool: number;
   placesPaid: number;
+  /** The prize ladder for the current field, best place first; `[]` under two
+   * entrants. Comes from the API because the mobile client has no engine. */
+  payouts: number[];
+
+  /** Sign-ups are open (pre-start and under the entrant cap). */
+  registrationOpen: boolean;
+  /** The requesting user can still cancel their registration (pre-start). */
+  canUnregister: boolean;
 
   /** Epoch millis the level clock started, or null before RUNNING. */
   startedAt: number | null;
-  /** Level in effect right now (1-indexed), or null before RUNNING. */
-  currentLevel: number | null;
-  /** Epoch millis the current level ends, or null. */
-  levelEndsAt: number | null;
+  /** The authoritative level clock, or null before RUNNING. */
+  clock: TournamentClockState | null;
 
   /** The requesting user's own registration, if any. */
   you: TournamentEntryView | null;
