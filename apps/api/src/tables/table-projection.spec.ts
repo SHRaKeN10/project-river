@@ -23,6 +23,7 @@ const meta: TableMeta = {
   straddleEnabled: false,
   straddleMultiplier: 2,
   runItTwiceEnabled: false,
+  antiRatholeMinutes: 0,
 };
 
 const roster = new Map<number, RosterEntry>([

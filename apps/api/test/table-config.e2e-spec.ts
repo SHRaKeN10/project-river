@@ -95,6 +95,22 @@ describe('Table config (e2e)', () => {
     expect(res.body.straddleEnabled).toBe(true);
     expect(res.body.straddleMultiplier).toBe(2);
     expect(res.body.runItTwiceEnabled).toBe(true);
+    expect(res.body.antiRatholeMinutes).toBe(30);
+  });
+
+  it('admin changes the anti-rathole cooldown; rejects a negative value', async () => {
+    const id = await makeTable();
+    await request(server)
+      .patch(`/api/tables/${id}/config`)
+      .set(auth(adminToken))
+      .send({ antiRatholeMinutes: 60 })
+      .expect(200)
+      .expect((r) => expect(r.body.antiRatholeMinutes).toBe(60));
+    await request(server)
+      .patch(`/api/tables/${id}/config`)
+      .set(auth(adminToken))
+      .send({ antiRatholeMinutes: -1 })
+      .expect(400);
   });
 
   it('admin toggles run-it-twice live', async () => {

@@ -171,6 +171,8 @@ export class TournamentTableRunner {
       straddleMultiplier: 2,
       // Run It Twice is NLHE-cash-only (ADR-0028); tournaments never run it.
       runItTwiceEnabled: false,
+      // Anti-ratholing (ADR-0029) is a cash-table wallet concern; N/A here.
+      antiRatholeMinutes: 0,
     };
   }
 

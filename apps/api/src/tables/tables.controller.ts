@@ -32,6 +32,7 @@ const updateConfigSchema = z
     straddleEnabled: z.boolean().optional(),
     straddleMultiplier: z.number().int().min(2).max(10).optional(),
     runItTwiceEnabled: z.boolean().optional(),
+    antiRatholeMinutes: z.number().int().min(0).max(1440).optional(),
   })
   .refine((o) => Object.values(o).some((v) => v !== undefined), {
     message: 'provide at least one setting to change',
@@ -55,6 +56,7 @@ function toDto(table: TableWithSeats) {
     straddleEnabled: table.straddleEnabled,
     straddleMultiplier: table.straddleMultiplier,
     runItTwiceEnabled: table.runItTwiceEnabled,
+    antiRatholeMinutes: table.antiRatholeMinutes,
     handNumber: table.handNumber,
     seats: table.seats.map((s) => ({
       seatNumber: s.seatNumber,

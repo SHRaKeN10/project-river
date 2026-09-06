@@ -73,6 +73,7 @@ const baseView = (over: Partial<TableStateView>): TableStateView => ({
   maxBuyIn: 2000,
   timeChargeAmount: 0,
   timeChargeIntervalMs: 0,
+  antiRatholeMinutes: 0,
   handId: 'h1',
   handNumber: 1,
   street: 'FLOP',

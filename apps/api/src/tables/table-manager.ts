@@ -233,6 +233,7 @@ export class TableManager implements OnModuleDestroy {
       straddleEnabled: table.straddleEnabled,
       straddleMultiplier: table.straddleMultiplier,
       runItTwiceEnabled: table.runItTwiceEnabled,
+      antiRatholeMinutes: table.antiRatholeMinutes,
     };
     const engineConfig = createTableConfig({
       variant: variantForGameType(table.gameType),
@@ -277,7 +278,14 @@ export class TableManager implements OnModuleDestroy {
         );
       },
       onSeatVacated: ({ userId, seatNumber, stack, idemKey }) => {
-        this.trackSeatWrite(tableId, this.cashOut(tableId, seatNumber, userId, stack, idemKey));
+        // A voluntary leave is keyed `cashout:` (see TableRunner); a disconnect
+        // sweep is `away:` and an admin close is `close:` - those never
+        // rathole-lock, and neither does a table with the feature off.
+        const voluntary = idemKey.startsWith('cashout:') && runner.meta.antiRatholeMinutes > 0;
+        this.trackSeatWrite(
+          tableId,
+          this.cashOut(tableId, seatNumber, userId, stack, idemKey, voluntary),
+        );
         this.emit(tableId, { kind: 'seatVacated' }, runner);
         this.reapIfIdle(tableId, runner);
       },
@@ -412,10 +420,19 @@ export class TableManager implements OnModuleDestroy {
     userId: string,
     stack: number,
     idemKey: string,
+    /** True for a voluntary leave - records an anti-rathole departure (ADR-0029). */
+    voluntary = false,
   ): Promise<void> {
     for (let attempt = 0; attempt < 4; attempt += 1) {
       try {
-        await this.tables.standUp({ tableId, seatNumber, userId, finalStack: stack, idemKey });
+        await this.tables.standUp({
+          tableId,
+          seatNumber,
+          userId,
+          finalStack: stack,
+          idemKey,
+          recordDepartureStack: voluntary ? stack : null,
+        });
         return;
       } catch (err) {
         this.logger.error(

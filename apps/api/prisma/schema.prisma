@@ -81,6 +81,7 @@ model User {
   waitlistEntries      TableWaitlistEntry[]
   chipLedger           ChipLedgerEntry[]
   tournamentEntries    TournamentEntry[]
+  tableDepartures      TableDeparture[]
 
   @@index([status])
 }
@@ -166,18 +167,40 @@ model PokerTable {
   /// player has armed it (PokerTableSeat.runItTwiceOn), an all-in run-out with
   /// cards still to come deals two boards, each worth half of every pot.
   runItTwiceEnabled    Boolean @default(false)
+  /// Anti-ratholing (ADR-0029). A player who voluntarily leaves this cash table
+  /// cannot return within this many minutes for less than the stack they left
+  /// with (capped at the max buy-in). 0 disables it. Tournaments never apply it.
+  antiRatholeMinutes   Int     @default(30)
   /// Rolling stats for the lobby's "average pot" column.
   handsPlayed Int             @default(0)
   potSum     Int              @default(0)
   createdAt  DateTime         @default(now())
   updatedAt  DateTime         @updatedAt
 
-  seats     PokerTableSeat[]
-  favorites TableFavorite[]
-  waitlist  TableWaitlistEntry[]
-  hands     PokerHand[]
+  seats      PokerTableSeat[]
+  favorites  TableFavorite[]
+  waitlist   TableWaitlistEntry[]
+  hands      PokerHand[]
+  departures TableDeparture[]
 
   @@index([status])
+}
+
+/// One player's last voluntary departure from a cash table, for anti-ratholing
+/// (ADR-0029). Upserted on a voluntary stand-up; read (and deleted) on the next
+/// buy-in at the same table. Not written for disconnect removals or table close.
+model TableDeparture {
+  id      String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tableId String     @db.Uuid
+  table   PokerTable @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  userId  String     @db.Uuid
+  user    User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// The stack they left with.
+  stack   Int
+  leftAt  DateTime
+
+  @@unique([tableId, userId])
+  @@index([userId])
 }
 
 /// One completed hand, persisted for dispute resolution and replay. Given the
