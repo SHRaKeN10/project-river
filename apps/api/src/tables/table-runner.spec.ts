@@ -737,6 +737,44 @@ describe('TableRunner - bomb pots', () => {
     expect(h.rosterTotal()).toBe(3000);
   });
 
+  it('still records a replayable deck when a bomb pot runs straight to showdown (all short)', () => {
+    // Every dealt-in player is all-in from the bomb, so START_HAND runs the
+    // whole board out and completes the hand in one reduce() call.
+    const h = harness(11, {
+      bombPotEnabled: true,
+      bombPotIntervalHands: 1,
+      bombPotAmount: 5000, // larger than any legal stack -> everyone all-in
+    });
+    h.join('alice', 0, 1000);
+    h.join('bob', 1, 1000);
+    h.timers.runPending();
+
+    expect(h.runner.gameState.street).toBe('COMPLETE');
+    expect(h.hands).toHaveLength(1);
+    expect(h.hands[0].bombPotAmount).toBe(5000);
+    expect(h.hands[0].deck.length).toBe(52);
+    expect(h.rosterTotal()).toBe(2000);
+
+    // the recorded hand replays bit-identically
+    const rec = h.hands[0];
+    const replayed = replayHand({
+      tableId: 't-1',
+      config: createTableConfig({ smallBlind: 10, bigBlind: 20, maxSeats: 6 }),
+      seats: rec.seats.map((s) => ({
+        userId: s.userId,
+        seatNumber: s.seat,
+        stack: s.startStack,
+      })),
+      handId: rec.engineHandId,
+      handNumber: rec.handNumber,
+      previousPositions: rec.prevPositions,
+      deck: rec.deck.map(parseCard),
+      actions: rec.actions,
+      bombPot: { amount: rec.bombPotAmount },
+    });
+    expect(replayed.state.communityCards.map(cardToString)).toEqual(rec.board);
+  });
+
   it('records bombPotAmount on the completed hand (0 for a normal hand)', () => {
     const h = harness(7, { bombPotEnabled: true, bombPotIntervalHands: 2 });
     h.join('alice', 0);

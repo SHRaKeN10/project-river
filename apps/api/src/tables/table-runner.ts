@@ -285,6 +285,12 @@ export class TableRunner {
     return this.meta.bombPotAmount > 0 ? this.meta.bombPotAmount : this.engineConfig.bigBlind;
   }
 
+  /** Hands between bomb pots. Floored at 1 so a bad `0` row can't turn every
+   * hand into a bomb pot (the admin path validates this too). */
+  private bombInterval(): number {
+    return Math.max(1, this.meta.bombPotIntervalHands);
+  }
+
   /** Public bomb-pot state for the projection; `null` when the table doesn't run
    * bomb pots. `nextInHands` is the countdown to the next bomb (0 = this hand). */
   bombPotView(): { active: boolean; amount: number; nextInHands: number } | null {
@@ -294,7 +300,7 @@ export class TableRunner {
       amount: this.currentHandIsBomb ? this.currentBombAmount : this.bombAmount(),
       nextInHands: this.currentHandIsBomb
         ? 0
-        : Math.max(0, this.meta.bombPotIntervalHands - this.handsSinceLastBomb),
+        : Math.max(0, this.bombInterval() - this.handsSinceLastBomb),
     };
   }
 
@@ -790,7 +796,7 @@ export class TableRunner {
     this.currentHandIsBomb =
       this.meta.bombPotEnabled &&
       this.engineConfig.variant === GameVariant.Holdem &&
-      this.handsSinceLastBomb + 1 >= this.meta.bombPotIntervalHands;
+      this.handsSinceLastBomb + 1 >= this.bombInterval();
     this.currentBombAmount = this.currentHandIsBomb ? this.bombAmount() : 0;
 
     const fresh = initGameState({
@@ -825,9 +831,9 @@ export class TableRunner {
       previousPositions: this.previousPositions,
       ...(this.currentHandIsBomb ? { bombPot: { amount: this.currentBombAmount } } : {}),
     });
-
-    // the engine has now shuffled - capture the deal order for replay
-    if (this.handLog) this.handLog.deck = this.state.deck.cards.map(cardToString);
+    // Deck capture happens inside applyEngine (right after the state swap) so it
+    // is recorded even when START_HAND runs straight to showdown - e.g. a bomb
+    // pot where every dealt-in player is all-in from the contribution.
   }
 
   // --- engine bridge -----------------------------------------------------
@@ -845,6 +851,13 @@ export class TableRunner {
     this.clearActionTimer();
     this.state = state;
     for (const seat of revealedByEvents(events)) this.revealedSeats.add(seat);
+
+    // Capture the shuffled deal order the moment the engine produces it, before
+    // an instant runout (all-in bomb pot / all-in blinds) can complete the hand
+    // and clear the log.
+    if (this.handLog && action.type === 'START_HAND') {
+      this.handLog.deck = this.state.deck.cards.map(cardToString);
+    }
 
     // record every accepted in-hand action for replay
     if (this.handLog && (action.type === 'PLAYER_ACTION' || action.type === 'TIMEOUT')) {
