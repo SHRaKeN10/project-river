@@ -89,8 +89,32 @@ export class TournamentGateway implements OnGatewayInit, OnGatewayDisconnect {
     if (!parsed.success) return { error: 'invalid watch payload' };
     const user = socketUser(socket);
 
-    const runner = this.tournaments.get(parsed.data.tournamentId);
-    if (!runner) return { error: 'that tournament is not running' };
+    // Wait out an in-flight restart recovery so a client reconnecting during
+    // the boot scan gets the recovered runner, not a spurious "not running".
+    const runner = await this.tournaments.ensureRunner(parsed.data.tournamentId);
+    if (!runner) {
+      // The tournament may have just finished (incl. finishing during recovery)
+      // while this client was reconnecting - tell them the outcome.
+      const results = await this.tournaments.finishedResults(parsed.data.tournamentId);
+      if (results) {
+        socket.emit(ServerToClient.TOURNAMENT_FINISHED, {
+          tournamentId: parsed.data.tournamentId,
+          results,
+        });
+        return { ok: true };
+      }
+      return { error: 'that tournament is not running' };
+    }
+
+    // A busted player reconnecting (e.g. after a restart) is told their finish
+    // and routed to a read-only spectator view.
+    const standing = runner.entrantView(user.userId);
+    if (standing && standing.finishPosition !== null) {
+      socket.emit(ServerToClient.TOURNAMENT_ELIMINATED, {
+        tournamentId: parsed.data.tournamentId,
+        finishPosition: standing.finishPosition,
+      });
+    }
 
     const seatedTable = runner.tableIdOf(user.userId);
     const tableId = seatedTable ?? runner.spectatorTableId();
