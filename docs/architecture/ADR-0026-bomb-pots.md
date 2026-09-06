@@ -69,6 +69,15 @@ Constraints going in:
 table creation for `gameType === 'NLHE'` and false for everything else; false
 leaves the table playing exactly as before.
 
+Admins change all three live via `PATCH /tables/:id/config` (`bombPotEnabled` /
+`bombPotIntervalHands` / `bombPotAmount`, plus `isPrivate`) — settings that are
+safe to swap mid-session. `TableManager.updateTableConfig` persists the row and,
+if a runner is up, calls `TableRunner.applyConfigPatch` to mutate its `meta`;
+the change takes effect on that table's next hand and never touches
+`handsSinceLastBomb` (toggling `bombPotEnabled` off freezes the counter,
+back on resumes it). Blinds / buy-ins / seat count / variant are **not** on this
+endpoint — they're baked into the engine config and need a runner rebuild.
+
 Counter semantics (`handsSinceLastBomb`, starts at 0):
 
 - `isBombPot = enabled && variant === Holdem && handsSinceLastBomb + 1 >= interval`

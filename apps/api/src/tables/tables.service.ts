@@ -23,6 +23,16 @@ export interface CreateTableInput {
   isPrivate?: boolean;
 }
 
+/** Table settings an admin can change on a table that's already live. Blinds,
+ * buy-ins, seat count and game type are deliberately NOT here - those are baked
+ * into the running engine config and would need a runner rebuild. */
+export interface TableConfigPatch {
+  isPrivate?: boolean;
+  bombPotEnabled?: boolean;
+  bombPotIntervalHands?: number;
+  bombPotAmount?: number;
+}
+
 export type TableWithSeats = PokerTable & { seats: PokerTableSeat[] };
 
 export type SitDownResult = { ok: true } | { ok: false; error: string };
@@ -86,6 +96,32 @@ export class TablesService {
     });
     if (!table) throw new NotFoundException('table not found');
     return table;
+  }
+
+  /** Admin: change settings that are safe to apply to a live table (privacy +
+   * bomb-pot cadence). Pushing the change into a running `TableRunner` is the
+   * caller's job (it holds the `TableManager`); the DB row is the source of
+   * truth on the next cold build either way. */
+  async updateConfig(tableId: string, patch: TableConfigPatch): Promise<TableWithSeats> {
+    await this.get(tableId); // 404 if unknown
+    if (patch.bombPotIntervalHands !== undefined && patch.bombPotIntervalHands < 1) {
+      throw new BadRequestException('bombPotIntervalHands must be at least 1');
+    }
+    if (patch.bombPotAmount !== undefined && patch.bombPotAmount < 0) {
+      throw new BadRequestException('bombPotAmount cannot be negative');
+    }
+    return this.prisma.pokerTable.update({
+      where: { id: tableId },
+      data: {
+        ...(patch.isPrivate !== undefined && { isPrivate: patch.isPrivate }),
+        ...(patch.bombPotEnabled !== undefined && { bombPotEnabled: patch.bombPotEnabled }),
+        ...(patch.bombPotIntervalHands !== undefined && {
+          bombPotIntervalHands: patch.bombPotIntervalHands,
+        }),
+        ...(patch.bombPotAmount !== undefined && { bombPotAmount: patch.bombPotAmount }),
+      },
+      include: { seats: { orderBy: { seatNumber: 'asc' } } },
+    });
   }
 
   /** Admin table lifecycle: ACTIVE <-> PAUSED <-> CLOSED. Runner teardown on

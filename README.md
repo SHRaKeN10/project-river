@@ -169,7 +169,9 @@ See `docs/architecture/ADR-0007`.
 ## Multiplayer tables (Phase 5)
 
 REST: `POST /api/tables` (admin), `GET /api/tables`, `GET /api/tables/:id`,
-`GET /api/chips`, `POST /api/chips/rebuy`.
+`PATCH /api/tables/:id/status` (admin), `PATCH /api/tables/:id/config` (admin —
+privacy + bomb-pot cadence, applied live), `GET /api/chips`,
+`POST /api/chips/rebuy`.
 
 WebSocket (`socket.io`, JWT in the handshake `auth.token`): client sends
 `table:join` / `player:action` / `player:sitOut` / `player:return` /

@@ -14,7 +14,7 @@ import { RedisService } from '../infra/redis/redis.service';
 import { variantForGameType } from './game-variant';
 import { type RunnerNotification, TableRunner, realTimers } from './table-runner';
 import type { TableMeta } from './table-projection';
-import { TablesService } from './tables.service';
+import { type TableConfigPatch, TablesService } from './tables.service';
 
 const SNAPSHOT_TTL_SECONDS = 2 * 60 * 60;
 
@@ -88,6 +88,18 @@ export class TableManager implements OnModuleDestroy {
 
   getRunner(tableId: string): TableRunner | undefined {
     return this.runners.get(tableId);
+  }
+
+  /** Admin config change: persist it, then push the live-safe part into a
+   * running runner if there is one (otherwise the next cold build reads the
+   * fresh row). */
+  async updateTableConfig(
+    tableId: string,
+    patch: TableConfigPatch,
+  ): Promise<Awaited<ReturnType<TablesService['updateConfig']>>> {
+    const row = await this.tables.updateConfig(tableId, patch);
+    this.runners.get(tableId)?.applyConfigPatch(patch);
+    return row;
   }
 
   /** Whether an emptied runner is waiting out its grace delay before being

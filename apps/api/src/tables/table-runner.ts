@@ -304,6 +304,25 @@ export class TableRunner {
     };
   }
 
+  /** Apply an admin config change to this running table. Only the fields that
+   * are safe to swap mid-session (bomb-pot cadence) live on `meta`; `isPrivate`
+   * is lobby-only and needs nothing here. The completed-hand counter is left
+   * exactly where it is - toggling `bombPotEnabled` freezes/resumes it, never
+   * resets it. Takes effect on the next hand (the current hand, bomb or not,
+   * runs to completion under the terms it started with). */
+  applyConfigPatch(patch: {
+    bombPotEnabled?: boolean;
+    bombPotIntervalHands?: number;
+    bombPotAmount?: number;
+  }): void {
+    if (patch.bombPotEnabled !== undefined) this.meta.bombPotEnabled = patch.bombPotEnabled;
+    if (patch.bombPotIntervalHands !== undefined) {
+      this.meta.bombPotIntervalHands = patch.bombPotIntervalHands;
+    }
+    if (patch.bombPotAmount !== undefined) this.meta.bombPotAmount = patch.bombPotAmount;
+    this.deps.notify({ kind: 'state' });
+  }
+
   /** Restore full live state (incl. an in-progress hand) from a Redis snapshot. */
   hydrateFromSnapshot(
     snapshot: {
