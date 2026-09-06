@@ -12,7 +12,7 @@ import {
 } from '@nestjs/websockets';
 import { createAdapter } from '@socket.io/redis-adapter';
 import type { Server, Socket } from 'socket.io';
-import { allIn, betTo, call, check, fold, type PlayerAction, raiseTo } from '@river/poker-engine';
+import { type PlayerAction } from '@river/poker-engine';
 import {
   ClientToServer,
   joinTableSchema,
@@ -21,7 +21,6 @@ import {
   tableActionSchema,
   tableChatSchema,
   tableRoomSchema,
-  type WirePlayerAction,
 } from '@river/shared-types';
 import { LobbyService } from '../lobby/lobby.service';
 import { PrismaService } from '../infra/prisma/prisma.service';
@@ -34,6 +33,7 @@ import { TableManager } from '../tables/table-manager';
 import { TablesService } from '../tables/tables.service';
 import type { RunnerNotification, TableRunner } from '../tables/table-runner';
 import { SocketRateLimiter, type RateClass } from './socket-rate-limiter';
+import { toEngineAction } from './wire-action';
 import { createWsAuthMiddleware, socketUser } from './ws-auth';
 
 const ROOM = (tableId: string): string => `table:${tableId}`;
@@ -476,27 +476,6 @@ export class PokerGateway
         s.id !== exceptSocketId &&
         (s.data as { user?: { userId: string } }).user?.userId === userId,
     );
-  }
-}
-
-function toEngineAction(action: WirePlayerAction): PlayerAction {
-  switch (action.type) {
-    case 'FOLD':
-      return fold();
-    case 'CHECK':
-      return check();
-    case 'CALL':
-      return call();
-    case 'ALL_IN':
-      return allIn();
-    case 'BET':
-      if (action.amount === undefined) throw new Error('bet requires an amount');
-      return betTo(action.amount);
-    case 'RAISE':
-      if (action.amount === undefined) throw new Error('raise requires an amount');
-      return raiseTo(action.amount);
-    default:
-      throw new Error('unknown action');
   }
 }
 

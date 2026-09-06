@@ -4,7 +4,9 @@ import { ChipsService } from '../chips/chips.service';
 import { AppConfigService } from '../config/app-config.service';
 import { PrismaService } from '../infra/prisma/prisma.service';
 import { realTimers } from '../tables/table-runner';
-import { TournamentRunner } from './tournament-runner';
+import { type TournamentPublicEvent, TournamentRunner } from './tournament-runner';
+
+type TournamentListener = (tournamentId: string, ev: TournamentPublicEvent) => void;
 
 /**
  * Owns one `TournamentRunner` per running tournament (single-writer actors, the
@@ -16,6 +18,7 @@ import { TournamentRunner } from './tournament-runner';
 export class TournamentManager implements OnModuleDestroy {
   private readonly logger = new Logger(TournamentManager.name);
   private readonly runners = new Map<string, TournamentRunner>();
+  private readonly listeners = new Set<TournamentListener>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -26,6 +29,22 @@ export class TournamentManager implements OnModuleDestroy {
   onModuleDestroy(): void {
     for (const runner of this.runners.values()) runner.dispose();
     this.runners.clear();
+  }
+
+  /** The gateway subscribes here for every running tournament's live events. */
+  subscribe(listener: TournamentListener): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  private emit(tournamentId: string, ev: TournamentPublicEvent): void {
+    for (const l of this.listeners) {
+      try {
+        l(tournamentId, ev);
+      } catch (err) {
+        this.logger.error(`tournament listener error: ${(err as Error).message}`);
+      }
+    }
   }
 
   get(tournamentId: string): TournamentRunner | undefined {
@@ -47,6 +66,7 @@ export class TournamentManager implements OnModuleDestroy {
       actionTimeoutMs: this.config.get('TABLE_ACTION_TIMEOUT_MS'),
       disconnectGraceMs: this.config.get('TABLE_DISCONNECT_GRACE_MS'),
       nextHandDelayMs: this.config.get('TABLE_NEXT_HAND_DELAY_MS'),
+      publish: (ev) => this.emit(tournamentId, ev),
       onFinished: (id) => {
         this.runners.get(id)?.dispose();
         this.runners.delete(id);

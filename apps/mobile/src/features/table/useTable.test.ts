@@ -155,4 +155,79 @@ describe('useTable', () => {
     });
     expect(err).toBe('no hand in progress');
   });
+
+  describe('tournament mode', () => {
+    it('watches by tournamentId and filters state on it, not tableId', async () => {
+      const { result, unmount } = renderHook(() => useTable('tourney-1', { tournament: true }));
+      expect(mockFake.emitted.some((e) => e.event === 'tournament:watch')).toBe(true);
+      expect(mockFake.emitted.some((e) => e.event === 'table:watch')).toBe(false);
+
+      // a state for this tournament (any tableId) is adopted
+      act(() =>
+        mockFake.server(
+          'table:state',
+          view({ tableId: 'tourney-1:2', tournamentId: 'tourney-1', pot: 77 }),
+        ),
+      );
+      await waitFor(() => expect(result.current.view?.pot).toBe(77));
+
+      // a state for a different tournament is ignored
+      act(() =>
+        mockFake.server('table:state', view({ tableId: 'x:0', tournamentId: 'other', pot: 999 })),
+      );
+      expect(result.current.view?.pot).toBe(77);
+
+      unmount();
+      const events = mockFake.emitted.map((e) => e.event);
+      expect(events).toContain('tournament:unwatch');
+      expect(events).not.toContain('table:leave'); // you don't leave a tournament
+    });
+
+    it('routes actions through tournament:action with the tournamentId', async () => {
+      const { result } = renderHook(() => useTable('tourney-1', { tournament: true }));
+      act(() => mockFake.server('table:state', view({ tournamentId: 'tourney-1', handId: 'h5' })));
+      await act(async () => {
+        await result.current.act({ type: 'CALL' });
+      });
+      const a = mockFake.emitted.find((e) => e.event === 'tournament:action');
+      expect(a).toBeDefined();
+      expect((a!.payload as { tournamentId: string }).tournamentId).toBe('tourney-1');
+      expect((a!.payload as { handId: string }).handId).toBe('h5');
+      expect(mockFake.emitted.some((e) => e.event === 'player:action')).toBe(false);
+    });
+
+    it('surfaces assignment, elimination and finish events', async () => {
+      const { result } = renderHook(() => useTable('tourney-1', { tournament: true }));
+      act(() =>
+        mockFake.server('tournament:assignment', {
+          tournamentId: 'tourney-1',
+          tableId: 'tourney-1:3',
+          seat: 4,
+        }),
+      );
+      await waitFor(() => expect(result.current.feed.at(-1)?.text).toMatch(/Seated/));
+
+      act(() =>
+        mockFake.server('tournament:eliminated', { tournamentId: 'tourney-1', finishPosition: 7 }),
+      );
+      await waitFor(() => expect(result.current.eliminated).toBe(7));
+
+      act(() =>
+        mockFake.server('tournament:finished', {
+          tournamentId: 'tourney-1',
+          results: [{ userId: 'me', position: 7, payout: 0 }],
+        }),
+      );
+      await waitFor(() => expect(result.current.finished?.results).toHaveLength(1));
+    });
+
+    it('rejects taking a seat / chatting in a tournament', async () => {
+      const { result } = renderHook(() => useTable('tourney-1', { tournament: true }));
+      let err: string | null = 'x';
+      await act(async () => {
+        err = await result.current.takeSeat(0, 100);
+      });
+      expect(err).toMatch(/cannot buy in/i);
+    });
+  });
 });

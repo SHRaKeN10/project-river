@@ -271,6 +271,7 @@ export class TournamentsService {
     });
 
     const mine = userId ? (row.entries.find((e) => e.userId === userId) ?? null) : null;
+    const mySeat = mine && running ? this.manager.get(row.id)?.entrantView(mine.userId) : undefined;
 
     const results =
       row.status === 'FINISHED' && Array.isArray(row.resultsJson)
@@ -304,7 +305,9 @@ export class TournamentsService {
       currentLevel: running ? currentLevel(blinds as BlindSchedule, clock, now).level : null,
       levelEndsAt: running ? levelEndsAt(blinds as BlindSchedule, clock, now) : null,
 
-      you: mine ? entryView(mine) : null,
+      you: mine
+        ? { ...entryView(mine), tableId: mySeat?.tableId ?? null, seat: mySeat?.seat ?? null }
+        : null,
       results,
     };
   }

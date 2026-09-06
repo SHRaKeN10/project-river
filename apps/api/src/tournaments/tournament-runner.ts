@@ -20,6 +20,25 @@ import { type TimerScheduler } from '../tables/table-runner';
 import { currentLevel, elapsedRunningMs, levelEndsAt } from './tournament-clock';
 import { type TournamentTableNotification, TournamentTableRunner } from './tournament-table-runner';
 
+/**
+ * What the coordinator tells the outside world (the gateway) as a tournament
+ * plays. Table state / hand events themselves ride on `tableUpdate`, which
+ * carries the raw `TournamentTableNotification` for the gateway to project
+ * per-viewer with the same code the cash game uses.
+ */
+export type TournamentPublicEvent =
+  | {
+      kind: 'tableUpdate';
+      tableId: string;
+      notification: Extract<TournamentTableNotification, { kind: 'state' | 'events' | 'rejected' }>;
+    }
+  /** A player is (re)seated at a table - initial draw, or a balance move. */
+  | { kind: 'assigned'; userId: string; tableId: string; seat: number }
+  | { kind: 'eliminated'; userId: string; finishPosition: number }
+  /** A table dissolved (broke, or the tournament ended). */
+  | { kind: 'tableClosed'; tableId: string }
+  | { kind: 'finished'; results: { userId: string; position: number; payout: number }[] };
+
 export interface TournamentRunnerDeps {
   prisma: PrismaService;
   chips: ChipsService;
@@ -31,13 +50,19 @@ export interface TournamentRunnerDeps {
   nextHandDelayMs: number;
   /** Called when the tournament reaches `FINISHED` (or is torn down). */
   onFinished?: (tournamentId: string) => void;
+  /** Live tournament events for the gateway. Absent in unit tests. */
+  publish?: (ev: TournamentPublicEvent) => void;
 }
 
 interface EntryState {
   entryId: string;
   userId: string;
+  username: string;
+  avatarUrl: string | null;
   stack: number;
   finishPosition: number | null;
+  /** The table this player currently sits at, or null once eliminated. */
+  tableId: string | null;
 }
 
 /**
@@ -76,6 +101,8 @@ export class TournamentRunner {
   private startingStack = 0;
   private seatsPerTable = 0;
   private prizePool = 0;
+  private name = '';
+  private gameType = 'NLHE';
 
   constructor(
     readonly tournamentId: string,
@@ -143,6 +170,16 @@ export class TournamentRunner {
     this.entrants = row.entries.length;
     this.startingStack = row.startingStack;
     this.seatsPerTable = row.seatsPerTable;
+    this.name = row.name;
+    this.gameType = row.gameType;
+
+    const profiles = new Map<string, { username: string; avatarUrl: string | null }>();
+    for (const u of await this.deps.prisma.user.findMany({
+      where: { id: { in: row.entries.map((e) => e.userId) } },
+      select: { id: true, username: true, avatarUrl: true },
+    })) {
+      profiles.set(u.id, { username: u.username, avatarUrl: u.avatarUrl });
+    }
     this.prizePool = poolFor(
       {
         variant: variantForGameType(row.gameType),
@@ -190,28 +227,45 @@ export class TournamentRunner {
     const byUser = new Map(row.entries.map((e) => [e.userId, e]));
     draw.forEach((seatArray, tableIndex) => {
       const tableId = `${this.tournamentId}:${tableIndex}`;
-      const table = new TournamentTableRunner(tableId, engineConfig, {
-        rng: this.deps.rng,
-        timers: this.deps.timers,
-        now: this.deps.now,
-        actionTimeoutMs: this.deps.actionTimeoutMs,
-        disconnectGraceMs: this.deps.disconnectGraceMs,
-        nextHandDelayMs: this.deps.nextHandDelayMs,
-        notify: (n) => this.onTableNotification(tableId, n),
-      });
+      const table = new TournamentTableRunner(
+        tableId,
+        `${row.name} - Table ${tableIndex + 1}`,
+        row.gameType,
+        engineConfig,
+        {
+          rng: this.deps.rng,
+          timers: this.deps.timers,
+          now: this.deps.now,
+          actionTimeoutMs: this.deps.actionTimeoutMs,
+          disconnectGraceMs: this.deps.disconnectGraceMs,
+          nextHandDelayMs: this.deps.nextHandDelayMs,
+          notify: (n) => this.onTableNotification(tableId, n),
+        },
+      );
       seatArray.forEach((userId, seatIndex) => {
         const entry = byUser.get(userId);
         if (!entry) throw new Error(`seat draw referenced unknown entrant ${userId}`);
+        const p = profiles.get(userId) ?? { username: 'player', avatarUrl: null };
         this.entries.set(userId, {
           entryId: entry.id,
           userId,
+          username: p.username,
+          avatarUrl: p.avatarUrl,
           stack: row.startingStack,
           finishPosition: null,
+          tableId,
         });
-        // Seated optimistically connected; the gateway flips this on real
-        // socket join / disconnect (that bridge is a follow-up). Until then a
-        // player who never shows is just folded by timeout each hand.
-        table.seat({ userId, seat: seatIndex, stack: row.startingStack, connected: true });
+        // Seated optimistically connected; the gateway flips this to
+        // disconnected when the player's socket actually drops. A player who
+        // never shows is folded by timeout each hand.
+        table.seat({
+          userId,
+          username: p.username,
+          avatarUrl: p.avatarUrl,
+          seat: seatIndex,
+          stack: row.startingStack,
+          connected: true,
+        });
       });
       this.tables.set(tableId, table);
     });
@@ -231,6 +285,16 @@ export class TournamentRunner {
 
     this.scheduleLevelAdvance();
     for (const t of this.tables.values()) t.start();
+
+    // Tell the gateway where everyone landed.
+    for (const e of this.entries.values()) {
+      if (e.tableId === null) continue;
+      const seat = this.tables.get(e.tableId)?.seatOf(e.userId);
+      if (seat !== undefined && seat !== null) {
+        this.publish({ kind: 'assigned', userId: e.userId, tableId: e.tableId, seat });
+      }
+    }
+
     this.logger.log(
       `tournament ${this.tournamentId} started - ${this.entrants} entrants on ${this.tables.size} table(s)`,
     );
@@ -250,10 +314,55 @@ export class TournamentRunner {
     this.tableOf(userId)?.setConnected(userId, connected);
   }
 
+  // --- gateway read model -------------------------------------------------
+
+  /** The live table a player currently sits at, or null (spectator/eliminated). */
+  tableIdOf(userId: string): string | null {
+    return this.entries.get(userId)?.tableId ?? null;
+  }
+
+  /** A table for a spectator to watch when they hold no seat - the one with the
+   * most players (the "feature" table). Null if the tournament has no tables. */
+  spectatorTableId(): string | null {
+    let best: string | null = null;
+    let bestCount = -1;
+    for (const [id, t] of this.tables) {
+      const n = t.seatedUserIds.length;
+      if (n > bestCount) {
+        best = id;
+        bestCount = n;
+      }
+    }
+    return best;
+  }
+
+  getTable(tableId: string): TournamentTableRunner | undefined {
+    return this.tables.get(tableId);
+  }
+
+  /** Where a player stands: their table + seat, or their finishing position. */
+  entrantView(userId: string): {
+    tableId: string | null;
+    seat: number | null;
+    finishPosition: number | null;
+  } | null {
+    const e = this.entries.get(userId);
+    if (!e) return null;
+    const seat = e.tableId ? (this.tables.get(e.tableId)?.seatOf(userId) ?? null) : null;
+    return { tableId: e.tableId, seat, finishPosition: e.finishPosition };
+  }
+
+  private publish(ev: TournamentPublicEvent): void {
+    this.deps.publish?.(ev);
+  }
+
   dispose(): void {
     this.disposed = true;
     this.clearLevelTimer();
-    for (const t of this.tables.values()) t.dispose();
+    for (const [id, t] of this.tables) {
+      t.dispose();
+      this.publish({ kind: 'tableClosed', tableId: id });
+    }
     this.tables.clear();
   }
 
@@ -301,6 +410,14 @@ export class TournamentRunner {
   // --- table notifications ------------------------------------------
 
   private onTableNotification(tableId: string, n: TournamentTableNotification): void {
+    // Forward the raw table view/events to the gateway - it projects them
+    // per-viewer with the same code the cash game uses. `handComplete` / `idle`
+    // are internal orchestration signals; the `state` that follows carries the
+    // player-visible result.
+    if (n.kind === 'state' || n.kind === 'events' || n.kind === 'rejected') {
+      this.publish({ kind: 'tableUpdate', tableId, notification: n });
+    }
+
     switch (n.kind) {
       case 'handComplete':
         void this.onHandComplete(tableId, n);
@@ -343,9 +460,11 @@ export class TournamentRunner {
       const position = this.entrants - this.eliminatedCount;
       entry.finishPosition = position;
       entry.stack = 0;
+      entry.tableId = null;
       this.eliminatedCount += 1;
       const seat = table?.seatOf(b.userId);
       if (seat !== null && seat !== undefined) table?.unseat(seat);
+      this.publish({ kind: 'eliminated', userId: b.userId, finishPosition: position });
       void this.deps.prisma.tournamentEntry
         .update({
           where: { id: entry.entryId },
@@ -399,8 +518,24 @@ export class TournamentRunner {
         const src = this.tables.get(m.from.tableId);
         const dst = this.tables.get(m.to.tableId);
         if (!src || !dst) continue;
-        const stack = src.unseat(m.from.seat);
-        dst.seat({ userId: m.playerId, seat: m.to.seat, stack, connected: true });
+        const moved = src.unseat(m.from.seat);
+        if (!moved) continue;
+        dst.seat({
+          userId: moved.userId,
+          username: moved.username,
+          avatarUrl: moved.avatarUrl,
+          seat: m.to.seat,
+          stack: moved.stack,
+          connected: moved.connected,
+        });
+        const entry = this.entries.get(moved.userId);
+        if (entry) entry.tableId = m.to.tableId;
+        this.publish({
+          kind: 'assigned',
+          userId: moved.userId,
+          tableId: m.to.tableId,
+          seat: m.to.seat,
+        });
       }
 
       // A table `planBalance` broke is now empty; dispose it (and any other that
@@ -417,6 +552,7 @@ export class TournamentRunner {
       if (t.seatedUserIds.length === 0) {
         t.dispose();
         this.tables.delete(id);
+        this.publish({ kind: 'tableClosed', tableId: id });
       }
     }
   }
@@ -498,8 +634,13 @@ export class TournamentRunner {
       `tournament ${this.tournamentId} finished - winner ${winner?.userId ?? '?'} (+${results[0]?.payout ?? 0})`,
     );
     this.clearLevelTimer();
-    for (const t of this.tables.values()) t.dispose();
+    for (const e of this.entries.values()) e.tableId = null;
+    for (const [id, t] of this.tables) {
+      t.dispose();
+      this.publish({ kind: 'tableClosed', tableId: id });
+    }
     this.tables.clear();
+    this.publish({ kind: 'finished', results });
     this.deps.onFinished?.(this.tournamentId);
   }
 

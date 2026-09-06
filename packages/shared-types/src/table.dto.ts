@@ -73,6 +73,9 @@ export interface PotView {
 
 export interface TableStateView {
   tableId: string;
+  /** Set when this table belongs to a tournament - the client filters on this
+   * instead of `tableId` (which changes on a balance move). */
+  tournamentId?: string;
   name: string;
   gameType: string;
   smallBlind: number;

@@ -74,8 +74,10 @@ function harness(opts: {
     nextHandDelayMs: 500,
     notify: (n) => notifications.push(n),
   };
-  const runner = new TournamentTableRunner('t:0', config, deps);
-  return { runner, timers, notifications };
+  const runner = new TournamentTableRunner('t:0', 'Test - Table 1', 'NLHE', config, deps);
+  const seat = (userId: string, n: number, stack: number, connected = true): void =>
+    runner.seat({ userId, username: userId, avatarUrl: null, seat: n, stack, connected });
+  return { runner, timers, notifications, seat };
 }
 
 /** Drive whoever is to act with a fixed action until the current hand ends.
@@ -104,14 +106,14 @@ const callStation = (s: GameState, seat: number): PlayerAction => {
 
 describe('TournamentTableRunner', () => {
   it('runs hands, conserves chips, and busts down to one with the idle signal', () => {
-    const { runner, timers, notifications } = harness({
+    const { runner, timers, notifications, seat } = harness({
       seed: 3,
       seats: 2,
       smallBlind: 10,
       bigBlind: 20,
     });
-    runner.seat({ userId: 'a', seat: 0, stack: 40, connected: true });
-    runner.seat({ userId: 'b', seat: 1, stack: 40, connected: true });
+    seat('a', 0, 40, true);
+    seat('b', 1, 40, true);
     runner.start();
 
     // both jam every decision - variance settles it within a few hands
@@ -132,10 +134,10 @@ describe('TournamentTableRunner', () => {
   });
 
   it('applies a new blind level only from the next hand', () => {
-    const { runner, timers } = harness({ seed: 5, seats: 3 });
-    runner.seat({ userId: 'a', seat: 0, stack: 5000, connected: true });
-    runner.seat({ userId: 'b', seat: 1, stack: 5000, connected: true });
-    runner.seat({ userId: 'c', seat: 2, stack: 5000, connected: true });
+    const { runner, timers, seat } = harness({ seed: 5, seats: 3 });
+    seat('a', 0, 5000, true);
+    seat('b', 1, 5000, true);
+    seat('c', 2, 5000, true);
     runner.start();
     timers.advance(600);
     expect(runner.gameState.config.bigBlind).toBe(20);
@@ -151,10 +153,10 @@ describe('TournamentTableRunner', () => {
   });
 
   it('does not deal a busted player back in, and unseats cleanly', () => {
-    const { runner, timers } = harness({ seed: 9, seats: 3, smallBlind: 10, bigBlind: 20 });
-    runner.seat({ userId: 'a', seat: 0, stack: 20, connected: true });
-    runner.seat({ userId: 'b', seat: 1, stack: 3000, connected: true });
-    runner.seat({ userId: 'c', seat: 2, stack: 3000, connected: true });
+    const { runner, timers, seat } = harness({ seed: 9, seats: 3, smallBlind: 10, bigBlind: 20 });
+    seat('a', 0, 20, true);
+    seat('b', 1, 3000, true);
+    seat('c', 2, 3000, true);
     runner.start();
     timers.advance(600);
 
@@ -163,9 +165,9 @@ describe('TournamentTableRunner', () => {
 
     const aStack = runner.stacks().get('a') ?? -1;
     if (aStack === 0) {
-      const seat = runner.seatOf('a');
-      expect(seat).not.toBeNull();
-      expect(runner.unseat(seat as number)).toBe(0);
+      const seatNo = runner.seatOf('a');
+      expect(seatNo).not.toBeNull();
+      expect(runner.unseat(seatNo as number)?.stack).toBe(0);
       expect(runner.seatOf('a')).toBeNull();
     }
     // whatever happened, chips are conserved
@@ -175,10 +177,10 @@ describe('TournamentTableRunner', () => {
   });
 
   it('gives a disconnected actor the shorter clock, times them out, but never unseats them', () => {
-    const { runner, timers, notifications } = harness({ seed: 2, seats: 2 });
+    const { runner, timers, notifications, seat } = harness({ seed: 2, seats: 2 });
     // seat 0 acts first heads-up (button/SB) - and they are disconnected
-    runner.seat({ userId: 'b', seat: 0, stack: 2000, connected: false });
-    runner.seat({ userId: 'a', seat: 1, stack: 2000, connected: true });
+    seat('b', 0, 2000, false);
+    seat('a', 1, 2000, true);
     runner.start();
     timers.advance(500); // fires the next-hand job exactly on its due tick
 
@@ -192,9 +194,9 @@ describe('TournamentTableRunner', () => {
   });
 
   it('rejects a stale-hand action', () => {
-    const { runner, timers, notifications } = harness({ seed: 1, seats: 2 });
-    runner.seat({ userId: 'a', seat: 0, stack: 2000, connected: true });
-    runner.seat({ userId: 'b', seat: 1, stack: 2000, connected: true });
+    const { runner, timers, notifications, seat } = harness({ seed: 1, seats: 2 });
+    seat('a', 0, 2000, true);
+    seat('b', 1, 2000, true);
     runner.start();
     timers.advance(600);
     runner.submitAction('a', 'not-the-hand-id', 1, call());
