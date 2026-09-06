@@ -60,6 +60,9 @@ export class TablesService {
         minBuyIn,
         maxBuyIn,
         isPrivate: input.isPrivate ?? false,
+        // Bomb pots ship on for NLHE cash only (ADR-0026); every other variant
+        // plays exactly as before.
+        bombPotEnabled: gameType === 'NLHE',
         seats: {
           create: Array.from({ length: maxSeats }, (_, seatNumber) => ({ seatNumber })),
         },
@@ -111,6 +114,7 @@ export class TablesService {
       smallBlindSeat: number | null;
       bigBlindSeat: number;
     } | null,
+    handsSinceLastBomb = 0,
   ): Promise<void> {
     await this.prisma.$transaction([
       ...seats.map((seat) =>
@@ -131,6 +135,7 @@ export class TablesService {
           buttonSeat: previous?.buttonSeat ?? null,
           smallBlindSeat: previous?.smallBlindSeat ?? null,
           bigBlindSeat: previous?.bigBlindSeat ?? null,
+          handsSinceLastBomb,
         },
       }),
     ]);

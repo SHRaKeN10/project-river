@@ -4,6 +4,7 @@ import {
   type EngineAction,
   type GameEvent,
   type GameState,
+  GameVariant,
   type PlayerAction,
   PlayerStatus,
   type PreviousPositions,
@@ -120,6 +121,17 @@ export interface CompletedHand {
   board: string[];
   results: { seat: number; userId: string; net: number; endStack: number }[];
   potTotal: number;
+  /** Per-player bomb-pot contribution if this hand was a bomb pot; 0 otherwise. */
+  bombPotAmount: number;
+}
+
+/** Bomb-pot runtime state - the per-table completed-hand counter and whether
+ * the current hand is a bomb pot. Persisted in the Redis snapshot (warm
+ * restart) and, less finely, on `PokerTable` (cold restart). */
+export interface BombPotState {
+  handsSinceLastBomb: number;
+  currentHandIsBomb: boolean;
+  currentBombAmount: number;
 }
 
 type Command =
@@ -155,6 +167,13 @@ export class TableRunner {
   private readonly revealedSeats = new Set<number>();
   private readonly lastSeqByUser = new Map<string, number>();
 
+  /** Bomb-pot completed-hand counter and current-hand flag (ADR-0026).
+   * `handsSinceLastBomb` only ever advances in `onHandComplete` - exactly one
+   * authoritative site. Both survive restart (Redis snapshot + PokerTable). */
+  private handsSinceLastBomb = 0;
+  private currentHandIsBomb = false;
+  private currentBombAmount = 0;
+
   private actionTimer: unknown = null;
   private nextHandTimer: unknown = null;
   /** Periodic check that stands up players who've been away too long. Runs only
@@ -168,6 +187,7 @@ export class TableRunner {
     prevPositions: PreviousPositions | null;
     seats: CompletedHand['seats'];
     actions: EngineAction[];
+    bombPotAmount: number;
   } | null = null;
 
   constructor(
@@ -246,12 +266,45 @@ export class TableRunner {
     return this.previousPositions;
   }
 
+  /** The bomb-pot completed-hand counter, for `PokerTable` persistence. */
+  get bombHandCounter(): number {
+    return this.handsSinceLastBomb;
+  }
+
+  /** Raw bomb-pot runtime state, for the Redis snapshot. */
+  bombPotSnapshot(): BombPotState {
+    return {
+      handsSinceLastBomb: this.handsSinceLastBomb,
+      currentHandIsBomb: this.currentHandIsBomb,
+      currentBombAmount: this.currentBombAmount,
+    };
+  }
+
+  /** The per-player bomb-pot amount this table uses (0 config means "big blind"). */
+  private bombAmount(): number {
+    return this.meta.bombPotAmount > 0 ? this.meta.bombPotAmount : this.engineConfig.bigBlind;
+  }
+
+  /** Public bomb-pot state for the projection; `null` when the table doesn't run
+   * bomb pots. `nextInHands` is the countdown to the next bomb (0 = this hand). */
+  bombPotView(): { active: boolean; amount: number; nextInHands: number } | null {
+    if (!this.meta.bombPotEnabled) return null;
+    return {
+      active: this.currentHandIsBomb,
+      amount: this.currentHandIsBomb ? this.currentBombAmount : this.bombAmount(),
+      nextInHands: this.currentHandIsBomb
+        ? 0
+        : Math.max(0, this.meta.bombPotIntervalHands - this.handsSinceLastBomb),
+    };
+  }
+
   /** Restore full live state (incl. an in-progress hand) from a Redis snapshot. */
   hydrateFromSnapshot(
     snapshot: {
       state: GameState;
       handNumber: number;
       previousPositions?: PreviousPositions | null;
+      bombPot?: BombPotState;
       roster: {
         seatNumber: number;
         userId: string;
@@ -277,6 +330,11 @@ export class TableRunner {
     this.previousPositions =
       snapshot.previousPositions ??
       (snapshot.state.buttonSeat >= 0 ? previousPositionsOf(snapshot.state) : null);
+    if (snapshot.bombPot) {
+      this.handsSinceLastBomb = snapshot.bombPot.handsSinceLastBomb;
+      this.currentHandIsBomb = snapshot.bombPot.currentHandIsBomb;
+      this.currentBombAmount = snapshot.bombPot.currentBombAmount;
+    }
     for (const r of snapshot.roster) {
       const meta = usernames.get(r.userId);
       this.roster.set(r.seatNumber, {
@@ -310,6 +368,7 @@ export class TableRunner {
     usernames: ReadonlyMap<string, { username: string; avatarUrl: string | null }>,
     handNumber: number,
     previous: PreviousPositions | null,
+    handsSinceLastBomb = 0,
   ): void {
     for (const seat of seats) {
       if (!seat.userId) continue;
@@ -329,6 +388,10 @@ export class TableRunner {
     }
     this.handNumber = handNumber;
     this.previousPositions = previous;
+    // Cold restart (no Redis snapshot): the persisted counter is enough to keep
+    // the bomb-pot cadence correct; there is no in-progress hand to resume, so
+    // the current-hand flag stays false.
+    this.handsSinceLastBomb = handsSinceLastBomb;
     this.maybeArmAwaySweep();
   }
 
@@ -721,6 +784,15 @@ export class TableRunner {
     // its counter, so a stale high-water mark would silently swallow its first
     // few actions of the new hand.
     this.lastSeqByUser.clear();
+
+    // Bomb-pot decision (ADR-0026). Server-authoritative, computed once here from
+    // the persisted completed-hand counter. NLHE cash only.
+    this.currentHandIsBomb =
+      this.meta.bombPotEnabled &&
+      this.engineConfig.variant === GameVariant.Holdem &&
+      this.handsSinceLastBomb + 1 >= this.meta.bombPotIntervalHands;
+    this.currentBombAmount = this.currentHandIsBomb ? this.bombAmount() : 0;
+
     const fresh = initGameState({
       tableId: this.meta.id,
       config: this.engineConfig,
@@ -743,6 +815,7 @@ export class TableRunner {
         startStack: e.stack,
       })),
       actions: [],
+      bombPotAmount: this.currentBombAmount,
     };
 
     this.applyEngine({
@@ -750,6 +823,7 @@ export class TableRunner {
       handId: randomUUID(),
       handNumber: this.handNumber,
       previousPositions: this.previousPositions,
+      ...(this.currentHandIsBomb ? { bombPot: { amount: this.currentBombAmount } } : {}),
     });
 
     // the engine has now shuffled - capture the deal order for replay
@@ -806,6 +880,18 @@ export class TableRunner {
     // sweepAwayPlayers' own note above it).
     this.applyTimeCharges(this.deps.now());
     this.releasePendingLeavers();
+
+    // The ONE authoritative place a completed hand advances the bomb-pot
+    // counter (ADR-0026): a bomb pot resets it to 0, any other completed hand
+    // adds 1. Nothing else - not the reducer, a socket callback, reconnect, or
+    // recovery - touches it. Done before `persistRoster` / `notify` so the
+    // persisted counter (PokerTable + Redis snapshot) is the advanced value.
+    if (this.meta.bombPotEnabled) {
+      this.handsSinceLastBomb = this.currentHandIsBomb ? 0 : this.handsSinceLastBomb + 1;
+    }
+    this.currentHandIsBomb = false;
+    this.currentBombAmount = 0;
+
     this.deps.persistRoster(this);
     this.deps.notify({ kind: 'handComplete' });
     this.scheduleNextHand();
@@ -842,6 +928,7 @@ export class TableRunner {
       board: this.state.communityCards.map(cardToString),
       results,
       potTotal,
+      bombPotAmount: log.bombPotAmount,
     });
   }
 

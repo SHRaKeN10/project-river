@@ -181,6 +181,14 @@ authoritative `GameState`; the gateway only ever emits projections. Hands
 auto-start/advance; action timers auto-fold on timeout. `User.playChips` is
 free-to-play currency (not money). See `docs/architecture/ADR-0006`.
 
+**Bomb pots** (NLHE cash only): every _N_ hands (default 15, per-table
+configurable) the next hand skips the blinds and the whole preflop round — every
+dealt-in player antes a fixed amount (default: the big blind), then straight to
+the flop. The schedule counter is server-authoritative and recovers with the
+table state (Redis snapshot + `PokerTable.handsSinceLastBomb`); it advances in
+exactly one place. `table:state` carries `bombPot` for enabled tables. Tourneys,
+PLO, and Big O never run them. See `docs/architecture/ADR-0026-bomb-pots.md`.
+
 ## Conventions
 
 - Server is the only authority for cards, shuffles, legal actions, winners, pots.

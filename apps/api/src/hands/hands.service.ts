@@ -125,6 +125,7 @@ export class HandsService {
       previousPositions: prev,
       deck: (hand.deck as unknown as string[]).map(parseCard),
       actions: hand.actionsJson as unknown as EngineAction[],
+      ...(hand.bombPotAmount > 0 ? { bombPot: { amount: hand.bombPotAmount } } : {}),
     });
   }
 

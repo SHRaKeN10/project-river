@@ -28,6 +28,14 @@ interface Snapshot {
   state: GameState;
   handNumber: number;
   previousPositions: PreviousPositions | null;
+  /** Bomb-pot runtime state (ADR-0026). Absent in pre-bomb-pot snapshots -
+   * `hydrateFromSnapshot` then falls back to 0 (a stale count only ever delays
+   * a bomb pot by a hand or two, never causes a spurious one). */
+  bombPot?: {
+    handsSinceLastBomb: number;
+    currentHandIsBomb: boolean;
+    currentBombAmount: number;
+  };
   roster: {
     seatNumber: number;
     userId: string;
@@ -201,6 +209,9 @@ export class TableManager implements OnModuleDestroy {
       maxBuyIn: table.maxBuyIn,
       timeChargeAmount: table.timeChargeAmount,
       timeChargeIntervalMs: table.timeChargeIntervalMs,
+      bombPotEnabled: table.bombPotEnabled,
+      bombPotIntervalHands: table.bombPotIntervalHands,
+      bombPotAmount: table.bombPotAmount,
     };
     const engineConfig = createTableConfig({
       variant: variantForGameType(table.gameType),
@@ -234,7 +245,13 @@ export class TableManager implements OnModuleDestroy {
         this.trackSeatWrite(
           tableId,
           this.tables
-            .syncSeats(tableId, r.rosterSnapshot(), r.lastHandNumber, r.lastPositions)
+            .syncSeats(
+              tableId,
+              r.rosterSnapshot(),
+              r.lastHandNumber,
+              r.lastPositions,
+              r.bombHandCounter,
+            )
             .catch((err) => this.logger.error(`syncSeats ${tableId}: ${(err as Error).message}`)),
         );
       },
@@ -272,6 +289,7 @@ export class TableManager implements OnModuleDestroy {
               resultsJson: hand.results as unknown as Prisma.InputJsonValue,
               potTotal: hand.potTotal,
               userIds: [...new Set(hand.seats.map((s) => s.userId))],
+              bombPotAmount: hand.bombPotAmount,
               startedAt: new Date(hand.startedAt),
               endedAt: new Date(hand.endedAt),
             },
@@ -337,6 +355,7 @@ export class TableManager implements OnModuleDestroy {
               smallBlindSeat: table.smallBlindSeat,
               bigBlindSeat: table.bigBlindSeat ?? table.buttonSeat,
             },
+        table.handsSinceLastBomb,
       );
     }
   }
@@ -401,6 +420,7 @@ export class TableManager implements OnModuleDestroy {
         state: runner.gameState,
         handNumber: runner.lastHandNumber,
         previousPositions: runner.lastPositions,
+        bombPot: runner.bombPotSnapshot(),
         roster: [...runner.rosterEntries.entries()].map(([seatNumber, e]) => ({
           seatNumber,
           userId: e.userId,

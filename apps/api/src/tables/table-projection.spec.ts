@@ -17,6 +17,9 @@ const meta: TableMeta = {
   maxBuyIn: 4000,
   timeChargeAmount: 0,
   timeChargeIntervalMs: 0,
+  bombPotEnabled: false,
+  bombPotIntervalHands: 15,
+  bombPotAmount: 0,
 };
 
 const roster = new Map<number, RosterEntry>([
