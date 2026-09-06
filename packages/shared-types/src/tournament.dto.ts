@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { playerActionSchema } from './table.dto';
 
 /** One level of a tournament's blind structure (mirrors the engine's BlindLevel). */
 export const blindLevelSchema = z.object({
@@ -31,6 +32,39 @@ export const setTournamentStatusSchema = z.object({
   status: z.enum(['REGISTERING', 'RUNNING', 'CANCELLED']),
 });
 
+// --- WebSocket contracts ---------------------------------------------------
+
+export const tournamentWatchSchema = z.object({ tournamentId: z.string().uuid() });
+export type TournamentWatchPayload = z.infer<typeof tournamentWatchSchema>;
+
+export const tournamentActionSchema = z.object({
+  tournamentId: z.string().uuid(),
+  handId: z.string().min(1),
+  /** Client-supplied monotonic id for de-duping double taps / reconnect resends. */
+  clientSeq: z.number().int().nonnegative(),
+  action: playerActionSchema,
+});
+export type TournamentActionPayload = z.infer<typeof tournamentActionSchema>;
+
+/** `tournament:assignment` - your table / seat in a tournament. */
+export interface TournamentAssignment {
+  tournamentId: string;
+  tableId: string;
+  seat: number;
+}
+
+/** `tournament:eliminated`. */
+export interface TournamentElimination {
+  tournamentId: string;
+  finishPosition: number;
+}
+
+/** `tournament:finished`. */
+export interface TournamentFinished {
+  tournamentId: string;
+  results: { userId: string; position: number; payout: number }[];
+}
+
 export interface TournamentEntryView {
   userId: string;
   username: string;
@@ -39,6 +73,9 @@ export interface TournamentEntryView {
   eliminated: boolean;
   finishPosition: number | null;
   payout: number;
+  /** Present once the tournament is RUNNING: where this player currently sits. */
+  tableId?: string | null;
+  seat?: number | null;
 }
 
 export interface TournamentView {

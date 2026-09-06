@@ -2,6 +2,7 @@ import type { Socket } from 'socket.io-client';
 import {
   ClientToServer,
   type TableActionPayload,
+  type TournamentActionPayload,
   type WirePlayerAction,
 } from '@river/shared-types';
 import { getSocket } from '../realtime/socket';
@@ -51,6 +52,21 @@ export const tableSocket = {
   },
   chat: (tableId: string, text: string): void => {
     getSocket()?.emit(ClientToServer.TABLE_CHAT, { tableId, text });
+  },
+
+  // --- tournaments: the server routes to the player's own table ---------
+  watchTournament: (tournamentId: string): Promise<Ack> => {
+    const s = getSocket();
+    if (!s) return Promise.resolve({ error: 'not connected' });
+    return emitAck(s, ClientToServer.TOURNAMENT_WATCH, { tournamentId });
+  },
+  unwatchTournament: (tournamentId: string): void => {
+    getSocket()?.emit(ClientToServer.TOURNAMENT_UNWATCH, { tournamentId });
+  },
+  actTournament: (payload: TournamentActionPayload): Promise<Ack> => {
+    const s = getSocket();
+    if (!s) return Promise.resolve({ error: 'not connected' });
+    return emitAck(s, ClientToServer.TOURNAMENT_ACTION, payload);
   },
 };
 

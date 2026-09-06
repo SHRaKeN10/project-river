@@ -12,6 +12,13 @@ export const ClientToServer = {
   PLAYER_SIT_OUT: 'player:sitOut',
   PLAYER_RETURN: 'player:return',
   TABLE_CHAT: 'table:chat',
+
+  /** Watch a tournament: the server routes you to your own table (or, if you
+   * hold no seat, to the feature table as a spectator). */
+  TOURNAMENT_WATCH: 'tournament:watch',
+  TOURNAMENT_UNWATCH: 'tournament:unwatch',
+  /** Act on your current tournament hand. The server knows which table. */
+  TOURNAMENT_ACTION: 'tournament:action',
 } as const;
 
 export const ServerToClient = {
@@ -28,6 +35,16 @@ export const ServerToClient = {
   ERROR: 'error',
   /** A seat's flat time charge fired (membership-club billing, not a pot rake). */
   TIME_CHARGE: 'table:timeCharge',
+
+  /** Your seat in a tournament changed (initial draw, or a balance move). The
+   * `table:state` that follows carries the new table. */
+  TOURNAMENT_ASSIGNMENT: 'tournament:assignment',
+  /** You busted. Carries your finishing position. */
+  TOURNAMENT_ELIMINATED: 'tournament:eliminated',
+  /** A tournament table dissolved (broke / the event ended). */
+  TOURNAMENT_TABLE_CLOSED: 'tournament:tableClosed',
+  /** The tournament is over. Carries the final standings. */
+  TOURNAMENT_FINISHED: 'tournament:finished',
 } as const;
 
 export type ClientToServerEvent = (typeof ClientToServer)[keyof typeof ClientToServer];

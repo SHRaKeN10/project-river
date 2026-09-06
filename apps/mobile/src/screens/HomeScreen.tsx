@@ -28,6 +28,7 @@ export function HomeScreen({ navigation }: Props): JSX.Element {
 
       <View style={styles.actions}>
         <Button label="Browse cash games" onPress={() => navigation.navigate('Lobby')} />
+        <Button label="Tournaments" onPress={() => navigation.navigate('Tournaments')} />
         <Button
           label="Profile"
           variant="secondary"

@@ -1,4 +1,4 @@
-import type { AuthResponse, PublicUser } from '@river/shared-types';
+import type { AuthResponse, PublicUser, TournamentView } from '@river/shared-types';
 import { apiFetch } from './client';
 
 export const authApi = {
@@ -23,4 +23,13 @@ export const authApi = {
 export const chipsApi = {
   balance: () => apiFetch<{ playChips: number }>('/api/chips'),
   rebuy: () => apiFetch<{ playChips: number }>('/api/chips/rebuy', { method: 'POST' }),
+};
+
+export const tournamentsApi = {
+  list: () => apiFetch<TournamentView[]>('/api/tournaments'),
+  get: (id: string) => apiFetch<TournamentView>(`/api/tournaments/${id}`),
+  register: (id: string) =>
+    apiFetch<TournamentView>(`/api/tournaments/${id}/register`, { method: 'POST' }),
+  unregister: (id: string) =>
+    apiFetch<TournamentView>(`/api/tournaments/${id}/register`, { method: 'DELETE' }),
 };

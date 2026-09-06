@@ -13,6 +13,8 @@ import {
   previousPositionsOf,
   reduce,
 } from '@river/poker-engine';
+import { revealedByEvents } from '../tables/event-projection';
+import { type RosterEntry, type TableMeta } from '../tables/table-projection';
 import { type TimerScheduler } from '../tables/table-runner';
 
 /**
@@ -67,6 +69,8 @@ export interface TournamentTableDeps {
 
 interface SeatEntry {
   userId: string;
+  username: string;
+  avatarUrl: string | null;
   connected: boolean;
   stack: number;
 }
@@ -81,13 +85,15 @@ export class TournamentTableRunner {
   private engineConfig: TableConfig;
   /** Blinds/ante for the *next* hand, applied at START_HAND. */
   private pendingConfig: TableConfig;
-  private readonly roster = new Map<number, SeatEntry>();
+  private readonly seatsBySeat = new Map<number, SeatEntry>();
   private readonly queue: Command[] = [];
   private draining = false;
 
   private handNumber = 0;
   private previousPositions: PreviousPositions | null = null;
   private readonly lastSeqByUser = new Map<string, number>();
+  /** Seats whose hole cards became public this hand (showdown). Cleared each deal. */
+  private readonly revealedSeats = new Set<number>();
 
   private actionTimer: unknown = null;
   private nextHandTimer: unknown = null;
@@ -101,6 +107,9 @@ export class TournamentTableRunner {
 
   constructor(
     readonly tableId: string,
+    /** Human label for the projection, e.g. "Sunday 100 - Table 3". */
+    readonly label: string,
+    readonly gameType: string,
     initialConfig: TableConfig,
     private readonly deps: TournamentTableDeps,
   ) {
@@ -115,6 +124,44 @@ export class TournamentTableRunner {
     return this.state;
   }
 
+  get revealed(): ReadonlySet<number> {
+    return this.revealedSeats;
+  }
+
+  /** The seating in the shape the shared projection layer expects. */
+  roster(): ReadonlyMap<number, RosterEntry> {
+    const out = new Map<number, RosterEntry>();
+    for (const [seat, e] of this.seatsBySeat) {
+      out.set(seat, {
+        userId: e.userId,
+        username: e.username,
+        avatarUrl: e.avatarUrl,
+        connected: e.connected,
+        stack: e.stack,
+        sittingOut: false,
+        lastTimeChargeAt: 0,
+      });
+    }
+    return out;
+  }
+
+  /** Synthesised `TableMeta` for `projectTableState` - no buy-in, no time
+   * charge; blinds are whatever the current level set. */
+  tableMeta(): TableMeta {
+    return {
+      id: this.tableId,
+      name: this.label,
+      gameType: this.gameType,
+      smallBlind: this.engineConfig.smallBlind,
+      bigBlind: this.engineConfig.bigBlind,
+      maxSeats: this.engineConfig.maxSeats,
+      minBuyIn: 0,
+      maxBuyIn: 0,
+      timeChargeAmount: 0,
+      timeChargeIntervalMs: 0,
+    };
+  }
+
   get handInProgress(): boolean {
     return this.state.street !== Street.Waiting && this.state.street !== Street.Complete;
   }
@@ -126,27 +173,27 @@ export class TournamentTableRunner {
   /** userId -> current stack, for every seat still holding chips. */
   stacks(): Map<string, number> {
     const out = new Map<string, number>();
-    for (const e of this.roster.values()) out.set(e.userId, e.stack);
+    for (const e of this.seatsBySeat.values()) out.set(e.userId, e.stack);
     return out;
   }
 
   seatOf(userId: string): number | null {
-    for (const [seat, e] of this.roster) if (e.userId === userId) return seat;
+    for (const [seat, e] of this.seatsBySeat) if (e.userId === userId) return seat;
     return null;
   }
 
   get seatedUserIds(): string[] {
-    return [...this.roster.values()].map((e) => e.userId);
+    return [...this.seatsBySeat.values()].map((e) => e.userId);
   }
 
   get chippedCount(): number {
-    return [...this.roster.values()].filter((e) => e.stack > 0).length;
+    return [...this.seatsBySeat.values()].filter((e) => e.stack > 0).length;
   }
 
   /** `userId | null` per seat, length `maxSeats` - the shape `planBalance` wants. */
   seatsArray(): (string | null)[] {
     const out: (string | null)[] = Array.from({ length: this.engineConfig.maxSeats }, () => null);
-    for (const [seat, e] of this.roster) if (seat < out.length) out[seat] = e.userId;
+    for (const [seat, e] of this.seatsBySeat) if (seat < out.length) out[seat] = e.userId;
     return out;
   }
 
@@ -154,41 +201,65 @@ export class TournamentTableRunner {
 
   /** Place a player in a seat. Coordinator-driven: no buy-in, no validation
    * beyond the seat being free and in range. */
-  seat(args: { userId: string; seat: number; stack: number; connected: boolean }): void {
+  seat(args: {
+    userId: string;
+    username: string;
+    avatarUrl: string | null;
+    seat: number;
+    stack: number;
+    connected: boolean;
+  }): void {
     if (args.seat < 0 || args.seat >= this.engineConfig.maxSeats) {
       throw new Error(`seat ${args.seat} out of range for table ${this.tableId}`);
     }
-    if (this.roster.has(args.seat)) throw new Error(`seat ${args.seat} already taken`);
+    if (this.seatsBySeat.has(args.seat)) throw new Error(`seat ${args.seat} already taken`);
     if (this.seatOf(args.userId) !== null) throw new Error(`${args.userId} already seated here`);
-    this.roster.set(args.seat, {
+    this.seatsBySeat.set(args.seat, {
       userId: args.userId,
+      username: args.username,
+      avatarUrl: args.avatarUrl,
       connected: args.connected,
       stack: args.stack,
     });
   }
 
   /** Remove a player from the table (a balance move, or a bust the coordinator
-   * has finished recording). Returns their stack so the coordinator can seat it
-   * elsewhere. Refused while that seat is contesting a live hand. */
-  unseat(seat: number): number {
-    const entry = this.roster.get(seat);
-    if (!entry) return 0;
+   * has finished recording). Returns everything the coordinator needs to seat
+   * them elsewhere, or null if that seat was empty. Refused while that seat is
+   * contesting a live hand. */
+  unseat(seat: number): {
+    userId: string;
+    username: string;
+    avatarUrl: string | null;
+    stack: number;
+    connected: boolean;
+  } | null {
+    const entry = this.seatsBySeat.get(seat);
+    if (!entry) return null;
     if (this.handInProgress && this.contesting(seat)) {
       throw new Error(`cannot unseat ${seat} mid-hand at ${this.tableId}`);
     }
-    this.roster.delete(seat);
+    this.seatsBySeat.delete(seat);
     this.lastSeqByUser.delete(entry.userId);
-    return entry.stack;
+    return {
+      userId: entry.userId,
+      username: entry.username,
+      avatarUrl: entry.avatarUrl,
+      stack: entry.stack,
+      connected: entry.connected,
+    };
   }
 
-  setConnected(userId: string, connected: boolean): void {
+  setConnected(userId: string, connected: boolean): boolean {
     const seat = this.seatOf(userId);
-    if (seat === null) return;
-    const entry = this.roster.get(seat);
-    if (!entry || entry.connected === connected) return;
+    if (seat === null) return false;
+    const entry = this.seatsBySeat.get(seat);
+    if (!entry || entry.connected === connected) return false;
     entry.connected = connected;
     // Re-arm the acting player's clock in step with their connection.
     if (this.handInProgress && this.state.actingSeat === seat) this.armActionTimer();
+    this.deps.notify({ kind: 'state' });
+    return true;
   }
 
   /** New blinds/ante, applied at the next hand start. */
@@ -298,7 +369,7 @@ export class TournamentTableRunner {
     this.nextHandTimer = null;
     if (this.handInProgress || this.paused || this.held || this.disposed) return;
 
-    const eligible = [...this.roster.entries()]
+    const eligible = [...this.seatsBySeat.entries()]
       .filter(([, e]) => e.stack > 0)
       .sort(([a], [b]) => a - b);
     if (eligible.length < 2) {
@@ -309,6 +380,7 @@ export class TournamentTableRunner {
     this.engineConfig = this.pendingConfig;
     this.handNumber += 1;
     this.lastSeqByUser.clear();
+    this.revealedSeats.clear();
     this.handStartStacks = new Map(eligible.map(([seat, e]) => [seat, e.stack]));
 
     this.state = initGameState({
@@ -361,6 +433,7 @@ export class TournamentTableRunner {
 
     this.clearActionTimer();
     this.state = state;
+    for (const seat of revealedByEvents(events)) this.revealedSeats.add(seat);
 
     const completed = events.some((e) => e.type === 'HAND_COMPLETED');
     if (events.length > 0) this.deps.notify({ kind: 'events', events });
@@ -379,7 +452,7 @@ export class TournamentTableRunner {
     const results: TournamentHandResult[] = [];
     const busted: { seat: number; userId: string; stackAtHandStart: number }[] = [];
     for (const player of this.state.players) {
-      const entry = this.roster.get(player.seatNumber);
+      const entry = this.seatsBySeat.get(player.seatNumber);
       if (!entry) continue;
       const started = this.handStartStacks.get(player.seatNumber) ?? player.stack;
       entry.stack = player.stack;
@@ -412,7 +485,7 @@ export class TournamentTableRunner {
     }
     const seat = this.state.actingSeat;
     const handId = this.state.handId;
-    const entry = this.roster.get(seat);
+    const entry = this.seatsBySeat.get(seat);
     const away = entry !== undefined && !entry.connected;
     const timeoutMs = away
       ? Math.min(this.deps.disconnectGraceMs, this.deps.actionTimeoutMs)

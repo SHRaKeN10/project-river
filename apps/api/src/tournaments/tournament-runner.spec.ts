@@ -54,6 +54,10 @@ interface FakeEntry {
 
 function fakePrisma(row: Record<string, unknown> & { entries: FakeEntry[] }) {
   return {
+    user: {
+      findMany: async () =>
+        row.entries.map((e) => ({ id: e.userId, username: e.userId, avatarUrl: null })),
+    },
     tournament: {
       findUniqueOrThrow: async () => structuredCloneish(row),
       update: async ({ data }: { data: Record<string, unknown> }) => {
