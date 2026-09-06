@@ -6,7 +6,6 @@ import {
   type RandomProvider,
   type TableConfig,
   createTableConfig,
-  payoutSchedule,
   placesPaid,
   planBalance,
   prizePool as poolFor,
@@ -17,6 +16,7 @@ import { ChipsService } from '../chips/chips.service';
 import { PrismaService } from '../infra/prisma/prisma.service';
 import { variantForGameType } from '../tables/game-variant';
 import { type TimerScheduler } from '../tables/table-runner';
+import { assignRoundPositions, computePayouts } from './standings';
 import { currentLevel, elapsedRunningMs, levelEndsAt } from './tournament-clock';
 import { type TournamentTableNotification, TournamentTableRunner } from './tournament-table-runner';
 
@@ -63,6 +63,9 @@ interface EntryState {
   finishPosition: number | null;
   /** The table this player currently sits at, or null once eliminated. */
   tableId: string | null;
+  /** Set the instant they bust; their finishing position is only assigned once
+   * the whole hand-for-hand round closes (`finalizeRound`). */
+  pendingBust: { stackAtHandStart: number } | null;
 }
 
 /**
@@ -72,17 +75,22 @@ interface EntryState {
  *   - draws seats and stands the tables up with tournament chips as the stack;
  *   - runs the level clock, pushing new blinds into every table between hands;
  *   - relays player actions to the right table;
- *   - after every hand: records bust-outs as `finishPosition` on the
- *     `TournamentEntry`, then runs `planBalance` - breaking short tables and
- *     evening out the rest by moving players between them;
- *   - when one player is left, settles the payout ladder and marks the
- *     tournament `FINISHED`.
+ *   - plays hand-for-hand: every multi-table round is one hand at every live
+ *     table, all completed before any table starts the next. Bust-outs are
+ *     recorded the instant they happen but their *finishing positions* are
+ *     assigned only once the whole round closes, from a single deterministic
+ *     sort - so the order in which tables happen to finish can never reorder
+ *     the standings (`finalizeRound`);
+ *   - then runs `planBalance` - breaking short tables and evening out the rest;
+ *   - when one player is left, settles the payout ladder (with exact-tie chops)
+ *     and marks the tournament `FINISHED`.
  *
  * Conservation invariant: the sum of every entry's stack always equals
- * `startingStack * entrants`.
+ * `startingStack * entrants`. Payout invariant: the sum of every payout always
+ * equals the prize pool.
  *
- * Not yet here (follow-ups): a socket/gateway bridge, hand-for-hand bubble
- * play, chops, antes (the engine doesn't post them), restart recovery.
+ * Not yet here (follow-ups): antes (the engine doesn't post them), restart
+ * recovery.
  */
 export class TournamentRunner {
   private readonly logger = new Logger(TournamentRunner.name);
@@ -94,6 +102,13 @@ export class TournamentRunner {
 
   private readonly entries = new Map<string, EntryState>(); // userId -> state
   private eliminatedCount = 0;
+  /** Monotonic hand-for-hand round counter (one hand at every live table). */
+  private roundNumber = 0;
+  /** Contiguous position ranges whose prize money is chopped equally, because
+   * their players busted the same round with exactly equal covered stacks.
+   * e.g. `[[3, 4]]` means positions 3 and 4 split their combined money. */
+  private readonly chopGroups: number[][] = [];
+  private handForHand = false;
 
   private startedAtMs = 0;
   private schedule: BlindSchedule = [];
@@ -101,6 +116,7 @@ export class TournamentRunner {
   private startingStack = 0;
   private seatsPerTable = 0;
   private prizePool = 0;
+  private paidPlaces = 1;
   private name = '';
   private gameType = 'NLHE';
 
@@ -172,6 +188,7 @@ export class TournamentRunner {
     this.seatsPerTable = row.seatsPerTable;
     this.name = row.name;
     this.gameType = row.gameType;
+    this.paidPlaces = this.entrants >= 2 ? placesPaid(this.entrants) : 1;
 
     const profiles = new Map<string, { username: string; avatarUrl: string | null }>();
     for (const u of await this.deps.prisma.user.findMany({
@@ -254,6 +271,7 @@ export class TournamentRunner {
           stack: row.startingStack,
           finishPosition: null,
           tableId,
+          pendingBust: null,
         });
         // Seated optimistically connected; the gateway flips this to
         // disconnected when the player's socket actually drops. A player who
@@ -420,10 +438,10 @@ export class TournamentRunner {
 
     switch (n.kind) {
       case 'handComplete':
-        void this.onHandComplete(tableId, n);
+        void this.onHandComplete(tableId, n).catch((err) => this.onOrchestrationError(err));
         return;
       case 'idle':
-        void this.afterHand();
+        void this.afterHand().catch((err) => this.onOrchestrationError(err));
         return;
       case 'rejected':
         this.logger.debug(`table ${tableId} rejected for ${n.userId}: ${n.code} ${n.reason}`);
@@ -440,10 +458,9 @@ export class TournamentRunner {
   ): Promise<void> {
     const table = this.tables.get(tableId);
 
-    // --- everything that touches seating happens synchronously, before any
-    // await, so a balance triggered by another table's notification can never
-    // interleave and see a half-processed hand (a busted player still seated,
-    // or a seat freed for a bust not yet recorded).
+    // --- everything that touches seating / eliminations happens synchronously,
+    // before any await, so an `afterHand` triggered by another table's
+    // notification can never see a half-processed hand.
 
     // Refresh stacks from the completed hand's own results snapshot - not
     // `table.stacks()`, which by the time this handler runs may already reflect
@@ -453,26 +470,18 @@ export class TournamentRunner {
       if (entry && entry.finishPosition === null) entry.stack = r.endStack;
     }
 
-    // Record bust-outs (`busted` is worst-finish-first) and free their seats.
+    // Record bust-outs as *pending* - free the seat and zero the stack now, but
+    // assign the finishing position only when the whole round closes
+    // (`finalizeRound`), from one deterministic sort. Which table's hand
+    // finished first must not influence the standings.
     for (const b of n.busted) {
       const entry = this.entries.get(b.userId);
-      if (!entry || entry.finishPosition !== null) continue;
-      const position = this.entrants - this.eliminatedCount;
-      entry.finishPosition = position;
+      if (!entry || entry.finishPosition !== null || entry.pendingBust) continue;
+      entry.pendingBust = { stackAtHandStart: b.stackAtHandStart };
       entry.stack = 0;
       entry.tableId = null;
-      this.eliminatedCount += 1;
       const seat = table?.seatOf(b.userId);
       if (seat !== null && seat !== undefined) table?.unseat(seat);
-      this.publish({ kind: 'eliminated', userId: b.userId, finishPosition: position });
-      void this.deps.prisma.tournamentEntry
-        .update({
-          where: { id: entry.entryId },
-          data: { stack: 0, eliminatedAt: new Date(), finishPosition: position },
-        })
-        .catch((err) =>
-          this.logger.error(`record elimination ${entry.entryId}: ${(err as Error).message}`),
-        );
     }
 
     await this.persistStacks();
@@ -480,10 +489,12 @@ export class TournamentRunner {
   }
 
   /**
-   * Post-hand orchestration. `planBalance` needs a consistent, quiescent view,
-   * so the real work waits until no table has a hand in progress. Until then,
-   * every table that IS between hands is held so it can't run ahead of the
-   * laggard - the laggard's own `afterHand` releases everyone.
+   * The round boundary. `planBalance` needs a quiescent view and the standings
+   * need one too, so nothing happens until every table has finished this
+   * round's hand. Until then, every table that IS between hands is held so it
+   * can't run ahead - the laggard's own `afterHand` releases everyone. This is
+   * the hand-for-hand rule, and it runs every multi-table round, not just at
+   * the bubble.
    */
   private async afterHand(): Promise<void> {
     if (this.balancing || this.disposed || this.finishing) return;
@@ -495,11 +506,116 @@ export class TournamentRunner {
 
     this.balancing = true;
     try {
+      this.finalizeRound();
       this.runBalance();
     } finally {
       this.balancing = false;
     }
     await this.maybeFinish();
+  }
+
+  private liveCount(): number {
+    let n = 0;
+    for (const e of this.entries.values()) if (e.finishPosition === null && !e.pendingBust) n += 1;
+    return n;
+  }
+
+  /** A standings-invariant violation surfaced from `finalizeRound` /
+   * `maybeFinish`. These are "wrong payouts" bugs - never continue silently.
+   * The tournament stalls (visible, needs a human); in tests the throw fails
+   * the test as intended. */
+  private onOrchestrationError(err: unknown): void {
+    this.logger.error(
+      `tournament ${this.tournamentId} orchestration error: ${(err as Error).message}`,
+    );
+  }
+
+  /**
+   * Close the current hand-for-hand round: take every player who busted this
+   * round and assign their finishing positions from one deterministic sort
+   * (`finishingOrder` - bigger covered stack finishes higher; exact ties fall
+   * to player id). Runs only when every table is quiescent, so table-completion
+   * order can never reorder the standings. When we are in the money and some of
+   * this round's busts tied exactly, their positions' prize money is chopped.
+   */
+  private finalizeRound(): void {
+    const pending = [...this.entries.values()].filter(
+      (e) => e.pendingBust !== null && e.finishPosition === null,
+    );
+    if (pending.length === 0) return;
+
+    this.roundNumber += 1;
+    const enteringField = this.liveCount() + pending.length;
+    // Hand-for-hand starts (and stays on) once the next round *could* reach the
+    // money: with T tables each able to bust at least one, that is when the
+    // field entering a round is within `paidPlaces + T`. Chops - a real
+    // bubble/ITM concept - only apply while it is on; before that a same-hand
+    // tie is just broken deterministically (nobody involved is paid).
+    if (!this.handForHand && enteringField <= this.paidPlaces + Math.max(1, this.tables.size)) {
+      this.handForHand = true;
+      this.logger.log(`tournament ${this.tournamentId}: hand-for-hand near the bubble`);
+    }
+
+    const { positions, chopGroups } = assignRoundPositions({
+      busts: pending.map((e) => ({
+        playerId: e.userId,
+        stackAtHandStart: (e.pendingBust as { stackAtHandStart: number }).stackAtHandStart,
+      })),
+      eliminatedCount: this.eliminatedCount,
+      entrants: this.entrants,
+      roundNumber: this.roundNumber,
+      handForHand: this.handForHand,
+      paidPlaces: this.paidPlaces,
+    });
+    this.chopGroups.push(...chopGroups);
+
+    for (const [pid, position] of positions) {
+      const entry = this.entries.get(pid) as EntryState;
+      entry.finishPosition = position;
+      entry.pendingBust = null;
+      this.publish({ kind: 'eliminated', userId: pid, finishPosition: position });
+      void this.deps.prisma.tournamentEntry
+        .update({
+          where: { id: entry.entryId },
+          data: { stack: 0, eliminatedAt: new Date(), finishPosition: position },
+        })
+        .catch((err) =>
+          this.logger.error(`record elimination ${entry.entryId}: ${(err as Error).message}`),
+        );
+    }
+    this.eliminatedCount += positions.size;
+    this.checkStandings();
+  }
+
+  /** Hard invariants on the standings assigned so far. Throws (loud) on a
+   * violation - a standings bug means wrong payouts, which must never ship
+   * silently. Callers run in a try/catch that logs. */
+  private checkStandings(): void {
+    const assigned = [...this.entries.values()]
+      .map((e) => e.finishPosition)
+      .filter((p): p is number => p !== null);
+    const set = new Set(assigned);
+    if (set.size !== assigned.length) {
+      throw new Error(`tournament ${this.tournamentId}: a finishing position was assigned twice`);
+    }
+    for (const p of assigned) {
+      if (p < 1 || p > this.entrants) {
+        throw new Error(`tournament ${this.tournamentId}: finishing position ${p} out of range`);
+      }
+    }
+    // Eliminated players fill a contiguous block from `entrants` downward.
+    const eliminatedPositions = [...this.entries.values()]
+      .filter((e) => e.finishPosition !== null && e.finishPosition !== 1)
+      .map((e) => e.finishPosition as number)
+      .sort((a, b) => a - b);
+    for (let i = 0; i < eliminatedPositions.length; i += 1) {
+      const expected = this.entrants - eliminatedPositions.length + 1 + i;
+      if (eliminatedPositions[i] !== expected) {
+        throw new Error(
+          `tournament ${this.tournamentId}: eliminated positions not contiguous (${eliminatedPositions.join(',')})`,
+        );
+      }
+    }
   }
 
   private runBalance(): void {
@@ -560,7 +676,7 @@ export class TournamentRunner {
   private async persistStacks(): Promise<void> {
     await Promise.all(
       [...this.entries.values()]
-        .filter((e) => e.finishPosition === null)
+        .filter((e) => e.finishPosition === null && e.pendingBust === null)
         .map((e) =>
           this.deps.prisma.tournamentEntry
             .update({ where: { id: e.entryId }, data: { stack: e.stack } })
@@ -573,7 +689,9 @@ export class TournamentRunner {
 
   private async maybeFinish(): Promise<void> {
     if (this.finishing || this.disposed) return;
-    const live = [...this.entries.values()].filter((e) => e.finishPosition === null);
+    const live = [...this.entries.values()].filter(
+      (e) => e.finishPosition === null && e.pendingBust === null,
+    );
     if (live.length > 1) return;
     this.finishing = true;
 
@@ -582,56 +700,75 @@ export class TournamentRunner {
       winner.finishPosition = 1;
       winner.stack = this.startingStack * this.entrants;
     }
+    this.checkStandings();
 
-    const ladder = payoutSchedule(this.entrants, this.prizePool);
-    const paidPlaces = this.entrants >= 2 ? placesPaid(this.entrants) : 1;
-
+    // Compute the whole payout table and verify it *before* moving any chips,
+    // so a standings/chop bug can never half-pay a tournament.
+    const payoutByPos = computePayouts(this.entrants, this.prizePool, this.chopGroups);
     const ordered = [...this.entries.values()].sort(
       (a, b) => (a.finishPosition ?? 0) - (b.finishPosition ?? 0),
     );
-    const results: { userId: string; position: number; payout: number }[] = [];
-    for (const e of ordered) {
+    const results = ordered.map((e) => {
       const position = e.finishPosition ?? this.entrants;
-      const payout = position <= paidPlaces ? (ladder[position - 1] ?? 0) : 0;
-      results.push({ userId: e.userId, position, payout });
-      if (payout > 0) {
+      return {
+        userId: e.userId,
+        entryId: e.entryId,
+        position,
+        payout: payoutByPos.get(position) ?? 0,
+      };
+    });
+    const paidOut = results.reduce((s, r) => s + r.payout, 0);
+    if (paidOut !== this.prizePool) {
+      this.finishing = false;
+      throw new Error(
+        `tournament ${this.tournamentId}: payouts ${paidOut} != prize pool ${this.prizePool}`,
+      );
+    }
+
+    for (const r of results) {
+      if (r.payout > 0) {
         await this.deps.chips
           .move({
-            userId: e.userId,
-            amount: payout,
+            userId: r.userId,
+            amount: r.payout,
             reason: ChipMovementReason.TOURNAMENT_PAYOUT,
-            idemKey: `tpay:${e.entryId}`,
+            idemKey: `tpay:${r.entryId}`,
           })
           .catch((err) =>
-            this.logger.error(`payout ${e.entryId} (+${payout}): ${(err as Error).message}`),
+            this.logger.error(`payout ${r.entryId} (+${r.payout}): ${(err as Error).message}`),
           );
       }
       await this.deps.prisma.tournamentEntry
         .update({
-          where: { id: e.entryId },
+          where: { id: r.entryId },
           data: {
-            payout,
-            finishPosition: position,
-            stack: e.stack,
+            payout: r.payout,
+            finishPosition: r.position,
+            stack: this.entries.get(r.userId)?.stack ?? 0,
             // The winner is not "eliminated"; everyone else already has their
             // eliminatedAt from the hand they busted.
-            eliminatedAt: position === 1 ? null : undefined,
+            eliminatedAt: r.position === 1 ? null : undefined,
           },
         })
         .catch(() => undefined);
     }
 
+    const standings = results.map((r) => ({
+      userId: r.userId,
+      position: r.position,
+      payout: r.payout,
+    }));
     await this.deps.prisma.tournament.update({
       where: { id: this.tournamentId },
       data: {
         status: 'FINISHED',
         finishedAt: new Date(),
-        resultsJson: results as unknown as object[],
+        resultsJson: standings as unknown as object[],
       },
     });
 
     this.logger.log(
-      `tournament ${this.tournamentId} finished - winner ${winner?.userId ?? '?'} (+${results[0]?.payout ?? 0})`,
+      `tournament ${this.tournamentId} finished - winner ${winner?.userId ?? '?'} (+${standings[0]?.payout ?? 0})`,
     );
     this.clearLevelTimer();
     for (const e of this.entries.values()) e.tableId = null;
@@ -640,7 +777,7 @@ export class TournamentRunner {
       this.publish({ kind: 'tableClosed', tableId: id });
     }
     this.tables.clear();
-    this.publish({ kind: 'finished', results });
+    this.publish({ kind: 'finished', results: standings });
     this.deps.onFinished?.(this.tournamentId);
   }
 

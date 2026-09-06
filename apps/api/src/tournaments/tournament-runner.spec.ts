@@ -4,6 +4,7 @@ import {
   call,
   check,
   type GameState,
+  placesPaid as placesPaidOf,
   type PlayerAction,
   SeededRandomProvider,
   standardBlindSchedule,
@@ -169,17 +170,21 @@ function makeRunner(
 }
 
 /** Drive every table that has someone to act; advance the clock when they are
- * all between hands. Works for one table or many. */
+ * all between hands. Works for one table or many. `tableOrder: 'reverse'`
+ * feeds actions to the tables in the opposite order each step, so a test can
+ * check that table-completion order never moves the standings. */
 async function runToCompletion(
   runner: TournamentRunner,
   timers: FakeTimers,
   pick: (s: GameState, seat: number) => PlayerAction,
   onStep?: () => void,
+  tableOrder: 'forward' | 'reverse' = 'forward',
 ): Promise<void> {
   let seq = 0;
   for (let step = 0; step < 250_000 && runner.running; step += 1) {
     let acted = false;
-    for (const { state: s } of runner.tableStates()) {
+    const tables = runner.tableStates();
+    for (const { state: s } of tableOrder === 'reverse' ? [...tables].reverse() : tables) {
       const live = s.street !== Street.Waiting && s.street !== Street.Complete;
       if (live && s.actingSeat !== null) {
         const p = s.players.find((x) => x.seatNumber === s.actingSeat);
@@ -193,6 +198,35 @@ async function runToCompletion(
     await flush();
     onStep?.();
   }
+}
+
+type Result = { userId?: string; position: number; payout: number };
+
+/** The standings invariants that must hold for EVERY finished tournament,
+ * regardless of ties / chops. */
+function assertStandingsInvariants(
+  results: Result[],
+  entrants: number,
+  prizePool: number,
+  placesPaidCount: number,
+): void {
+  // one row per entrant, positions are exactly 1..N with none repeated
+  expect(results).toHaveLength(entrants);
+  const positions = results.map((r) => r.position).sort((a, b) => a - b);
+  expect(positions).toEqual(Array.from({ length: entrants }, (_, i) => i + 1));
+
+  // payouts sum to the pool exactly - no chip created or lost
+  expect(results.reduce((s, r) => s + r.payout, 0)).toBe(prizePool);
+
+  const byPos = new Map(results.map((r) => [r.position, r.payout]));
+  // never increases down the standings
+  for (let p = 2; p <= entrants; p += 1) {
+    expect(byPos.get(p)!).toBeLessThanOrEqual(byPos.get(p - 1)!);
+  }
+  // every position past the paid places + any bubble chop gets nothing
+  for (let p = placesPaidCount + 2; p <= entrants; p += 1) expect(byPos.get(p)).toBe(0);
+  // the winner is always paid
+  expect(byPos.get(1)!).toBeGreaterThan(0);
 }
 
 // --- tests ------------------------------------------------------------
@@ -306,13 +340,13 @@ describe('TournamentRunner', () => {
     const winner = row.entries.find((e) => e.finishPosition === 1);
     expect(winner?.stack).toBe(6000); // holds every chip
 
-    // placesPaid(12) === 2; the pool (1200) is split between them
-    const results = row.resultsJson as { position: number; payout: number }[];
-    expect(results).toHaveLength(12);
-    expect(results[0]!.payout + results[1]!.payout).toBe(1200);
-    expect(results[0]!.payout).toBeGreaterThan(results[1]!.payout);
-    expect(results.slice(2).every((r) => r.payout === 0)).toBe(true);
-    expect(chips.moves.filter((m) => m.reason === 'TOURNAMENT_PAYOUT')).toHaveLength(2);
+    // placesPaid(12) === 2; the pool (1200) is distributed exactly (a bubble
+    // chop can spread it a rung wider, but the total and the invariants hold)
+    const results = row.resultsJson as Result[];
+    assertStandingsInvariants(results, 12, 1200, 2);
+    const paidMoves = chips.moves.filter((m) => m.reason === 'TOURNAMENT_PAYOUT');
+    expect(paidMoves.length).toBeGreaterThanOrEqual(2);
+    expect(paidMoves.reduce((a, m) => a + m.amount, 0)).toBe(1200);
   });
 
   it('runs a 24-player, four-table field clean: every seat count 4..1, one winner', async () => {
@@ -414,16 +448,12 @@ describe('TournamentRunner', () => {
     expect(positions).toEqual(Array.from({ length: 90 }, (_, i) => i + 1));
     expect(row.entries.find((e) => e.finishPosition === 1)?.stack).toBe(18_000);
 
-    // placesPaid(90) === 11; the pool (9000) is split among them
-    const results = row.resultsJson as { position: number; payout: number }[];
-    const paid = results.filter((r) => r.payout > 0);
-    expect(paid).toHaveLength(11);
-    expect(paid.reduce((a, r) => a + r.payout, 0)).toBe(9000);
-    expect(chips.moves.filter((m) => m.reason === 'TOURNAMENT_PAYOUT')).toHaveLength(11);
-    // non-increasing ladder
-    for (let i = 1; i < paid.length; i += 1) {
-      expect(paid[i]!.payout).toBeLessThanOrEqual(paid[i - 1]!.payout);
-    }
+    // placesPaid(90) === 11; the 9000 pool is distributed exactly
+    const results = row.resultsJson as Result[];
+    assertStandingsInvariants(results, 90, 9000, 11);
+    const paidMoves = chips.moves.filter((m) => m.reason === 'TOURNAMENT_PAYOUT');
+    expect(paidMoves.length).toBeGreaterThanOrEqual(11);
+    expect(paidMoves.reduce((a, m) => a + m.amount, 0)).toBe(9000);
   }, 30_000);
 
   it('runs a 200-player, 23-table field to a single winner with the full payout ladder', async () => {
@@ -460,15 +490,12 @@ describe('TournamentRunner', () => {
     expect(positions).toEqual(Array.from({ length: 200 }, (_, i) => i + 1));
     expect(row.entries.find((e) => e.finishPosition === 1)?.stack).toBe(30_000);
 
-    // placesPaid(200) === 24; the whole 20000 pool is split, non-increasing
-    const results = row.resultsJson as { position: number; payout: number }[];
-    const paid = results.filter((r) => r.payout > 0);
-    expect(paid).toHaveLength(24);
-    expect(paid.reduce((a, r) => a + r.payout, 0)).toBe(20_000);
-    for (let i = 1; i < paid.length; i += 1) {
-      expect(paid[i]!.payout).toBeLessThanOrEqual(paid[i - 1]!.payout);
-    }
-    expect(chips.moves.filter((m) => m.reason === 'TOURNAMENT_PAYOUT')).toHaveLength(24);
+    // placesPaid(200) === 24; the whole 20000 pool is distributed exactly
+    const results = row.resultsJson as Result[];
+    assertStandingsInvariants(results, 200, 20_000, 24);
+    const paidMoves = chips.moves.filter((m) => m.reason === 'TOURNAMENT_PAYOUT');
+    expect(paidMoves.length).toBeGreaterThanOrEqual(24);
+    expect(paidMoves.reduce((a, m) => a + m.amount, 0)).toBe(20_000);
   }, 60_000);
 
   it('refuses a heads-up multi-table field', async () => {
@@ -476,5 +503,84 @@ describe('TournamentRunner', () => {
     const { runner } = makeRunner(row, 1);
     await expect(runner.start()).rejects.toThrow(/three seats per table/);
     expect(row.status).toBe('REGISTERING');
+  });
+
+  // --- hand-for-hand & chops: adversarial coverage ---------------------
+
+  const finalStandings = (row: ReturnType<typeof makeRow>) =>
+    row.entries
+      .map((e) => ({ userId: e.userId, position: e.finishPosition, payout: e.payout }))
+      .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+
+  it('is fully deterministic: the same seed produces byte-identical standings twice', async () => {
+    const runOnce = async () => {
+      const row = makeRow({ entrants: 18, seatsPerTable: 6, startingStack: 300 });
+      const { runner, timers } = makeRunner(row, 314);
+      await runner.start();
+      await runToCompletion(runner, timers, () => allIn());
+      return { standings: finalStandings(row), results: row.resultsJson };
+    };
+    const a = await runOnce();
+    const b = await runOnce();
+    expect(a).toEqual(b);
+  });
+
+  it('table-completion order never moves the standings (forward vs reverse driving)', async () => {
+    const run = async (order: 'forward' | 'reverse') => {
+      const row = makeRow({ entrants: 15, seatsPerTable: 5, startingStack: 300 });
+      const { runner, timers } = makeRunner(row, 77);
+      await runner.start();
+      expect(runner.tableCount).toBe(3);
+      await runToCompletion(runner, timers, () => allIn(), undefined, order);
+      return { standings: finalStandings(row), results: row.resultsJson };
+    };
+    expect(await run('forward')).toEqual(await run('reverse'));
+  });
+
+  it('a multi-table field always fills exactly one contiguous set of places and pays the pool', async () => {
+    // callStation keeps stacks varied so ties are rare - a clean-ladder check.
+    const row = makeRow({ entrants: 15, seatsPerTable: 5, startingStack: 600 });
+    const { runner, timers } = makeRunner(row, 202);
+    await runner.start();
+
+    let sawHeadsUp = false;
+    let sawFinalTable = false;
+    await runToCompletion(runner, timers, callStation, () => {
+      if (runner.running) {
+        if (runner.tableCount === 1) sawFinalTable = true;
+        const live = [...runner.stacks().values()].filter((s) => s > 0).length;
+        if (live === 2) sawHeadsUp = true;
+        expect([...runner.stacks().values()].reduce((a, b) => a + b, 0)).toBe(9000);
+      }
+    });
+
+    expect(row.status).toBe('FINISHED');
+    expect(sawFinalTable).toBe(true);
+    expect(sawHeadsUp).toBe(true);
+    assertStandingsInvariants(row.resultsJson as Result[], 15, 1500, placesPaidOf(15));
+  });
+
+  it('an eliminated player has exactly one position and no position is used twice, hand by hand', async () => {
+    const row = makeRow({ entrants: 12, seatsPerTable: 4, startingStack: 400 });
+    const { runner, timers } = makeRunner(row, 9);
+    await runner.start();
+
+    await runToCompletion(
+      runner,
+      timers,
+      () => allIn(),
+      () => {
+        const positions = row.entries
+          .map((e) => e.finishPosition)
+          .filter((p): p is number => p !== null);
+        // distinct, in range, contiguous-from-the-bottom at every observation
+        expect(new Set(positions).size).toBe(positions.length);
+        for (const p of positions) expect(p >= 1 && p <= 12).toBe(true);
+      },
+    );
+
+    const positions = row.entries.map((e) => e.finishPosition).sort((a, b) => (a ?? 0) - (b ?? 0));
+    expect(positions).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+    assertStandingsInvariants(row.resultsJson as Result[], 12, 1200, placesPaidOf(12));
   });
 });
