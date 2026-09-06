@@ -57,6 +57,8 @@ const meta: TableMeta = {
   bombPotEnabled: false,
   bombPotIntervalHands: 15,
   bombPotAmount: 0,
+  straddleEnabled: false,
+  straddleMultiplier: 2,
 };
 
 function harness(seed = 7, metaOverrides: Partial<TableMeta> = {}) {
@@ -846,6 +848,153 @@ describe('TableRunner - bomb pots', () => {
       ),
     );
     expect(revived.runner.bombHandCounter).toBe(counter);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// straddle (ADR-0027)
+// ---------------------------------------------------------------------------
+
+describe('TableRunner - straddle', () => {
+  const drive = (runner: TableRunner, startSeq = 0): number => {
+    let seq = startSeq;
+    let guard = 0;
+    while (runner.gameState.street !== 'COMPLETE' && (guard += 1) < 60) {
+      const seat = runner.gameState.actingSeat;
+      if (seat === null) break;
+      const p = runner.gameState.players.find((x) => x.seatNumber === seat);
+      const owed = runner.gameState.round.currentBet - (p?.currentBet ?? 0);
+      runner.submitAction(
+        seatUser(runner, seat),
+        runner.gameState.handId,
+        (seq += 1),
+        owed > 0 ? { type: 'CALL' } : { type: 'CHECK' },
+      );
+    }
+    return seq;
+  };
+
+  /** alice=0 (button/UTG 3-handed), bob=1 (SB), cara=2 (BB). */
+  const seat3 = (h: ReturnType<typeof harness>) => {
+    h.join('alice', 0);
+    h.join('bob', 1);
+    h.join('cara', 2);
+  };
+
+  it('does nothing on a table that has straddling disabled', () => {
+    const h = harness(7); // straddleEnabled false by default
+    seat3(h);
+    h.runner.setStraddle('alice', true);
+    h.timers.runPending();
+    expect(h.runner.straddleView()).toBeNull();
+    expect(h.eventTypes()).not.toContain('STRADDLE_POSTED');
+  });
+
+  it('the UTG seat straddles when it has armed it and can cover it', () => {
+    const h = harness(7, { straddleEnabled: true });
+    seat3(h);
+    h.runner.setStraddle('alice', true);
+    h.timers.runPending();
+
+    expect(h.eventTypes()).toContain('STRADDLE_POSTED');
+    expect(h.runner.straddleView()).toMatchObject({ active: true, seat: 0, amount: 40 });
+    const s0 = h.runner.gameState.players.find((p) => p.seatNumber === 0)!;
+    expect(s0.currentBet).toBe(40);
+    expect(h.runner.gameState.round.currentBet).toBe(40);
+    expect(h.runner.gameState.actingSeat).toBe(1); // SB acts first, not UTG
+    expect(h.rosterTotal()).toBe(3000);
+  });
+
+  it('records the straddle amount on the completed hand (0 otherwise)', () => {
+    const h = harness(7, { straddleEnabled: true });
+    seat3(h);
+    h.runner.setStraddle('alice', true);
+    h.timers.runPending();
+    drive(h.runner);
+    h.timers.runPending(); // hand 2, no straddle armed at the new UTG (bob)
+    drive(h.runner);
+    expect(h.hands[0].straddleAmount).toBe(40);
+    expect(h.hands[1].straddleAmount).toBe(0);
+  });
+
+  it('never straddles a bomb-pot hand (the bomb pot wins)', () => {
+    const h = harness(7, {
+      straddleEnabled: true,
+      bombPotEnabled: true,
+      bombPotIntervalHands: 1, // hand 1 is a bomb
+    });
+    seat3(h);
+    h.runner.setStraddle('alice', true);
+    h.timers.runPending();
+
+    expect(h.runner.bombPotView()?.active).toBe(true);
+    expect(h.runner.straddleView()?.active).toBe(false);
+    expect(h.eventTypes()).toContain('BOMB_POT_STARTED');
+    expect(h.eventTypes()).not.toContain('STRADDLE_POSTED');
+  });
+
+  it('does not straddle heads-up (fewer than three players)', () => {
+    const h = harness(7, { straddleEnabled: true });
+    h.join('alice', 0);
+    h.join('bob', 1);
+    h.runner.setStraddle('alice', true);
+    h.runner.setStraddle('bob', true);
+    h.timers.runPending();
+    expect(h.eventTypes()).not.toContain('STRADDLE_POSTED');
+    expect(h.runner.straddleView()?.active).toBe(false);
+  });
+
+  it('does not straddle when the UTG seat cannot cover the full amount', () => {
+    // multiplier 250 -> straddle amount 5000, above the 4000 max buy-in
+    const h = harness(7, { straddleEnabled: true, straddleMultiplier: 250 });
+    seat3(h);
+    h.runner.setStraddle('alice', true);
+    h.timers.runPending();
+    expect(h.eventTypes()).not.toContain('STRADDLE_POSTED');
+    expect(h.runner.straddleView()?.active).toBe(false);
+  });
+
+  it('carries the armed flag and the current straddle across a warm restart', () => {
+    const original = harness(7, { straddleEnabled: true });
+    seat3(original);
+    original.runner.setStraddle('alice', true);
+    original.timers.runPending(); // deals a straddled hand 1
+
+    const snapshot = {
+      state: JSON.parse(JSON.stringify(original.runner.gameState)),
+      handNumber: original.runner.lastHandNumber,
+      previousPositions: original.runner.lastPositions,
+      straddle: original.runner.currentStraddleSnapshot(),
+      roster: [...original.runner.rosterEntries.entries()].map(([seatNumber, e]) => ({
+        seatNumber,
+        userId: e.userId,
+        username: e.username,
+        avatarUrl: e.avatarUrl,
+        stack: e.stack,
+        sittingOut: e.sittingOut,
+        straddleOn: e.straddleOn,
+      })),
+    };
+
+    const revived = harness(7, { straddleEnabled: true });
+    revived.runner.hydrateFromSnapshot(
+      snapshot,
+      new Map(
+        snapshot.roster.map((r) => [r.userId, { username: r.username, avatarUrl: r.avatarUrl }]),
+      ),
+    );
+    expect(revived.runner.rosterEntries.get(0)?.straddleOn).toBe(true);
+    expect(revived.runner.straddleView()).toMatchObject({ active: true, seat: 0, amount: 40 });
+  });
+
+  it('applyConfigPatch can turn straddling on and off live', () => {
+    const h = harness(7); // disabled
+    seat3(h);
+    expect(h.runner.straddleView()).toBeNull();
+    h.runner.applyConfigPatch({ straddleEnabled: true, straddleMultiplier: 3 });
+    expect(h.runner.straddleView()).toMatchObject({ active: false, multiplier: 3, amount: 60 });
+    h.runner.applyConfigPatch({ straddleEnabled: false });
+    expect(h.runner.straddleView()).toBeNull();
   });
 });
 

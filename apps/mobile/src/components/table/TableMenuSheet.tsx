@@ -9,6 +9,10 @@ interface Props {
   /** null when the viewer isn't seated (the sit-out row is then hidden). */
   sittingOut: boolean | null;
   onToggleSitOut: (sittingOut: boolean) => void;
+  /** null when the table doesn't allow straddling or the viewer isn't seated;
+   * otherwise whether the viewer has armed the UTG straddle (ADR-0027). */
+  straddleOn: boolean | null;
+  onToggleStraddle: (on: boolean) => void;
 }
 
 /** The slide-out table menu, the way Texas Card House/Hijack organise the
@@ -20,6 +24,8 @@ export function TableMenuSheet({
   onLeave,
   sittingOut,
   onToggleSitOut,
+  straddleOn,
+  onToggleStraddle,
 }: Props): JSX.Element {
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -54,6 +60,19 @@ export function TableMenuSheet({
             }}
           >
             <Text style={styles.itemLabel}>{sittingOut ? 'Sit in' : 'Sit out'}</Text>
+          </Pressable>
+        ) : null}
+
+        {straddleOn !== null ? (
+          <Pressable
+            style={styles.item}
+            accessibilityRole="button"
+            onPress={() => onToggleStraddle(!straddleOn)}
+          >
+            <Text style={styles.itemLabel}>Straddle (UTG)</Text>
+            <Text style={[styles.chevron, straddleOn ? styles.on : styles.off]}>
+              {straddleOn ? 'On' : 'Off'}
+            </Text>
           </Pressable>
         ) : null}
 
@@ -107,4 +126,6 @@ const styles = StyleSheet.create({
   itemLabel: { ...typography.body, color: colors.textPrimary },
   danger: { color: colors.danger },
   chevron: { ...typography.h3, color: colors.textMuted },
+  on: { ...typography.label, color: colors.warning },
+  off: { ...typography.label, color: colors.textMuted },
 });

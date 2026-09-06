@@ -140,6 +140,7 @@ export class TournamentTableRunner {
         connected: e.connected,
         stack: e.stack,
         sittingOut: false,
+        straddleOn: false,
         lastTimeChargeAt: 0,
       });
     }
@@ -164,6 +165,9 @@ export class TournamentTableRunner {
       bombPotEnabled: false,
       bombPotIntervalHands: 0,
       bombPotAmount: 0,
+      // Straddles are NLHE-cash-only (ADR-0027); tournaments never run them.
+      straddleEnabled: false,
+      straddleMultiplier: 2,
     };
   }
 

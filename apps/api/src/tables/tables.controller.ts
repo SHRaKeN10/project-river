@@ -29,6 +29,8 @@ const updateConfigSchema = z
     bombPotEnabled: z.boolean().optional(),
     bombPotIntervalHands: z.number().int().min(1).max(1000).optional(),
     bombPotAmount: z.number().int().min(0).optional(),
+    straddleEnabled: z.boolean().optional(),
+    straddleMultiplier: z.number().int().min(2).max(10).optional(),
   })
   .refine((o) => Object.values(o).some((v) => v !== undefined), {
     message: 'provide at least one setting to change',
@@ -49,6 +51,8 @@ function toDto(table: TableWithSeats) {
     bombPotEnabled: table.bombPotEnabled,
     bombPotIntervalHands: table.bombPotIntervalHands,
     bombPotAmount: table.bombPotAmount,
+    straddleEnabled: table.straddleEnabled,
+    straddleMultiplier: table.straddleMultiplier,
     handNumber: table.handNumber,
     seats: table.seats.map((s) => ({
       seatNumber: s.seatNumber,

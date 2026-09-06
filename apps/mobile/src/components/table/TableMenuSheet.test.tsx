@@ -7,6 +7,8 @@ const base = {
   onGameDetails: jest.fn(),
   onLeave: jest.fn(),
   onToggleSitOut: jest.fn(),
+  straddleOn: null,
+  onToggleStraddle: jest.fn(),
 };
 
 describe('TableMenuSheet', () => {
@@ -49,5 +51,25 @@ describe('TableMenuSheet', () => {
     render(<TableMenuSheet {...base} sittingOut={null} onLeave={onLeave} />);
     fireEvent.press(screen.getByText('Leave table'));
     expect(onLeave).toHaveBeenCalled();
+  });
+
+  it('hides the straddle row when the table does not allow it', () => {
+    render(<TableMenuSheet {...base} sittingOut={false} straddleOn={null} />);
+    expect(screen.queryByText('Straddle (UTG)')).toBeNull();
+  });
+
+  it('toggles the straddle for a seated player', () => {
+    const onToggleStraddle = jest.fn();
+    render(
+      <TableMenuSheet
+        {...base}
+        sittingOut={false}
+        straddleOn={false}
+        onToggleStraddle={onToggleStraddle}
+      />,
+    );
+    expect(screen.getByText('Off')).toBeTruthy();
+    fireEvent.press(screen.getByText('Straddle (UTG)'));
+    expect(onToggleStraddle).toHaveBeenCalledWith(true);
   });
 });

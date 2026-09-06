@@ -36,6 +36,10 @@ interface Snapshot {
     currentHandIsBomb: boolean;
     currentBombAmount: number;
   };
+  /** The straddle in force for an in-progress hand (ADR-0027), or null. The
+   * straddle is also baked into `state`; this keeps `straddleView()` and the
+   * completed-hand record right after a warm mid-hand restart. */
+  straddle?: { seat: number; amount: number } | null;
   roster: {
     seatNumber: number;
     userId: string;
@@ -43,6 +47,7 @@ interface Snapshot {
     avatarUrl: string | null;
     stack: number;
     sittingOut: boolean;
+    straddleOn?: boolean;
   }[];
 }
 
@@ -224,6 +229,8 @@ export class TableManager implements OnModuleDestroy {
       bombPotEnabled: table.bombPotEnabled,
       bombPotIntervalHands: table.bombPotIntervalHands,
       bombPotAmount: table.bombPotAmount,
+      straddleEnabled: table.straddleEnabled,
+      straddleMultiplier: table.straddleMultiplier,
     };
     const engineConfig = createTableConfig({
       variant: variantForGameType(table.gameType),
@@ -302,6 +309,7 @@ export class TableManager implements OnModuleDestroy {
               potTotal: hand.potTotal,
               userIds: [...new Set(hand.seats.map((s) => s.userId))],
               bombPotAmount: hand.bombPotAmount,
+              straddleAmount: hand.straddleAmount,
               startedAt: new Date(hand.startedAt),
               endedAt: new Date(hand.endedAt),
             },
@@ -357,6 +365,7 @@ export class TableManager implements OnModuleDestroy {
           userId: s.userId,
           stack: s.stack,
           sittingOut: s.sittingOut,
+          straddleOn: s.straddleOn,
         })),
         userMeta,
         table.handNumber,
@@ -433,6 +442,7 @@ export class TableManager implements OnModuleDestroy {
         handNumber: runner.lastHandNumber,
         previousPositions: runner.lastPositions,
         bombPot: runner.bombPotSnapshot(),
+        straddle: runner.currentStraddleSnapshot(),
         roster: [...runner.rosterEntries.entries()].map(([seatNumber, e]) => ({
           seatNumber,
           userId: e.userId,
@@ -440,6 +450,7 @@ export class TableManager implements OnModuleDestroy {
           avatarUrl: e.avatarUrl,
           stack: e.stack,
           sittingOut: e.sittingOut,
+          straddleOn: e.straddleOn,
         })),
       };
       await this.redis.client.set(

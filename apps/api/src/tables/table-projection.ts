@@ -17,6 +17,8 @@ export interface RosterEntry {
   connected: boolean;
   stack: number;
   sittingOut: boolean;
+  /** The player has armed the UTG straddle (ADR-0027). */
+  straddleOn: boolean;
   /** Epoch millis the seat's time charge was last applied (or joined-at, before the first one). */
   lastTimeChargeAt: number;
 }
@@ -39,6 +41,10 @@ export interface TableMeta {
   bombPotEnabled: boolean;
   bombPotIntervalHands: number;
   bombPotAmount: number;
+  /** Voluntary UTG straddle (NLHE cash only, ADR-0027). `straddleEnabled` false
+   * leaves the table playing exactly as before. */
+  straddleEnabled: boolean;
+  straddleMultiplier: number;
 }
 
 export interface ProjectParams {
@@ -51,6 +57,9 @@ export interface ProjectParams {
   /** Public bomb-pot state (the runner owns "is this a bomb pot"). `null` on a
    * table that doesn't run bomb pots. */
   bombPot?: TableStateView['bombPot'];
+  /** Public straddle state (the runner owns "is this hand straddled"). `null` on
+   * a table that doesn't allow straddling. */
+  straddle?: TableStateView['straddle'];
 }
 
 /**
@@ -80,6 +89,8 @@ export function projectTableState(params: ProjectParams): TableStateView {
         enginePlayer,
         handInProgress,
         canSeeCards: seatNumber === viewerSeat || revealedSeats.has(seatNumber),
+        isStraddle:
+          handInProgress && params.straddle?.active === true && params.straddle.seat === seatNumber,
       }),
     );
   }
@@ -117,6 +128,8 @@ export function projectTableState(params: ProjectParams): TableStateView {
     youAreSeat: viewerSeat,
     legalActions: showLegal ? projectLegalActions(state) : null,
     bombPot: params.bombPot ?? null,
+    straddle: params.straddle ?? null,
+    youStraddleNext: viewerSeat !== null && roster.get(viewerSeat)?.straddleOn === true,
   };
 }
 
@@ -136,6 +149,7 @@ function emptySeatView(seatNumber: number): PublicSeatView {
     isBigBlind: false,
     connected: false,
     holeCards: null,
+    isStraddle: false,
   };
 }
 
@@ -145,8 +159,9 @@ function buildSeatView(args: {
   enginePlayer: PlayerState | undefined;
   handInProgress: boolean;
   canSeeCards: boolean;
+  isStraddle: boolean;
 }): PublicSeatView {
-  const { seatNumber, entry, enginePlayer, handInProgress, canSeeCards } = args;
+  const { seatNumber, entry, enginePlayer, handInProgress, canSeeCards, isStraddle } = args;
   const inHand = handInProgress && enginePlayer !== undefined;
 
   return {
@@ -171,6 +186,7 @@ function buildSeatView(args: {
       inHand && canSeeCards && (enginePlayer as PlayerState).holeCards.length > 0
         ? (enginePlayer as PlayerState).holeCards.map(cardToString)
         : null,
+    isStraddle,
   };
 }
 

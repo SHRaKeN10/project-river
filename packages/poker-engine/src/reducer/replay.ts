@@ -21,6 +21,8 @@ export interface HandRecord {
   readonly deck: readonly Card[];
   /** Present if this hand was a bomb pot (no preflop betting, everyone posts). */
   readonly bombPot?: { readonly amount: number };
+  /** Present if this hand was straddled: the UTG seat and the amount posted. */
+  readonly straddle?: { readonly seat: number; readonly amount: number };
   /** The PLAYER_ACTION / TIMEOUT / SIT_OUT / RETURN sequence after START_HAND. */
   readonly actions: readonly EngineAction[];
 }
@@ -51,6 +53,7 @@ export function replayHand(record: HandRecord): ReplayResult {
       previousPositions: record.previousPositions,
       deck: record.deck,
       ...(record.bombPot ? { bombPot: record.bombPot } : {}),
+      ...(record.straddle ? { straddle: record.straddle } : {}),
     },
     rng,
   );

@@ -39,6 +39,7 @@ export interface UseTable {
   leaveSeat: () => Promise<void>;
   act: (action: WirePlayerAction) => Promise<string | null>;
   toggleSitOut: (sittingOut: boolean) => void;
+  toggleStraddle: (on: boolean) => void;
   sendChat: (text: string) => void;
 }
 
@@ -212,6 +213,14 @@ export function useTable(id: string, opts: UseTableOptions = {}): UseTable {
     [id, isTournament],
   );
 
+  const toggleStraddle = useCallback(
+    (on: boolean) => {
+      if (isTournament) return;
+      tableSocket.setStraddle(id, on);
+    },
+    [id, isTournament],
+  );
+
   const clearError = useCallback(() => setError(null), []);
 
   return {
@@ -228,6 +237,7 @@ export function useTable(id: string, opts: UseTableOptions = {}): UseTable {
     leaveSeat,
     act,
     toggleSitOut,
+    toggleStraddle,
     sendChat,
   };
 }

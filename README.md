@@ -191,6 +191,15 @@ table state (Redis snapshot + `PokerTable.handsSinceLastBomb`); it advances in
 exactly one place. `table:state` carries `bombPot` for enabled tables. Tourneys,
 PLO, and Big O never run them. See `docs/architecture/ADR-0026-bomb-pots.md`.
 
+**Straddle** (NLHE cash only): a seated player arms "straddle" (`player:straddle`);
+when they are next under the gun and can cover it they post `straddleMultiplier`×
+the big blind (default 2×) as a live blind-raise before the deal, on top of the
+blinds. Pre-flop action starts one seat past the straddle and the straddle keeps
+the option. Never on a bomb-pot hand; disabled below three players. The armed
+flag is sticky and persists (`PokerTableSeat.straddleOn` + Redis snapshot).
+`table:state` carries `straddle` / `youStraddleNext`. See
+`docs/architecture/ADR-0027-straddle.md`.
+
 ## Conventions
 
 - Server is the only authority for cards, shuffles, legal actions, winners, pots.

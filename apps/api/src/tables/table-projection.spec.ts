@@ -20,6 +20,8 @@ const meta: TableMeta = {
   bombPotEnabled: false,
   bombPotIntervalHands: 15,
   bombPotAmount: 0,
+  straddleEnabled: false,
+  straddleMultiplier: 2,
 };
 
 const roster = new Map<number, RosterEntry>([
@@ -32,6 +34,7 @@ const roster = new Map<number, RosterEntry>([
       connected: true,
       stack: 1000,
       sittingOut: false,
+      straddleOn: false,
       lastTimeChargeAt: 0,
     },
   ],
@@ -44,6 +47,7 @@ const roster = new Map<number, RosterEntry>([
       connected: true,
       stack: 1000,
       sittingOut: false,
+      straddleOn: false,
       lastTimeChargeAt: 0,
     },
   ],
@@ -56,6 +60,7 @@ const roster = new Map<number, RosterEntry>([
       connected: true,
       stack: 1000,
       sittingOut: false,
+      straddleOn: false,
       lastTimeChargeAt: 0,
     },
   ],

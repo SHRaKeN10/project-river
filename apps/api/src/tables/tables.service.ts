@@ -31,6 +31,8 @@ export interface TableConfigPatch {
   bombPotEnabled?: boolean;
   bombPotIntervalHands?: number;
   bombPotAmount?: number;
+  straddleEnabled?: boolean;
+  straddleMultiplier?: number;
 }
 
 export type TableWithSeats = PokerTable & { seats: PokerTableSeat[] };
@@ -70,9 +72,10 @@ export class TablesService {
         minBuyIn,
         maxBuyIn,
         isPrivate: input.isPrivate ?? false,
-        // Bomb pots ship on for NLHE cash only (ADR-0026); every other variant
-        // plays exactly as before.
+        // Bomb pots (ADR-0026) and straddles (ADR-0027) ship on for NLHE cash
+        // only; every other variant plays exactly as before.
         bombPotEnabled: gameType === 'NLHE',
+        straddleEnabled: gameType === 'NLHE',
         seats: {
           create: Array.from({ length: maxSeats }, (_, seatNumber) => ({ seatNumber })),
         },
@@ -110,6 +113,9 @@ export class TablesService {
     if (patch.bombPotAmount !== undefined && patch.bombPotAmount < 0) {
       throw new BadRequestException('bombPotAmount cannot be negative');
     }
+    if (patch.straddleMultiplier !== undefined && patch.straddleMultiplier < 2) {
+      throw new BadRequestException('straddleMultiplier must be at least 2');
+    }
     return this.prisma.pokerTable.update({
       where: { id: tableId },
       data: {
@@ -119,6 +125,10 @@ export class TablesService {
           bombPotIntervalHands: patch.bombPotIntervalHands,
         }),
         ...(patch.bombPotAmount !== undefined && { bombPotAmount: patch.bombPotAmount }),
+        ...(patch.straddleEnabled !== undefined && { straddleEnabled: patch.straddleEnabled }),
+        ...(patch.straddleMultiplier !== undefined && {
+          straddleMultiplier: patch.straddleMultiplier,
+        }),
       },
       include: { seats: { orderBy: { seatNumber: 'asc' } } },
     });
@@ -143,6 +153,7 @@ export class TablesService {
       userId: string | null;
       stack: number;
       sittingOut: boolean;
+      straddleOn?: boolean;
     }[],
     handNumber: number,
     previous: {
@@ -160,6 +171,7 @@ export class TablesService {
             userId: seat.userId,
             stack: seat.stack,
             sittingOut: seat.sittingOut,
+            straddleOn: seat.straddleOn ?? false,
             joinedAt: seat.userId ? undefined : null,
           },
         }),

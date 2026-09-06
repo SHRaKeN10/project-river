@@ -109,6 +109,8 @@ export function describeEvent(
       return `Bomb pot! Everyone posts ${amount ?? ''} - no preflop betting`;
     case 'BOMB_POT_POSTED':
       return `${who} posts bomb ${amount ?? ''}`;
+    case 'STRADDLE_POSTED':
+      return `${who} straddles ${amount ?? ''}`;
     case 'PLAYER_FOLDED':
       return `${who} folds`;
     case 'PLAYER_CHECKED':

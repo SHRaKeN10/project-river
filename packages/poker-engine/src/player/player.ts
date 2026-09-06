@@ -28,6 +28,7 @@ export enum PlayerActionType {
   PostBigBlind = 'POST_BIG_BLIND',
   PostAnte = 'POST_ANTE',
   PostBomb = 'POST_BOMB',
+  PostStraddle = 'POST_STRADDLE',
   SitOut = 'SIT_OUT',
   Return = 'RETURN',
 }

@@ -11,6 +11,8 @@ export const ClientToServer = {
   PLAYER_READY: 'player:ready',
   PLAYER_SIT_OUT: 'player:sitOut',
   PLAYER_RETURN: 'player:return',
+  /** Arm / disarm the UTG straddle for your next under-the-gun turn (ADR-0027). */
+  PLAYER_STRADDLE: 'player:straddle',
   TABLE_CHAT: 'table:chat',
 
   /** Watch a tournament: the server routes you to your own table (or, if you

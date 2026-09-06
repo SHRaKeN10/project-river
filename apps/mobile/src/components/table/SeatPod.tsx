@@ -76,6 +76,11 @@ function SeatPodBase({
             {sittingOut ? 'Sitting out' : seat.stack.toLocaleString()}
           </Text>
         </View>
+        {seat.isStraddle ? (
+          <View style={styles.straddle}>
+            <Text style={styles.straddleText}>STR</Text>
+          </View>
+        ) : null}
         {isButton ? (
           <View style={styles.button}>
             <Text style={styles.buttonText}>D</Text>
@@ -161,6 +166,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   buttonText: { fontSize: 10, fontWeight: '800', color: colors.bg },
+  straddle: {
+    borderRadius: radius.pill,
+    backgroundColor: colors.warning,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+  },
+  straddleText: { fontSize: 9, fontWeight: '800', color: colors.bg, letterSpacing: 0.5 },
   cards: { flexDirection: 'row', gap: 3 },
   bet: {
     alignSelf: 'flex-start',

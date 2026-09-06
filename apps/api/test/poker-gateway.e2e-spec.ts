@@ -448,6 +448,92 @@ describe('PokerGateway (e2e)', () => {
     watcher.disconnect();
   }, 30000);
 
+  it('runs a straddled hand: blinds + a UTG straddle, first action past the straddle, flag persists', async () => {
+    const t = await makeTable({ maxSeats: 3 });
+    const rows = await prisma.pokerTable.findUnique({ where: { id: t } });
+    expect(rows?.straddleEnabled).toBe(true); // on by default for NLHE
+
+    const seen: any[] = [];
+    const updates: any[] = [];
+    let seq = 0;
+    const drive = (socket: Socket, recordUpdates = false) => {
+      const acted = new Set<string>();
+      if (recordUpdates) socket.on('hand:update', (e: any) => updates.push(e));
+      socket.on('table:state', (state: any) => {
+        seen.push(state);
+        if (!state.handId || state.actingSeat !== state.youAreSeat || !state.legalActions?.length) {
+          return;
+        }
+        const key = `${state.handId}:${state.street}:${state.currentBet}`;
+        if (acted.has(key)) return;
+        acted.add(key);
+        const kinds = state.legalActions.map((o: any) => o.kind);
+        const pick = kinds.includes('CHECK') ? 'CHECK' : kinds.includes('CALL') ? 'CALL' : 'FOLD';
+        socket.emit('player:action', {
+          tableId: t,
+          handId: state.handId,
+          clientSeq: (seq += 1),
+          action: { type: pick },
+        });
+      });
+    };
+
+    const sA = await connect(tokens[0]!);
+    const sB = await connect(tokens[1]!);
+    const sC = await connect(tokens[2]!);
+    drive(sA, true);
+    drive(sB);
+    drive(sC);
+
+    const endA = waitFor(sA, 'hand:end', 25000);
+    await emitAck(sA, 'table:join', { tableId: t, seatNumber: 0, buyIn: 1000 });
+    await emitAck(sB, 'table:join', { tableId: t, seatNumber: 1, buyIn: 1000 });
+    await emitAck(sC, 'table:join', { tableId: t, seatNumber: 2, buyIn: 1000 });
+
+    // seat 0 is UTG 3-handed; arm the straddle before the hand starts
+    const armed = await emitAck<{ ok?: true; error?: string }>(sA, 'player:straddle', {
+      tableId: t,
+      on: true,
+    });
+    expect(armed.ok).toBe(true);
+
+    await endA;
+
+    // the straddle was posted (blinds too - it is NOT a bomb pot)
+    expect(updates.some((e) => e.type === 'STRADDLE_POSTED')).toBe(true);
+    expect(updates.filter((e) => e.type === 'BLIND_POSTED')).toHaveLength(2);
+    const posted = updates.find((e) => e.type === 'STRADDLE_POSTED');
+    expect(posted).toMatchObject({ seat: 0, amount: 40 }); // 2x the 20 BB
+
+    // a mid-hand state shows the straddle and the seat badge, and action never
+    // opened on seat 0 (UTG straddled -> SB acts first)
+    const mid = seen.filter((s) => s.handId && s.street === 'PREFLOP' && s.straddle?.active);
+    expect(mid.length).toBeGreaterThan(0);
+    expect(mid[0].straddle).toMatchObject({ active: true, seat: 0, amount: 40 });
+    expect(mid[0].seats[0].isStraddle).toBe(true);
+    expect(mid[0].seats[1].isStraddle).toBe(false);
+    const firstPreflopActor = seen.find(
+      (s) => s.handId && s.street === 'PREFLOP' && s.actingSeat !== null,
+    )?.actingSeat;
+    expect(firstPreflopActor).not.toBe(0);
+
+    // the arming player sees youStraddleNext
+    expect(seen.some((s) => s.youAreSeat === 0 && s.youStraddleNext === true)).toBe(true);
+
+    // chips conserved
+    const seats = await prisma.pokerTableSeat.findMany({ where: { tableId: t } });
+    expect(seats.reduce((sum, s) => sum + s.stack, 0)).toBe(3000);
+    // the armed flag persisted to the seat row
+    expect(seats.find((s) => s.seatNumber === 0)?.straddleOn).toBe(true);
+
+    sA.emit('table:leave', { tableId: t });
+    sB.emit('table:leave', { tableId: t });
+    sC.emit('table:leave', { tableId: t });
+    sA.disconnect();
+    sB.disconnect();
+    sC.disconnect();
+  }, 30000);
+
   // --- regression: closed-alpha audit ------------------------------------
 
   it('refunds the buy-in when the requested seat is already taken', async () => {
