@@ -16,6 +16,7 @@ import {
 import { revealedByEvents } from '../tables/event-projection';
 import { type RosterEntry, type TableMeta } from '../tables/table-projection';
 import { type TimerScheduler } from '../tables/table-runner';
+import { type TournamentTableSnapshot } from './tournament-recovery';
 
 /**
  * One tournament table = one single-writer actor, the same shape as the cash
@@ -195,6 +196,91 @@ export class TournamentTableRunner {
     const out: (string | null)[] = Array.from({ length: this.engineConfig.maxSeats }, () => null);
     for (const [seat, e] of this.seatsBySeat) if (seat < out.length) out[seat] = e.userId;
     return out;
+  }
+
+  // --- restart recovery -----------------------------------------------
+
+  /** A flat, JSON-safe capture of everything needed to reconstruct this table
+   * after a process restart (see ADR-0025). Every seat is written as
+   * disconnected - clients reconnect and re-announce themselves. */
+  snapshot(): TournamentTableSnapshot {
+    return {
+      tableId: this.tableId,
+      label: this.label,
+      gameType: this.gameType,
+      engineConfig: this.engineConfig,
+      pendingConfig: this.pendingConfig,
+      state: this.state,
+      handNumber: this.handNumber,
+      previousPositions: this.previousPositions,
+      lastSeqByUser: [...this.lastSeqByUser.entries()],
+      revealedSeats: [...this.revealedSeats],
+      paused: this.paused,
+      held: this.held,
+      handStartStacks: [...this.handStartStacks.entries()],
+      seats: [...this.seatsBySeat.entries()].map(([seat, e]) => ({
+        seat,
+        userId: e.userId,
+        username: e.username,
+        avatarUrl: e.avatarUrl,
+        connected: false,
+        stack: e.stack,
+      })),
+    };
+  }
+
+  /** Restore this table's state from a snapshot. The in-progress hand (if any)
+   * comes back exactly as it was - same street, board, pot, contributions,
+   * acting seat, deck cursor. Timers are left unarmed; `resumeAfterRestart`
+   * arms them. */
+  hydrate(snap: TournamentTableSnapshot): void {
+    this.state = { ...snap.state, actionDeadline: null };
+    this.engineConfig = snap.engineConfig;
+    this.pendingConfig = snap.pendingConfig;
+    this.handNumber = snap.handNumber;
+    this.previousPositions = snap.previousPositions;
+    this.paused = snap.paused;
+    this.held = snap.held;
+    this.revealedSeats.clear();
+    for (const s of snap.revealedSeats) this.revealedSeats.add(s);
+    this.lastSeqByUser.clear();
+    for (const [userId, seq] of snap.lastSeqByUser) this.lastSeqByUser.set(userId, seq);
+    this.handStartStacks = new Map(snap.handStartStacks);
+    this.seatsBySeat.clear();
+    for (const s of snap.seats) {
+      this.seatsBySeat.set(s.seat, {
+        userId: s.userId,
+        username: s.username,
+        avatarUrl: s.avatarUrl,
+        connected: false,
+        stack: s.stack,
+      });
+    }
+  }
+
+  /** Resume play after a restart. A hand in progress gets its acting player a
+   * generous one-shot grace (2x the normal action clock) to reconnect and act;
+   * otherwise the next hand is scheduled as usual. Held/paused tables stay put. */
+  resumeAfterRestart(): void {
+    if (this.disposed || this.paused || this.held) return;
+    if (this.handInProgress) {
+      if (this.state.actingSeat === null) {
+        // A live hand always has an actor (the engine settles the moment nobody
+        // can act); if we ever see this, surface it rather than freeze silently.
+        this.deps.notify({ kind: 'state' });
+        return;
+      }
+      this.clearActionTimer();
+      const graceMs = this.deps.actionTimeoutMs * 2;
+      const seat = this.state.actingSeat;
+      const handId = this.state.handId;
+      this.state = { ...this.state, actionDeadline: this.deps.now() + graceMs };
+      this.actionTimer = this.deps.timers.set(() => {
+        this.enqueue({ type: 'TIMEOUT', seat, handId });
+      }, graceMs);
+    } else {
+      this.maybeScheduleNextHand();
+    }
   }
 
   // --- coordinator commands ---------------------------------------------

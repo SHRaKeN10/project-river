@@ -18,6 +18,11 @@ import { PrismaService } from '../infra/prisma/prisma.service';
 import { variantForGameType } from '../tables/game-variant';
 import { type TimerScheduler } from '../tables/table-runner';
 import { assignRoundPositions, computePayouts } from './standings';
+import {
+  TOURNAMENT_SNAPSHOT_VERSION,
+  TournamentRecoveryError,
+  type TournamentSnapshot,
+} from './tournament-recovery';
 import { currentLevel, elapsedRunningMs, levelEndsAt } from './tournament-clock';
 import { type TournamentTableNotification, TournamentTableRunner } from './tournament-table-runner';
 
@@ -56,6 +61,9 @@ export interface TournamentRunnerDeps {
   onFinished?: (tournamentId: string) => void;
   /** Live tournament events for the gateway. Absent in unit tests. */
   publish?: (ev: TournamentPublicEvent) => void;
+  /** Persist a recovery checkpoint (fire-and-forget). The manager writes it to
+   * Redis; absent in unit tests that don't exercise recovery. */
+  persistSnapshot?: (snapshot: TournamentSnapshot) => void;
 }
 
 interface EntryState {
@@ -93,8 +101,10 @@ interface EntryState {
  * `startingStack * entrants`. Payout invariant: the sum of every payout always
  * equals the prize pool.
  *
- * Not yet here (follow-ups): antes (the engine doesn't post them), restart
- * recovery.
+ * Restart recovery (ADR-0025): a full runtime checkpoint is written to Redis at
+ * every meaningful boundary; `resumeFromSnapshot` rebuilds the coordinator and
+ * every table from it after a process restart, with the level clock re-anchored
+ * to the persisted `Tournament.startedAt`.
  */
 export class TournamentRunner {
   private readonly logger = new Logger(TournamentRunner.name);
@@ -103,6 +113,9 @@ export class TournamentRunner {
   private disposed = false;
   private finishing = false;
   private balancing = false;
+  /** Suppresses checkpoints while `resumeFromSnapshot` is still wiring things up. */
+  private resuming = false;
+  private checkpointSeq = 0;
 
   private readonly entries = new Map<string, EntryState>(); // userId -> state
   private eliminatedCount = 0;
@@ -281,20 +294,11 @@ export class TournamentRunner {
     const byUser = new Map(row.entries.map((e) => [e.userId, e]));
     draw.forEach((seatArray, tableIndex) => {
       const tableId = `${this.tournamentId}:${tableIndex}`;
-      const table = new TournamentTableRunner(
+      const table = this.makeTableRunner(
         tableId,
         `${row.name} - Table ${tableIndex + 1}`,
         row.gameType,
         engineConfig,
-        {
-          rng: this.deps.rng,
-          timers: this.deps.timers,
-          now: this.deps.now,
-          actionTimeoutMs: this.deps.actionTimeoutMs,
-          disconnectGraceMs: this.deps.disconnectGraceMs,
-          nextHandDelayMs: this.deps.nextHandDelayMs,
-          notify: (n) => this.onTableNotification(tableId, n),
-        },
       );
       seatArray.forEach((userId, seatIndex) => {
         const entry = byUser.get(userId);
@@ -350,8 +354,208 @@ export class TournamentRunner {
       }
     }
 
+    this.checkpoint();
     this.logger.log(
       `tournament ${this.tournamentId} started - ${this.entrants} entrants on ${this.tables.size} table(s)`,
+    );
+  }
+
+  private makeTableRunner(
+    tableId: string,
+    label: string,
+    gameType: string,
+    config: TableConfig,
+  ): TournamentTableRunner {
+    return new TournamentTableRunner(tableId, label, gameType, config, {
+      rng: this.deps.rng,
+      timers: this.deps.timers,
+      now: this.deps.now,
+      actionTimeoutMs: this.deps.actionTimeoutMs,
+      disconnectGraceMs: this.deps.disconnectGraceMs,
+      nextHandDelayMs: this.deps.nextHandDelayMs,
+      notify: (n) => this.onTableNotification(tableId, n),
+    });
+  }
+
+  // --- restart recovery ----------------------------------------------
+
+  /**
+   * Persist a recovery checkpoint - fire-and-forget. Called after every
+   * player-visible state change (so a mid-hand crash resumes on the exact same
+   * decision) and at every boundary (start / completed hand / round / balance /
+   * level). The manager coalesces bursts under Redis backpressure so a busy
+   * field still writes at most one blob at a time.
+   */
+  private checkpoint(): void {
+    if (!this.deps.persistSnapshot || this.disposed || this.resuming || this.finishing) return;
+    this.deps.persistSnapshot(this.snapshot('running'));
+  }
+
+  /** The full runtime snapshot - see `tournament-recovery.ts`. */
+  snapshot(
+    phase: 'running' | 'finished' = 'running',
+    results?: { userId: string; position: number; payout: number }[],
+  ): TournamentSnapshot {
+    this.checkpointSeq += 1;
+    return {
+      v: TOURNAMENT_SNAPSHOT_VERSION,
+      tournamentId: this.tournamentId,
+      startedAtMs: this.startedAtMs,
+      writtenAtMs: this.deps.now(),
+      seq: this.checkpointSeq,
+      phase,
+      schedule: this.schedule,
+      entrants: this.entrants,
+      startingStack: this.startingStack,
+      seatsPerTable: this.seatsPerTable,
+      prizePool: this.prizePool,
+      paidPlaces: this.paidPlaces,
+      name: this.name,
+      gameType: this.gameType,
+      eliminatedCount: this.eliminatedCount,
+      roundNumber: this.roundNumber,
+      chopGroups: this.chopGroups.map((g) => [...g]),
+      handForHand: this.handForHand,
+      entries: [...this.entries.values()].map((e) => ({
+        entryId: e.entryId,
+        userId: e.userId,
+        username: e.username,
+        avatarUrl: e.avatarUrl,
+        stack: e.stack,
+        finishPosition: e.finishPosition,
+        tableId: e.tableId,
+        pendingBust: e.pendingBust ? { ...e.pendingBust } : null,
+      })),
+      tables: [...this.tables.values()].map((t) => t.snapshot()),
+      ...(results ? { results } : {}),
+    };
+  }
+
+  /**
+   * Reconstruct a running tournament from a Redis snapshot after a process
+   * restart. `startedAtMs` comes from `Tournament.startedAt` (Postgres) - the
+   * clock anchor - and is cross-checked against the snapshot so a blob from an
+   * earlier run of the same id can't be misapplied. Throws
+   * `TournamentRecoveryError` if the blob can't be trusted; the caller then
+   * leaves the tournament untouched (fail closed).
+   */
+  async resumeFromSnapshot(snapshot: TournamentSnapshot, startedAtMs: number): Promise<void> {
+    if (snapshot.v !== TOURNAMENT_SNAPSHOT_VERSION) {
+      throw new TournamentRecoveryError(
+        this.tournamentId,
+        `snapshot version ${snapshot.v} != ${TOURNAMENT_SNAPSHOT_VERSION}`,
+      );
+    }
+    if (snapshot.tournamentId !== this.tournamentId) {
+      throw new TournamentRecoveryError(
+        this.tournamentId,
+        'snapshot is for a different tournament',
+      );
+    }
+    if (snapshot.startedAtMs !== startedAtMs) {
+      throw new TournamentRecoveryError(
+        this.tournamentId,
+        `snapshot startedAt ${snapshot.startedAtMs} != row startedAt ${startedAtMs} (stale / different run)`,
+      );
+    }
+    if (snapshot.phase === 'finished') {
+      throw new TournamentRecoveryError(this.tournamentId, 'snapshot is a finished marker');
+    }
+    if (!Array.isArray(snapshot.tables) || !Array.isArray(snapshot.entries)) {
+      throw new TournamentRecoveryError(this.tournamentId, 'snapshot is missing tables / entries');
+    }
+
+    this.resuming = true;
+    try {
+      this.startedAtMs = startedAtMs;
+      this.schedule = snapshot.schedule as BlindSchedule;
+      this.entrants = snapshot.entrants;
+      this.startingStack = snapshot.startingStack;
+      this.seatsPerTable = snapshot.seatsPerTable;
+      this.prizePool = snapshot.prizePool;
+      this.paidPlaces = snapshot.paidPlaces;
+      this.name = snapshot.name;
+      this.gameType = snapshot.gameType;
+      this.eliminatedCount = snapshot.eliminatedCount;
+      this.roundNumber = snapshot.roundNumber;
+      this.chopGroups.length = 0;
+      this.chopGroups.push(...snapshot.chopGroups.map((g) => [...g]));
+      this.handForHand = snapshot.handForHand;
+
+      this.entries.clear();
+      for (const e of snapshot.entries) {
+        this.entries.set(e.userId, {
+          entryId: e.entryId,
+          userId: e.userId,
+          username: e.username,
+          avatarUrl: e.avatarUrl,
+          stack: e.stack,
+          finishPosition: e.finishPosition,
+          tableId: e.tableId,
+          pendingBust: e.pendingBust ? { ...e.pendingBust } : null,
+        });
+      }
+
+      for (const ts of snapshot.tables) {
+        const table = this.makeTableRunner(ts.tableId, ts.label, ts.gameType, ts.engineConfig);
+        table.hydrate(ts);
+        this.tables.set(ts.tableId, table);
+      }
+
+      // Conservation cross-check: total chips must still equal the field's
+      // starting chips. A mismatch means a corrupt snapshot - fail closed.
+      const totalChips = [...this.entries.values()].reduce((s, e) => s + e.stack, 0);
+      const expected = this.startingStack * this.entrants;
+      if (totalChips !== expected) {
+        this.tables.clear();
+        this.entries.clear();
+        throw new TournamentRecoveryError(
+          this.tournamentId,
+          `chip total ${totalChips} != ${expected} (startingStack x entrants)`,
+        );
+      }
+    } finally {
+      this.resuming = false;
+    }
+
+    // Re-anchor the level clock (from the persisted startedAt) and resume every
+    // table. Held / paused tables stay put; mid-hand tables give the acting
+    // player a generous grace to reconnect.
+    this.scheduleLevelAdvance();
+    for (const t of this.tables.values()) t.resumeAfterRestart();
+
+    // Bring the denormalised REST-view columns back in line (idempotent).
+    await this.persistStacks().catch(() => undefined);
+    await this.persistFinishPositions().catch(() => undefined);
+
+    // Finish an interrupted round / settle if the field is already down to one.
+    // `afterHand` no-ops if a round is already finalised or a table is mid-hand.
+    this.checkpoint();
+    await this.afterHand().catch((err) => this.onOrchestrationError(err));
+
+    this.logger.log(
+      `tournament ${this.tournamentId} recovered - seq ${snapshot.seq}, ${this.entries.size} entrants, ` +
+        `${this.tables.size} table(s), round ${this.roundNumber}, hand-for-hand ${this.handForHand}`,
+    );
+  }
+
+  /** Re-write eliminated entries' finishing positions to Postgres after a
+   * recovery (the fire-and-forget writes from `finalizeRound` may have been
+   * lost in the crash). Idempotent. */
+  private async persistFinishPositions(): Promise<void> {
+    await Promise.all(
+      [...this.entries.values()]
+        .filter((e) => e.finishPosition !== null && e.finishPosition !== 1)
+        .map((e) =>
+          this.deps.prisma.tournamentEntry
+            .update({
+              where: { id: e.entryId },
+              data: { stack: 0, finishPosition: e.finishPosition, eliminatedAt: new Date() },
+            })
+            .catch((err) =>
+              this.logger.warn(`persist finish ${e.entryId}: ${(err as Error).message}`),
+            ),
+        ),
     );
   }
 
@@ -447,6 +651,7 @@ export class TournamentRunner {
     if (this.disposed || this.tables.size === 0) return;
     this.applyCurrentLevel();
     this.publish({ kind: 'clock', snapshot: this.clockSnapshot() });
+    this.checkpoint(); // blinds/ante just changed on every table
     const endsAt = levelEndsAt(this.schedule, this.clock(), this.deps.now());
     if (endsAt === null) return; // on the final level - nothing more to schedule
     const delay = Math.max(0, endsAt - this.deps.now());
@@ -485,6 +690,12 @@ export class TournamentRunner {
         this.logger.debug(`table ${tableId} rejected for ${n.userId}: ${n.code} ${n.reason}`);
         return;
       case 'state':
+        // One checkpoint per player-visible state change (mid-hand progress).
+        // `events` is skipped - the `state` that always follows it captures the
+        // same result, and during a completing hand `events` fires before the
+        // table has settled its own roster.
+        this.checkpoint();
+        return;
       case 'events':
         return;
     }
@@ -522,6 +733,13 @@ export class TournamentRunner {
       if (seat !== null && seat !== undefined) table?.unseat(seat);
     }
 
+    // Checkpoint the consistent post-hand state now, before any await - busts
+    // recorded as pending, seats freed, positions not yet assigned. This is a
+    // valid resume point (recovery re-runs `afterHand`, which finalises the
+    // round exactly once) and closes the window between the table settling its
+    // roster and the round boundary.
+    this.checkpoint();
+
     await this.persistStacks();
     await this.afterHand();
   }
@@ -554,6 +772,10 @@ export class TournamentRunner {
     } finally {
       this.balancing = false;
     }
+    // The round boundary is settled (positions assigned, tables balanced) -
+    // checkpoint before `maybeFinish`, which is deterministic + idempotent and
+    // is safely re-run on recovery.
+    this.checkpoint();
     await this.maybeFinish();
   }
 
@@ -820,6 +1042,10 @@ export class TournamentRunner {
       this.publish({ kind: 'tableClosed', tableId: id });
     }
     this.tables.clear();
+    // Leave a short-lived `finished` marker so a client reconnecting in the
+    // window right after settlement is still told the outcome; the manager
+    // gives it a short TTL and the boot scan ignores non-RUNNING rows anyway.
+    this.deps.persistSnapshot?.(this.snapshot('finished', standings));
     this.publish({ kind: 'finished', results: standings });
     this.deps.onFinished?.(this.tournamentId);
   }
