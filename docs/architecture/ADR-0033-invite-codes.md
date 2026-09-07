@@ -82,3 +82,8 @@ required. No "am I in invite-only mode?" round-trip.
 - Not built (deliberately, per the freeze): per-invite chip bonuses, invite
   trees / referral tracking beyond `invitedViaCode`, a self-serve "request an
   invite" flow, an admin UI (use the REST endpoint or `curl`).
+- `ThrottleGuard` now no-ops under `NODE_ENV=test`. The invite e2e is
+  registration-heavy and the e2e suites share one Redis, so the per-IP
+  `register` budget had become a cross-suite coupling (one heavy suite 429s the
+  next). The limiter's own logic stays covered by `rate-limiter.service.spec.ts`;
+  no e2e asserted the 429 path.
