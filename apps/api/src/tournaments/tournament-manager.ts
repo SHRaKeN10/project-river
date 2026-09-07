@@ -65,6 +65,10 @@ export class TournamentManager implements OnApplicationBootstrap, OnModuleDestro
   ) {}
 
   onApplicationBootstrap(): void {
+    // In tests the dev DB is shared across e2e suites; a stray RUNNING row from
+    // another suite must not spin up a background coordinator here. The recovery
+    // e2e calls `recoverAll()` explicitly.
+    if (this.config.get('NODE_ENV') === 'test') return;
     void this.recoverAll();
   }
 
