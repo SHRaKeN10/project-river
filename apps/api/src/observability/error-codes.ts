@@ -26,6 +26,8 @@ export enum ErrorCode {
   TOURNAMENT_NOT_RUNNING = 'TOURNAMENT_NOT_RUNNING',
   TOURNAMENT_REGISTRATION_CLOSED = 'TOURNAMENT_REGISTRATION_CLOSED',
   WAITLIST_NO_RESERVATION = 'WAITLIST_NO_RESERVATION',
+  INVITE_REQUIRED = 'INVITE_REQUIRED',
+  INVITE_INVALID = 'INVITE_INVALID',
 }
 
 /** Maps a raw HTTP status onto a generic code for non-`AppError` exceptions. */
@@ -83,6 +85,18 @@ export class SeatReservedError extends AppError {
 export class WaitlistNoReservationError extends AppError {
   constructor(message = 'you do not have a seat reserved at this table') {
     super(ErrorCode.WAITLIST_NO_RESERVATION, message, HttpStatus.NOT_FOUND);
+  }
+}
+
+export class InviteRequiredError extends AppError {
+  constructor(message = 'an invite code is required to register') {
+    super(ErrorCode.INVITE_REQUIRED, message, HttpStatus.FORBIDDEN);
+  }
+}
+
+export class InviteInvalidError extends AppError {
+  constructor(message = 'that invite code is not valid') {
+    super(ErrorCode.INVITE_INVALID, message, HttpStatus.FORBIDDEN);
   }
 }
 

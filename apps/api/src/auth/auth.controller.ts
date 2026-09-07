@@ -2,21 +2,27 @@ import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req, UseGuards } fro
 import type { Request } from 'express';
 import {
   AuthResponse,
+  type CreateInviteInput,
+  createInviteSchema,
   emailVerificationConfirmSchema,
+  type InviteView,
   loginSchema,
   passwordResetConfirmSchema,
   passwordResetRequestSchema,
   PublicUser,
   refreshSchema,
   registerSchema,
+  UserRole,
 } from '@river/shared-types';
 import { AppConfigService } from '../config/app-config.service';
 import { CurrentUser, RequestUser } from '../common/decorators/current-user.decorator';
 import { Public } from '../common/decorators/public.decorator';
+import { Roles } from '../common/decorators/roles.decorator';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 import { Throttle } from '../common/rate-limit/throttle.decorator';
 import { ThrottleGuard } from '../common/rate-limit/throttle.guard';
 import { AuthService, RequestContext } from './auth.service';
+import { InvitesService } from './invites.service';
 
 /** Non-production responses surface the freshly-minted verification/reset token
  * so clients can be built and tested before an email service exists (Phase 9).
@@ -31,6 +37,7 @@ export class AuthController {
   constructor(
     private readonly auth: AuthService,
     private readonly config: AppConfigService,
+    private readonly invites: InvitesService,
   ) {}
 
   private devToken(raw: string | null): DevTokenResponse {
@@ -44,9 +51,31 @@ export class AuthController {
     @Body(new ZodValidationPipe(registerSchema)) body: unknown,
     @Req() req: Request,
   ): Promise<AuthResponse> {
-    const input = body as { email: string; username: string; password: string };
+    const input = body as {
+      email: string;
+      username: string;
+      password: string;
+      inviteCode?: string;
+    };
     const { user, tokens } = await this.auth.register(input, contextOf(req));
     return { user, tokens };
+  }
+
+  /** Admin: mint / list closed-alpha invite codes (ADR-0033). */
+  @Roles(UserRole.ADMIN)
+  @Post('invites')
+  @HttpCode(HttpStatus.CREATED)
+  createInvite(
+    @CurrentUser() user: RequestUser,
+    @Body(new ZodValidationPipe(createInviteSchema)) body: unknown,
+  ): Promise<InviteView> {
+    return this.invites.mint(user.id, body as CreateInviteInput);
+  }
+
+  @Roles(UserRole.ADMIN)
+  @Get('invites')
+  listInvites(): Promise<InviteView[]> {
+    return this.invites.list();
   }
 
   @Public()

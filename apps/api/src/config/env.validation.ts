@@ -14,6 +14,13 @@ export const envSchema = z
     JWT_ACCESS_TTL: z.coerce.number().int().positive().default(600),
     JWT_REFRESH_TTL: z.coerce.number().int().positive().default(2_592_000),
 
+    /** Closed-alpha gate (ADR-0033). `true` => registration requires a valid
+     * invite code. Anything other than the literal "true" is off. */
+    INVITE_ONLY: z
+      .string()
+      .default('false')
+      .transform((v) => v.toLowerCase() === 'true'),
+
     CORS_ORIGINS: z
       .string()
       .default('')

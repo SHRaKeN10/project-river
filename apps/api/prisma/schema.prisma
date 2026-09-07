@@ -65,6 +65,9 @@ model User {
   status         UserStatus @default(ACTIVE)
   avatarUrl      String?
   emailVerifiedAt DateTime?
+  /// The invite code this account registered with (ADR-0033), for closed-alpha
+  /// tracking. Null for accounts made before invite-only, or in open mode.
+  invitedViaCode String?
   /// Free-to-play game currency. NOT money - no deposits/withdrawals. Refills
   /// via /api/chips/rebuy when depleted.
   playChips      Int        @default(10000)
@@ -83,8 +86,27 @@ model User {
   tournamentEntries    TournamentEntry[]
   tableDepartures      TableDeparture[]
   seatReservations     TableSeatReservation[]
+  invitesCreated       InviteCode[]        @relation("InviteCreator")
 
   @@index([status])
+}
+
+/// A closed-alpha invite code (ADR-0033). While `INVITE_ONLY=true`, registration
+/// requires a code that is unexpired and has redemptions left. A redemption
+/// increments `usedCount` atomically inside the register transaction.
+model InviteCode {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code        String    @unique
+  createdById String?   @db.Uuid
+  createdBy   User?     @relation("InviteCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  maxUses     Int       @default(1)
+  usedCount   Int       @default(0)
+  expiresAt   DateTime?
+  /// Free-text label for the operator ("twitter batch 1", a person's name).
+  note        String?
+  createdAt   DateTime  @default(now())
+
+  @@index([code])
 }
 
 enum ChipMovementReason {

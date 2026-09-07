@@ -145,6 +145,23 @@ node scripts/watch-metrics.mjs 20
 `fly logs` is the other half — `TableRunner` / `TableManager` warnings and any
 `cashOut FAILED … manual reconciliation needed` line.
 
+## Closed alpha — invite codes
+
+`fly secrets set INVITE_ONLY=true` (read per-request; the machine restarts, no
+redeploy). Then, as an admin:
+
+```bash
+# mint a code good for 5 people, expiring in 7 days
+curl -sX POST $API/api/auth/invites -H "authorization: Bearer $ADMIN" \
+  -H 'content-type: application/json' \
+  -d '{"maxUses":5,"expiresInHours":168,"note":"discord batch 1"}'
+
+curl -s $API/api/auth/invites -H "authorization: Bearer $ADMIN"   # usage so far
+```
+
+Hand out `code`. To end the alpha: `fly secrets unset INVITE_ONLY`. See
+`docs/architecture/ADR-0033-invite-codes.md`.
+
 ## Admin table control
 
 `PATCH /api/tables/:id/status` (admin) with `{ "status": "ACTIVE" | "PAUSED" | "CLOSED" }`.

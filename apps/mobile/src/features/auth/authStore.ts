@@ -15,7 +15,12 @@ interface AuthState {
 
   hydrate: () => Promise<void>;
   login: (emailOrUsername: string, password: string) => Promise<void>;
-  register: (email: string, username: string, password: string) => Promise<void>;
+  register: (
+    email: string,
+    username: string,
+    password: string,
+    inviteCode?: string,
+  ) => Promise<void>;
   logout: () => Promise<void>;
   clearError: () => void;
   setUser: (user: PublicUser) => void;
@@ -117,10 +122,15 @@ export const useAuthStore = create<AuthState>()((set, get) => {
       }
     },
 
-    async register(email, username, password) {
+    async register(email, username, password, inviteCode) {
       set({ error: null });
       try {
-        const res = await authApi.register({ email, username, password });
+        const res = await authApi.register({
+          email,
+          username,
+          password,
+          ...(inviteCode ? { inviteCode } : {}),
+        });
         await setSession(res.tokens, res.user);
       } catch (err) {
         set({ error: messageOf(err) });
