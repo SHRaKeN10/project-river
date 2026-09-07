@@ -161,10 +161,17 @@ describeHand(bob); // "Three of a Kind, Queens"
 
 `GET /api/lobby` (filters: `gameType`, `minBigBlind`/`maxBigBlind`,
 `hasOpenSeat`, `favoritesOnly`, `includePrivate`) · `GET /api/lobby/:id` ·
-`POST|DELETE /api/lobby/:id/favorite` · `POST|DELETE /api/lobby/:id/waitlist`.
-WebSocket: `lobby:subscribe` → `lobby:tables` then live `lobby:update` deltas;
-`waitlist:seatAvailable` to the head of the queue when a seat frees.
-See `docs/architecture/ADR-0007`.
+`POST|DELETE /api/lobby/:id/favorite` · `POST|DELETE /api/lobby/:id/waitlist` ·
+`POST /api/lobby/:id/waitlist/claim`. WebSocket: `lobby:subscribe` →
+`lobby:tables` then live `lobby:update` deltas. See `docs/architecture/ADR-0007`.
+
+**Waitlist auto-seat** (ADR-0031): when a seat frees, the head of the waitlist
+gets a short-lived **hold** on that seat (`waitlist:seatAvailable` carries the
+seat + deadline); only they can take it, with a normal `table:join`. Let the
+window lapse and you lose your place — a periodic sweeper re-promotes. The hold
+lives entirely in the DB (`TableSeatReservation`, `@@unique([tableId,
+seatNumber])` as the anti-double-claim guard), so a restart needs no special
+handling.
 
 ## Multiplayer tables (Phase 5)
 

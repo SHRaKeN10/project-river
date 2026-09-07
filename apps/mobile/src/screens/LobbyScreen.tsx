@@ -2,7 +2,7 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import { Alert, FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { LobbyTableView } from '@river/shared-types';
+import type { LobbyTableView, WaitlistSeatAvailable } from '@river/shared-types';
 import { EmptyState, FilterChip } from '../components';
 import { useLobbyTables, useToggleFavorite, useWaitlist } from '../features/lobby/queries';
 import { useLobbyLive } from '../features/lobby/useLobbyLive';
@@ -47,14 +47,22 @@ export function LobbyScreen({ navigation }: Props): JSX.Element {
   tablesRef.current = data;
 
   const onSeatAvailable = useCallback(
-    (tableId: string) => {
+    ({ tableId, seatNumber, expiresAt }: WaitlistSeatAvailable) => {
       const name = tablesRef.current?.find((t) => t.id === tableId)?.name ?? 'a table';
-      Alert.alert('Seat available', `A seat opened up at ${name}.`, [
-        { text: 'Later', style: 'cancel' },
-        { text: 'Take seat', onPress: () => openTable(tableId) },
-      ]);
+      const secs = Math.max(0, Math.round((expiresAt - Date.now()) / 1000));
+      Alert.alert(
+        'Your seat is ready',
+        `A seat opened up at ${name}. It's held for you for about ${secs}s.`,
+        [
+          { text: 'Pass', style: 'cancel' },
+          {
+            text: 'Take seat',
+            onPress: () => navigation.navigate('Table', { tableId, claimSeat: seatNumber }),
+          },
+        ],
+      );
     },
-    [openTable],
+    [navigation],
   );
 
   useLobbyLive({ onSeatAvailable });

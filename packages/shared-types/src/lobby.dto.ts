@@ -65,6 +65,18 @@ export const LobbyClientToServer = {
 export const LobbyServerToClient = {
   LOBBY_TABLES: 'lobby:tables',
   LOBBY_UPDATE: 'lobby:update',
-  /** Sent to the head of a table's waitlist when a seat frees up. */
+  /** Sent to the head of a table's waitlist when a seat is held for them
+   * (ADR-0031). They have until `expiresAt` to claim it with a normal
+   * `table:join` on `seatNumber`, after which the hold passes to the next in
+   * line. */
   WAITLIST_SEAT_AVAILABLE: 'waitlist:seatAvailable',
 } as const;
+
+/** `waitlist:seatAvailable` payload. */
+export interface WaitlistSeatAvailable {
+  tableId: string;
+  /** The specific seat held for this user. */
+  seatNumber: number;
+  /** Epoch millis the hold expires. */
+  expiresAt: number;
+}

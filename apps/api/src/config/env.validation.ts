@@ -37,6 +37,12 @@ export const envSchema = z
     /** ...or once they have missed this many hands while away, whichever first. */
     TABLE_AWAY_MAX_MISSED_HANDS: z.coerce.number().int().positive().default(10),
 
+    /** Waitlist auto-seat (ADR-0031). How long the head of a waitlist has to
+     * claim a freed seat before the hold expires and it passes to the next in
+     * line, and how often the sweeper expires stale holds + re-promotes. */
+    WAITLIST_CLAIM_WINDOW_MS: z.coerce.number().int().positive().default(25_000),
+    WAITLIST_SWEEP_MS: z.coerce.number().int().positive().default(5_000),
+
     /** Error reporting. Absent DSN => Sentry stays inert, errors go to structured
      * logs only. `SENTRY_ENVIRONMENT` defaults to `NODE_ENV`; tracing is off
      * unless `SENTRY_TRACES_SAMPLE_RATE` is set above 0. */

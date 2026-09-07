@@ -117,16 +117,6 @@ export class LobbyService {
     };
   }
 
-  /** The next user waiting for a seat at a table, or null. */
-  async waitlistHead(tableId: string): Promise<string | null> {
-    const head = await this.prisma.tableWaitlistEntry.findFirst({
-      where: { tableId },
-      orderBy: { createdAt: 'asc' },
-      select: { userId: true },
-    });
-    return head?.userId ?? null;
-  }
-
   // --- internals --------------------------------------------------------
 
   private toView(

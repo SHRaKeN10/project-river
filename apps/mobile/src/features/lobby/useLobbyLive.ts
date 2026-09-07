@@ -6,13 +6,15 @@ import {
   LobbyServerToClient,
   type LobbyTableDelta,
   type LobbyTableView,
+  type WaitlistSeatAvailable,
 } from '@river/shared-types';
 import { getSocket } from '../realtime/socket';
 import { lobbyKeys, useApplyLobbyDelta } from './queries';
 
 interface Options {
-  /** Fired when a seat opens up at a table this user is waitlisted for. */
-  onSeatAvailable?: (tableId: string) => void;
+  /** Fired when a seat is held for this user at a table they're waitlisted for
+   * (ADR-0031) - carries the seat and the claim deadline. */
+  onSeatAvailable?: (payload: WaitlistSeatAvailable) => void;
 }
 
 /**
@@ -33,7 +35,7 @@ export function useLobbyLive({ onSeatAvailable }: Options = {}): void {
         qc.setQueryData(lobbyKeys.all, tables);
       };
       const onUpdate = (delta: LobbyTableDelta): void => applyDelta(delta);
-      const onWaitlist = (payload: { tableId: string }): void => onSeatAvailable?.(payload.tableId);
+      const onWaitlist = (payload: WaitlistSeatAvailable): void => onSeatAvailable?.(payload);
       const subscribe = (): void => {
         socket.emit(LobbyClientToServer.LOBBY_SUBSCRIBE, {});
       };

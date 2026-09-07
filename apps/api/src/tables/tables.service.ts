@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, HttpException, Injectable, NotFoundException } from '@nestjs/common';
 import {
   ChipMovementReason,
   PokerTable,
@@ -9,6 +9,7 @@ import {
 import { maxSeatsForVariant } from '@river/poker-engine';
 import { ChipsService } from '../chips/chips.service';
 import { PrismaService } from '../infra/prisma/prisma.service';
+import { SeatReservedError } from '../observability/error-codes';
 import { variantForGameType } from './game-variant';
 
 export interface CreateTableInput {
@@ -230,6 +231,19 @@ export class TablesService {
         });
         if (already > 0) throw new BadRequestException('you are already at this table');
 
+        // Waitlist auto-seat (ADR-0031): if this physical seat is held for
+        // someone on the waitlist, only they may take it. Their own claim
+        // consumes the hold below; a walk-up to a *different* open seat is
+        // unaffected. An expired hold is ignored (the sweeper will clear it).
+        const hold = await tx.tableSeatReservation.findUnique({
+          where: {
+            tableId_seatNumber: { tableId: args.tableId, seatNumber: args.seatNumber },
+          },
+        });
+        if (hold && hold.expiresAt.getTime() > Date.now() && hold.userId !== args.userId) {
+          throw new SeatReservedError();
+        }
+
         // Anti-ratholing (ADR-0029): a player who voluntarily left this table
         // cannot come back short for `antiRatholeMinutes`. Their leaving stack is
         // the floor, capped at the table max. Losing chips elsewhere, a
@@ -273,15 +287,23 @@ export class TablesService {
           tx,
         );
 
-        // They took a seat within the rules - the anti-rathole clock resets.
+        // They took a seat within the rules - the anti-rathole clock resets,
+        // any seat hold is consumed, and they leave the waitlist (they are
+        // seated now, whether they walked up or were promoted).
         await tx.tableDeparture.deleteMany({
+          where: { tableId: args.tableId, userId: args.userId },
+        });
+        await tx.tableSeatReservation.deleteMany({
+          where: { tableId: args.tableId, userId: args.userId },
+        });
+        await tx.tableWaitlistEntry.deleteMany({
           where: { tableId: args.tableId, userId: args.userId },
         });
       });
       return { ok: true };
     } catch (err) {
       const message =
-        err instanceof BadRequestException
+        err instanceof HttpException
           ? ((err.getResponse() as { message?: string }).message ?? 'could not take that seat')
           : 'could not take that seat';
       return { ok: false, error: message };
