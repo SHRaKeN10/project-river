@@ -209,7 +209,11 @@ describe('Tournament restart recovery (e2e)', () => {
     manager = app.get(TournamentManager);
     baseUrl = urlOf(app);
 
-    // the boot scan (OnApplicationBootstrap) rehydrates it
+    // The boot scan is skipped under NODE_ENV=test (a shared dev DB across e2e
+    // suites); run it explicitly here - this is exactly what OnApplicationBootstrap
+    // does in production.
+    await manager.recoverAll();
+
     let recovered: TournamentRunner | undefined;
     for (let i = 0; i < 100 && !recovered; i += 1) {
       recovered = await manager.ensureRunner(id);

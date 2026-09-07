@@ -408,4 +408,54 @@ describe('TournamentGateway (e2e)', () => {
 
     manager.stop(id);
   }, 25000);
+
+  it('a client that watches before the tournament starts is attached when it does (ADR-0032)', async () => {
+    const view = await tournaments.create({
+      name: `GW-prestart ${suffix} ${tournamentIds.length}`,
+      buyIn: 100,
+      startingStack: 250,
+      seatsPerTable: 9,
+      blinds,
+      lateRegUntilLevel: 1,
+    });
+    tournamentIds.push(view.id);
+    for (let i = 0; i < 3; i += 1) await tournaments.register(userIds[i]!, view.id);
+
+    // player 0 opens the table screen while registration is still open
+    const seated = await connect(tokens[0]!);
+    const seatedLog = drive(seated, view.id, 'passive');
+    const preStartAck = await emitAck<{ ok?: true; error?: string }>(seated, 'tournament:watch', {
+      tournamentId: view.id,
+    });
+    expect(preStartAck.ok).toBe(true); // held, not turned away
+
+    // a pure spectator does the same
+    const spec = await connect(specToken);
+    const specAssignment = waitFor(spec, 'table:state', 15_000);
+    expect(
+      (await emitAck<{ ok?: true }>(spec, 'tournament:watch', { tournamentId: view.id })).ok,
+    ).toBe(true);
+
+    // ...now it starts, with no re-watch from either client
+    const assignment = waitFor(seated, 'tournament:assignment', 15_000);
+    const firstState = waitFor(seated, 'table:state', 15_000);
+    await manager.start(view.id);
+
+    const a = await assignment;
+    expect(a.tournamentId).toBe(view.id);
+    expect(a.seat).toBeGreaterThanOrEqual(0);
+    const st = await firstState;
+    expect(st.tournamentId).toBe(view.id);
+    expect(st.youAreSeat).not.toBeNull();
+    expect(st.seats.find((s: any) => s.seatNumber === st.youAreSeat).userId).toBe(userIds[0]);
+
+    const specState = await specAssignment;
+    expect(specState.tournamentId).toBe(view.id);
+    expect(specState.youAreSeat).toBeNull(); // spectator, no seat
+
+    await new Promise((r) => setTimeout(r, 300));
+    expect(seatedLog.errors).toHaveLength(0);
+
+    manager.stop(view.id);
+  }, 30000);
 });

@@ -65,6 +65,10 @@ export class TournamentManager implements OnApplicationBootstrap, OnModuleDestro
   ) {}
 
   onApplicationBootstrap(): void {
+    // In tests the dev DB is shared across e2e suites; a stray RUNNING row from
+    // another suite must not spin up a background coordinator here. The recovery
+    // e2e calls `recoverAll()` explicitly.
+    if (this.config.get('NODE_ENV') === 'test') return;
     void this.recoverAll();
   }
 
@@ -142,6 +146,15 @@ export class TournamentManager implements OnApplicationBootstrap, OnModuleDestro
   ): Promise<{ userId: string; position: number; payout: number }[] | null> {
     const snap = await this.readSnapshot(tournamentId);
     return snap?.phase === 'finished' ? (snap.results ?? []) : null;
+  }
+
+  /** Row status for a tournament with no live runner - lets the gateway hold a
+   * pre-start watcher instead of turning it away. */
+  async statusOf(tournamentId: string): Promise<string | null> {
+    const row = await this.prisma.tournament
+      .findUnique({ where: { id: tournamentId }, select: { status: true } })
+      .catch(() => null);
+    return row?.status ?? null;
   }
 
   // --- lifecycle -----------------------------------------------------
