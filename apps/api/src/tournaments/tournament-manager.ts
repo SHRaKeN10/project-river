@@ -9,6 +9,7 @@ import { ChipsService } from '../chips/chips.service';
 import { AppConfigService } from '../config/app-config.service';
 import { PrismaService } from '../infra/prisma/prisma.service';
 import { RedisService } from '../infra/redis/redis.service';
+import { OrchestrationErrorsService } from '../observability/orchestration-errors.service';
 import { realTimers } from '../tables/table-runner';
 import {
   type TournamentPublicEvent,
@@ -51,12 +52,16 @@ export class TournamentManager implements OnApplicationBootstrap, OnModuleDestro
    * busy field never backs up more than one blob under Redis latency. */
   private readonly pendingSnapshot = new Map<string, TournamentSnapshot>();
   private readonly snapshotFlushing = new Set<string>();
+  /** Epoch-ms of recent tournament hand completions, for a rolling rate on
+   * `/ops/metrics` (tournament hands are not persisted to `PokerHand`). */
+  private handTimestamps: number[] = [];
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly chips: ChipsService,
     private readonly config: AppConfigService,
     private readonly redis: RedisService,
+    private readonly orchestrationErrors: OrchestrationErrorsService,
   ) {}
 
   onApplicationBootstrap(): void {
@@ -80,12 +85,45 @@ export class TournamentManager implements OnApplicationBootstrap, OnModuleDestro
         l(tournamentId, ev);
       } catch (err) {
         this.logger.error(`tournament listener error: ${(err as Error).message}`);
+        this.orchestrationErrors.record('tournament-listener', err);
       }
     }
   }
 
   get(tournamentId: string): TournamentRunner | undefined {
     return this.runners.get(tournamentId);
+  }
+
+  /** Point-in-time tournament counts for `/ops/metrics`. Tournament tables and
+   * hands never touch the cash-game `TableManager`, so they need their own roll-up. */
+  liveMetrics(now: number = Date.now()): {
+    running: number;
+    playersRemaining: number;
+    tables: number;
+    handsLastMinute: number;
+  } {
+    let playersRemaining = 0;
+    let tables = 0;
+    for (const runner of this.runners.values()) {
+      if (!runner.running) continue;
+      playersRemaining += runner.playersRemaining;
+      tables += runner.tableSeatCounts().length;
+    }
+    this.handTimestamps = this.handTimestamps.filter((t) => now - t < 60_000);
+    return {
+      running: [...this.runners.values()].filter((r) => r.running).length,
+      playersRemaining,
+      tables,
+      handsLastMinute: this.handTimestamps.length,
+    };
+  }
+
+  private notchHand(): void {
+    const now = Date.now();
+    this.handTimestamps.push(now);
+    if (this.handTimestamps.length > 5000) {
+      this.handTimestamps = this.handTimestamps.filter((t) => now - t < 60_000);
+    }
   }
 
   /** Like `get`, but waits out an in-flight recovery first - the gateway calls
@@ -120,6 +158,8 @@ export class TournamentManager implements OnApplicationBootstrap, OnModuleDestro
       nextHandDelayMs: this.config.get('TABLE_NEXT_HAND_DELAY_MS'),
       publish: (ev) => this.emit(tournamentId, ev),
       persistSnapshot: (snap) => this.queueSnapshotWrite(tournamentId, snap),
+      onError: (err, detail) => this.orchestrationErrors.record('tournament-runner', err, detail),
+      onHandComplete: () => this.notchHand(),
       onFinished: (id) => {
         this.runners.get(id)?.dispose();
         this.runners.delete(id);
@@ -174,6 +214,7 @@ export class TournamentManager implements OnApplicationBootstrap, OnModuleDestro
       });
     } catch (err) {
       this.logger.error(`tournament recovery scan failed: ${(err as Error).message}`);
+      this.orchestrationErrors.record('tournament-recovery-scan', err);
       return;
     }
     if (rows.length === 0) return;
@@ -227,9 +268,9 @@ export class TournamentManager implements OnApplicationBootstrap, OnModuleDestro
       snapshot = await this.readSnapshot(tournamentId);
     }
     if (!snapshot) {
-      this.logger.error(
-        `recover ${tournamentId}: RUNNING row but no Redis checkpoint after retries - failing closed (no runner spawned; CANCEL to refund)`,
-      );
+      const msg = `recover ${tournamentId}: RUNNING row but no Redis checkpoint after retries - failing closed (no runner spawned; CANCEL to refund)`;
+      this.logger.error(msg);
+      this.orchestrationErrors.record('tournament-recovery', new Error(msg), { tournamentId });
       return;
     }
 
@@ -242,10 +283,12 @@ export class TournamentManager implements OnApplicationBootstrap, OnModuleDestro
         this.logger.error(
           `recover ${tournamentId}: ${err.detail} - failing closed (no runner spawned)`,
         );
+        this.orchestrationErrors.record('tournament-recovery', err, { tournamentId });
       } else {
         this.logger.error(
           `recover ${tournamentId}: unexpected error ${(err as Error).message} - failing closed`,
         );
+        this.orchestrationErrors.record('tournament-recovery', err, { tournamentId });
       }
       return;
     }

@@ -101,9 +101,26 @@ first. Their stack is returned to their wallet through the same idempotent
 | `sockets`                                                   | connected clients on this node                                                                          |
 | `tables.activeTables` / `seatedPlayers` / `handsInProgress` | load                                                                                                    |
 | `tables.stuckTables`                                        | **should be 0** — a hand whose action clock lapsed >30 s past its timer; the runner queue may be wedged |
-| `handsLastMinute`                                           | throughput; 0 while players are seated is suspicious                                                    |
+| `handsLastMinute`                                           | cash-game throughput; 0 while players are seated is suspicious                                          |
+| `tournaments.running` / `playersRemaining` / `tables`       | live tournament roll-up (tournament tables never appear under `tables.*`)                               |
+| `tournaments.handsLastMinute`                               | tournament throughput; `handsLastMinute` above is blind to tournament hands                             |
+| `orchestrationErrors.total`                                 | **should stay flat** — coordinator failures outside any request; a climbing count needs a look          |
+| `orchestrationErrors.byScope` / `lastMessage` / `lastAt`    | which coordinator, the most recent message, and when                                                    |
 
 Also scrape `GET /health/ready` for dependency health.
+
+### Error reporting
+
+Every API failure returns `{ statusCode, code, message, requestId, timestamp }`
+— `code` is stable (`NOT_FOUND`, `VALIDATION_FAILED`, `ANTI_RATHOLE_COOLDOWN`,
+`INTERNAL`, …); `requestId` matches the `req.id` in the logs. 5xx and any
+non-HTTP bug are logged with a stack and sent to the error reporter.
+
+Set `SENTRY_DSN` (`fly secrets set`) to aggregate errors in Sentry — recommended
+before human testing. Without it, errors still land in the structured logs
+(grep for `"event":"error_captured"` or `"level":50`), just not aggregated.
+`orchestrationErrors` on `/ops/metrics` is the at-a-glance counter either way.
+See `docs/architecture/ADR-0030-observability.md`.
 
 Leave `scripts/watch-metrics.mjs` running during a test session — it logs a
 compact line on a schedule and shouts (`!!`) on `stuckTables > 0`, a process
