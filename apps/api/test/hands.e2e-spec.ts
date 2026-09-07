@@ -6,6 +6,7 @@ import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { ChipsService } from '../src/chips/chips.service';
 import { PrismaService } from '../src/infra/prisma/prisma.service';
+import { TableManager } from '../src/tables/table-manager';
 import { TablesService } from '../src/tables/tables.service';
 
 /** Hand-history persistence + replay, and the transactional chip ledger. */
@@ -65,6 +66,7 @@ describe('Hands + chip ledger (e2e)', () => {
 
   afterAll(async () => {
     for (const s of sockets) s.disconnect();
+    await app.get(TableManager).drain();
     await prisma.pokerHand.deleteMany({ where: { tableId } }).catch(() => undefined);
     await prisma.pokerTable.deleteMany({ where: { id: tableId } }).catch(() => undefined);
     await prisma.chipLedgerEntry

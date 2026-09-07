@@ -5,12 +5,14 @@ import { io, type Socket } from 'socket.io-client';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/infra/prisma/prisma.service';
-import { TablesService } from '../src/tables/tables.service';
+import { TableManager } from '../src/tables/table-manager';
+import { isDeadlock, TablesService } from '../src/tables/tables.service';
 
 /** Full multiplayer path: two authenticated sockets play a hand end to end. */
 describe('PokerGateway (e2e)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
+  let manager: TableManager;
   let baseUrl: string;
   let tableId: string;
 
@@ -37,6 +39,7 @@ describe('PokerGateway (e2e)', () => {
     await app.init();
     await app.listen(0);
     prisma = app.get(PrismaService);
+    manager = app.get(TableManager);
 
     const server = app.getHttpServer();
     const port = (server.address() as AddressInfo).port;
@@ -63,6 +66,9 @@ describe('PokerGateway (e2e)', () => {
 
   afterAll(async () => {
     for (const s of sockets) s.disconnect();
+    // Stop the runners and let any in-flight roster snapshot land before the
+    // cascade DELETE, otherwise a lagging `syncSeats` deadlocks against it.
+    await manager.drain();
     await prisma.pokerTable
       .deleteMany({ where: { id: { in: [tableId, ...extraTableIds] } } })
       .catch(() => undefined);
@@ -79,6 +85,9 @@ describe('PokerGateway (e2e)', () => {
       minBuyIn: number;
       maxBuyIn: number;
       gameType: 'NLHE' | 'PLO' | 'OMAHA5_HILO';
+      /** Default 30 (schema default). Set 0 for tests that leave and rejoin the
+       * same table and aren't exercising anti-ratholing (ADR-0029). */
+      antiRatholeMinutes: number;
     }> = {},
   ) => {
     const t = await app.get(TablesService).create({
@@ -90,8 +99,21 @@ describe('PokerGateway (e2e)', () => {
       minBuyIn: over.minBuyIn ?? 200,
       maxBuyIn: over.maxBuyIn ?? 2000,
     });
+    if (over.antiRatholeMinutes !== undefined) {
+      await prisma.pokerTable.update({
+        where: { id: t.id },
+        data: { antiRatholeMinutes: over.antiRatholeMinutes },
+      });
+    }
     extraTableIds.push(t.id);
     return t.id;
+  };
+
+  /** Seat rows after any in-flight roster snapshot (`syncSeats`, fire-and-forget
+   * from the runner) has committed - otherwise a stack/flag assertion races it. */
+  const seatRows = async (id: string) => {
+    await manager.settleSeatChanges(id);
+    return prisma.pokerTableSeat.findMany({ where: { tableId: id } });
   };
 
   const balance = async (i: number): Promise<number> => {
@@ -231,7 +253,7 @@ describe('PokerGateway (e2e)', () => {
     expect(aOpp.holeCards).toBeNull();
 
     // chips: table stayed at 2000, each user's balance debited by their buy-in
-    const seats = await prisma.pokerTableSeat.findMany({ where: { tableId } });
+    const seats = await seatRows(tableId);
     expect(seats.reduce((t, s) => t + s.stack, 0)).toBe(2000);
 
     const users = await prisma.user.findMany({
@@ -434,7 +456,7 @@ describe('PokerGateway (e2e)', () => {
     }
 
     // chips conserved
-    const seats = await prisma.pokerTableSeat.findMany({ where: { tableId: t } });
+    const seats = await seatRows(t);
     expect(seats.reduce((sum, s) => sum + s.stack, 0)).toBe(2000);
 
     // the counter reset and persisted
@@ -521,7 +543,7 @@ describe('PokerGateway (e2e)', () => {
     expect(seen.some((s) => s.youAreSeat === 0 && s.youStraddleNext === true)).toBe(true);
 
     // chips conserved
-    const seats = await prisma.pokerTableSeat.findMany({ where: { tableId: t } });
+    const seats = await seatRows(t);
     expect(seats.reduce((sum, s) => sum + s.stack, 0)).toBe(3000);
     // the armed flag persisted to the seat row
     expect(seats.find((s) => s.seatNumber === 0)?.straddleOn).toBe(true);
@@ -598,7 +620,7 @@ describe('PokerGateway (e2e)', () => {
     expect(total).toBe(2000);
 
     // chips conserved + the outcome persisted
-    const seats = await prisma.pokerTableSeat.findMany({ where: { tableId: t } });
+    const seats = await seatRows(t);
     expect(seats.reduce((sum, s) => sum + s.stack, 0)).toBe(2000);
     expect(seats.find((s) => s.seatNumber === 0)?.runItTwiceOn).toBe(true);
     // hand history is written fire-and-forget - give it a beat
@@ -676,7 +698,15 @@ describe('PokerGateway (e2e)', () => {
   });
 
   it('honours a rejoined player’s actions - no timeout after clientSeq restarts at 1', async () => {
-    const t = await makeTable({ maxSeats: 2, minBuyIn: 200, maxBuyIn: 2000 });
+    // anti-ratholing off: this test leaves and rejoins the same seat, and after
+    // winning hand 1 the player would leave with > their buy-in, so a same-size
+    // rebuy would (correctly, per ADR-0029) be blocked. Not what's under test.
+    const t = await makeTable({
+      maxSeats: 2,
+      minBuyIn: 200,
+      maxBuyIn: 2000,
+      antiRatholeMinutes: 0,
+    });
 
     // driver whose clientSeq starts at 1 each time it is attached (like a client
     // that remounts on rejoin). Records how many of ITS actions were acked.
@@ -735,4 +765,38 @@ describe('PokerGateway (e2e)', () => {
     sA2.disconnect();
     sB.disconnect();
   }, 45000);
+
+  it('a roster flush racing a cascade table delete retries past the deadlock', async () => {
+    // This is the exact contention behind the historically flaky rejoin test:
+    // `syncSeats` (locks seat rows then the table row) overlapping a
+    // `DELETE FROM "PokerTable"` (locks the table row then cascades to the seat
+    // rows) - opposite lock order, so Postgres picks a deadlock victim. The
+    // 40P01 retry in `syncSeats` must absorb that; a flush that lands after the
+    // row is gone may reject with "record not found" (P2025), which is fine.
+    const svc = app.get(TablesService);
+    const t = await makeTable({ maxSeats: 3 });
+    await svc.sitDown({
+      tableId: t,
+      seatNumber: 0,
+      userId: userIds[0]!,
+      buyIn: 1000,
+      idemKey: 'del-rc-0',
+    });
+
+    const roster = [0, 1, 2].map((seatNumber) => ({
+      seatNumber,
+      userId: seatNumber === 0 ? userIds[0]! : null,
+      stack: seatNumber === 0 ? 1000 : 0,
+      sittingOut: false,
+    }));
+
+    const flushes = Array.from({ length: 6 }, (_, i) => svc.syncSeats(t, roster, i, null));
+    const del = prisma.pokerTable.deleteMany({ where: { id: t } });
+    const results = await Promise.allSettled([...flushes, del]);
+
+    // The retry must absorb every 40P01. A flush that lands after the row is
+    // gone rejecting with P2025 ("record not found") is expected and fine.
+    const deadlocked = results.filter((r) => r.status === 'rejected' && isDeadlock(r.reason));
+    expect(deadlocked).toEqual([]);
+  }, 30000);
 });

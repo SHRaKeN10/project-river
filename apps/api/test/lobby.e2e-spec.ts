@@ -5,6 +5,7 @@ import { io, type Socket } from 'socket.io-client';
 import request, { type Response } from 'supertest';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/infra/prisma/prisma.service';
+import { TableManager } from '../src/tables/table-manager';
 import { TablesService } from '../src/tables/tables.service';
 
 describe('Lobby (e2e)', () => {
@@ -58,6 +59,7 @@ describe('Lobby (e2e)', () => {
 
   afterAll(async () => {
     for (const s of sockets) s.disconnect();
+    await app.get(TableManager).drain();
     await prisma.pokerTable.deleteMany({ where: { id: { in: tableIds } } }).catch(() => undefined);
     await prisma.user.deleteMany({ where: { email: { in: emails } } }).catch(() => undefined);
     await app?.close();
