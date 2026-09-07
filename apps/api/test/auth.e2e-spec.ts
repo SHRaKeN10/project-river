@@ -175,6 +175,55 @@ describe('Auth (e2e)', () => {
     ).toBe(200);
   });
 
+  describe('password-reset token edge cases', () => {
+    const mkUser = async () => {
+      const s = `pwr_${Date.now()}${Math.floor(Math.random() * 1e6)}`;
+      const e = `${s}@example.test`;
+      const reg = await api()
+        .post('/api/auth/register')
+        .send({ email: e, username: s.slice(0, 20), password });
+      return { email: e, userId: reg.body.user.id as string };
+    };
+
+    it('rejects a garbage token with 401', async () => {
+      const res = await api()
+        .post('/api/auth/password-reset/confirm')
+        .send({ token: 'not-a-real-token', newPassword: 'brand-new-passphrase' });
+      expect(res.status).toBe(401);
+    });
+
+    it('rejects an expired token with 401', async () => {
+      const { email: e, userId } = await mkUser();
+      const { devToken } = (await api().post('/api/auth/password-reset/request').send({ email: e }))
+        .body;
+      await prisma.verificationToken.updateMany({
+        where: { userId, purpose: 'PASSWORD_RESET', consumedAt: null },
+        data: { expiresAt: new Date(Date.now() - 1000) },
+      });
+      const res = await api()
+        .post('/api/auth/password-reset/confirm')
+        .send({ token: devToken, newPassword: 'brand-new-passphrase' });
+      expect(res.status).toBe(401);
+      await prisma.user.deleteMany({ where: { email: e } }).catch(() => undefined);
+    });
+
+    it('lets exactly one of several concurrent confirms through', async () => {
+      const { email: e } = await mkUser();
+      const { devToken } = (await api().post('/api/auth/password-reset/request').send({ email: e }))
+        .body;
+      const results = await Promise.all(
+        Array.from({ length: 4 }, () =>
+          api()
+            .post('/api/auth/password-reset/confirm')
+            .send({ token: devToken, newPassword: 'brand-new-passphrase' }),
+        ),
+      );
+      expect(results.filter((r) => r.status === 204)).toHaveLength(1);
+      expect(results.filter((r) => r.status === 401)).toHaveLength(3);
+      await prisma.user.deleteMany({ where: { email: e } }).catch(() => undefined);
+    });
+  });
+
   it('verifies an email address via the token flow', async () => {
     const vEmail = `verify_${suffix}@example.test`;
     const vUser = `verify_${suffix}`.slice(0, 20);

@@ -1,6 +1,10 @@
 export type AuthStackParams = {
   Login: undefined;
   Register: undefined;
+  ForgotPassword: undefined;
+  /** `email` is carried from ForgotPassword so the confirm screen can name the
+   * account being reset. */
+  ResetPassword: { email?: string } | undefined;
 };
 
 export type AppStackParams = {

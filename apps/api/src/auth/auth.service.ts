@@ -11,6 +11,7 @@ import { PrismaService } from '../infra/prisma/prisma.service';
 import { AuditAction, AuditService } from '../audit/audit.service';
 import { RateLimiterService } from '../common/rate-limit/rate-limiter.service';
 import { AppConfigService } from '../config/app-config.service';
+import { Mailer } from '../mail/mailer';
 import { InviteRequiredError } from '../observability/error-codes';
 import { InvitesService } from './invites.service';
 import { PasswordService } from './password.service';
@@ -50,6 +51,7 @@ export class AuthService {
     private readonly config: AppConfigService,
     private readonly blocklist: SessionBlocklistService,
     private readonly invites: InvitesService,
+    private readonly mailer: Mailer,
   ) {}
 
   // ---------------------------------------------------------------------
@@ -314,6 +316,23 @@ export class AuthService {
       ip: ctx.ip,
     });
     this.logDevToken('password reset', user.email, token.raw);
+
+    // Send is best-effort: a mail-provider failure must not change the HTTP
+    // response (still a bland 202) or leak that the address exists.
+    try {
+      await this.mailer.send({
+        to: user.email,
+        subject: 'Reset your Project River password',
+        text:
+          `Someone asked to reset the password for this Project River account.\n\n` +
+          `Open the app, go to "Forgot password", and enter this code:\n\n` +
+          `  ${token.raw}\n\n` +
+          `It expires in ${Math.round(PASSWORD_RESET_TTL_SECONDS / 60)} minutes and can be used once. ` +
+          `If this wasn't you, you can ignore this email - nothing has changed.\n`,
+      });
+    } catch (err) {
+      this.logger.error({ event: 'password_reset_email_failed', userId: user.id }, String(err));
+    }
     return token.raw;
   }
 
@@ -457,26 +476,24 @@ export class AuthService {
 
   private async consumeVerificationToken(rawToken: string, purpose: VerificationPurpose) {
     const tokenHash = this.tokens.hashOpaqueToken(rawToken);
-    const record = await this.prisma.verificationToken.findUnique({ where: { tokenHash } });
 
-    if (
-      !record ||
-      record.purpose !== purpose ||
-      record.consumedAt ||
-      record.expiresAt.getTime() < Date.now()
-    ) {
-      throw new UnauthorizedException('Invalid or expired token');
-    }
-
-    await this.prisma.verificationToken.update({
-      where: { id: record.id },
+    // Single guarded UPDATE so two concurrent confirms can't both consume the
+    // same token - the loser sees `count === 0`, same as an unknown/expired one.
+    const claimed = await this.prisma.verificationToken.updateMany({
+      where: { tokenHash, purpose, consumedAt: null, expiresAt: { gt: new Date() } },
       data: { consumedAt: new Date() },
     });
-    return record;
+    if (claimed.count === 0) {
+      throw new UnauthorizedException('Invalid or expired token');
+    }
+    return this.prisma.verificationToken.findUniqueOrThrow({ where: { tokenHash } });
   }
 
-  /** TODO(Phase 9): send via a real EmailService instead of logging.
-   * Never logged in production - the raw token is a bearer credential. */
+  /** Non-prod convenience: also drop the raw token in the logs so local dev
+   * works without a mailbox (the HTTP response carries it too). Password-reset
+   * mail now goes out for real via {@link Mailer}; email verification is still
+   * log-only until it's wired up. Never runs in production - the raw token is a
+   * bearer credential. */
   private logDevToken(kind: string, email: string, raw: string): void {
     if (this.config.isProduction) return;
     this.logger.debug(`[dev-only] ${kind} token for ${email}: ${raw}`);

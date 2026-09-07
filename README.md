@@ -108,8 +108,12 @@ curl -sX POST localhost:3000/api/auth/refresh -H 'content-type: application/json
 
 `refresh` rotates the token every call; replaying an old one revokes the whole
 session. In non-production, `password-reset/request` and
-`email-verification/request` return the raw token as `devToken` (no email
-service yet).
+`email-verification/request` also return the raw token as `devToken`.
+
+**Password-reset email** (ADR-0034): `password-reset/request` emails the reset
+code via Resend when `RESEND_API_KEY` is set; otherwise the code is only logged.
+The send is best-effort and the response is always a bland `202`. Token
+consumption is a single guarded UPDATE, so concurrent confirms can't both win.
 
 **Closed-alpha invites** (ADR-0033): set `INVITE_ONLY=true` and registration
 requires an `inviteCode`. Admins mint codes — `POST /api/auth/invites`

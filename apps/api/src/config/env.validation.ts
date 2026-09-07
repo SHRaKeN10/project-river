@@ -21,6 +21,17 @@ export const envSchema = z
       .default('false')
       .transform((v) => v.toLowerCase() === 'true'),
 
+    /** Transactional email (ADR-0034). No key => emails are logged, not sent
+     * (fine for dev/test; in prod it means password-reset mail is disabled
+     * until the key is set). `MAIL_FROM` must be a Resend-verified sender. */
+    // Accept an empty string (a commented-out `.env` line that got uncommented)
+    // as "unset" rather than failing boot.
+    RESEND_API_KEY: z
+      .string()
+      .optional()
+      .transform((v) => (v ? v : undefined)),
+    MAIL_FROM: z.string().min(1).default('Project River <onboarding@resend.dev>'),
+
     CORS_ORIGINS: z
       .string()
       .default('')
