@@ -17,15 +17,18 @@ export function RegisterScreen({ navigation }: Props): JSX.Element {
   const [email, setEmail] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [inviteCode, setInviteCode] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const submit = async () => {
     clearError();
+    const code = inviteCode.trim();
     const parsed = registerSchema.safeParse({
       email: email.trim(),
       username: username.trim(),
       password,
+      ...(code ? { inviteCode: code } : {}),
     });
     if (!parsed.success) {
       const next: Record<string, string> = {};
@@ -36,7 +39,12 @@ export function RegisterScreen({ navigation }: Props): JSX.Element {
     setErrors({});
     setSubmitting(true);
     try {
-      await register(parsed.data.email, parsed.data.username, parsed.data.password);
+      await register(
+        parsed.data.email,
+        parsed.data.username,
+        parsed.data.password,
+        parsed.data.inviteCode,
+      );
     } catch {
       /* serverError shown from store */
     } finally {
@@ -77,6 +85,15 @@ export function RegisterScreen({ navigation }: Props): JSX.Element {
           value={password}
           onChangeText={setPassword}
           error={errors.password}
+        />
+        <TextField
+          label="Invite code"
+          autoCapitalize="none"
+          autoCorrect={false}
+          placeholder="river-xxxx-xxxxxx"
+          value={inviteCode}
+          onChangeText={setInviteCode}
+          error={errors.inviteCode}
         />
         {serverError ? <Text style={styles.error}>{serverError}</Text> : null}
         <Button label="Create account" onPress={submit} loading={submitting} />

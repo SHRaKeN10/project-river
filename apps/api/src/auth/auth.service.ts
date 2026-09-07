@@ -11,6 +11,8 @@ import { PrismaService } from '../infra/prisma/prisma.service';
 import { AuditAction, AuditService } from '../audit/audit.service';
 import { RateLimiterService } from '../common/rate-limit/rate-limiter.service';
 import { AppConfigService } from '../config/app-config.service';
+import { InviteRequiredError } from '../observability/error-codes';
+import { InvitesService } from './invites.service';
 import { PasswordService } from './password.service';
 import { SessionBlocklistService } from './session-blocklist.service';
 import { TokenService } from './token.service';
@@ -47,6 +49,7 @@ export class AuthService {
     private readonly rateLimiter: RateLimiterService,
     private readonly config: AppConfigService,
     private readonly blocklist: SessionBlocklistService,
+    private readonly invites: InvitesService,
   ) {}
 
   // ---------------------------------------------------------------------
@@ -54,10 +57,13 @@ export class AuthService {
   // ---------------------------------------------------------------------
 
   async register(
-    input: { email: string; username: string; password: string },
+    input: { email: string; username: string; password: string; inviteCode?: string },
     ctx: RequestContext,
   ): Promise<{ user: PublicUser; tokens: IssuedTokens }> {
     const email = input.email.toLowerCase();
+    const inviteOnly = this.config.get('INVITE_ONLY');
+    const code = input.inviteCode?.trim().toLowerCase();
+    if (inviteOnly && !code) throw new InviteRequiredError();
 
     const existing = await this.prisma.user.findFirst({
       where: { OR: [{ email }, { username: input.username }] },
@@ -69,9 +75,28 @@ export class AuthService {
 
     const passwordHash = await this.password.hash(input.password);
 
-    const user = await this.prisma.user.create({
-      data: { email, username: input.username, passwordHash },
-    });
+    // Open mode is unchanged - a bare create. In closed alpha the invite is
+    // redeemed in the SAME transaction as the account is created, so a code can
+    // never be over-redeemed and a failed create never burns one.
+    const data = { email, username: input.username, passwordHash };
+    const user =
+      inviteOnly && code
+        ? await this.prisma.$transaction(async (tx) => {
+            await this.invites.redeem(tx, code);
+            return tx.user.create({ data: { ...data, invitedViaCode: code } });
+          })
+        : await this.prisma.user.create({ data });
+
+    if (inviteOnly && code) {
+      await this.audit.log({
+        actorUserId: user.id,
+        action: AuditAction.INVITE_REDEEMED,
+        targetType: 'User',
+        targetId: user.id,
+        metadata: { code },
+        ip: ctx.ip,
+      });
+    }
 
     await this.issueEmailVerificationToken(user);
     await this.audit.log({

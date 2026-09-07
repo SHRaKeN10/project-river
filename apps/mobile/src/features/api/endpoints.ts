@@ -2,7 +2,7 @@ import type { AuthResponse, PublicUser, TournamentView } from '@river/shared-typ
 import { apiFetch } from './client';
 
 export const authApi = {
-  register: (input: { email: string; username: string; password: string }) =>
+  register: (input: { email: string; username: string; password: string; inviteCode?: string }) =>
     apiFetch<AuthResponse>('/api/auth/register', { method: 'POST', body: input, auth: false }),
 
   login: (input: { emailOrUsername: string; password: string }) =>

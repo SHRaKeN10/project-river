@@ -11,8 +11,33 @@ export const registerSchema = z.object({
     .max(20)
     .regex(/^[a-zA-Z0-9_]+$/, 'letters, numbers and underscore only'),
   password: z.string().min(10).max(128),
+  /** Required only while the server is in closed-alpha (`INVITE_ONLY`); the
+   * server enforces it. */
+  inviteCode: z.string().trim().min(4).max(64).optional(),
 });
 export type RegisterInput = z.infer<typeof registerSchema>;
+
+/** Admin: mint an invite code (ADR-0033). */
+export const createInviteSchema = z.object({
+  maxUses: z.number().int().min(1).max(1000).optional(),
+  expiresInHours: z
+    .number()
+    .int()
+    .min(1)
+    .max(24 * 90)
+    .optional(),
+  note: z.string().max(200).optional(),
+});
+export type CreateInviteInput = z.infer<typeof createInviteSchema>;
+
+export interface InviteView {
+  code: string;
+  maxUses: number;
+  usedCount: number;
+  expiresAt: string | null;
+  note: string | null;
+  createdAt: string;
+}
 
 export const loginSchema = z.object({
   emailOrUsername: z.string().min(3).max(254),

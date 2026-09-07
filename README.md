@@ -111,6 +111,14 @@ session. In non-production, `password-reset/request` and
 `email-verification/request` return the raw token as `devToken` (no email
 service yet).
 
+**Closed-alpha invites** (ADR-0033): set `INVITE_ONLY=true` and registration
+requires an `inviteCode`. Admins mint codes — `POST /api/auth/invites`
+`{ maxUses?, expiresInHours?, note? }` → `{ code, ... }` — and list them at
+`GET /api/auth/invites`. The code is redeemed atomically inside the register
+transaction (a `maxUses: N` code lets exactly N accounts through, even under
+concurrent sign-ups). `INVITE_ONLY` is read per-request, so `fly secrets set`
+toggles it with no redeploy.
+
 ## Poker engine (`@river/poker-engine`)
 
 Pure TypeScript, zero runtime deps. **Complete for No-Limit Hold'em.** The one
