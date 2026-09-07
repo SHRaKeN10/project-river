@@ -18,6 +18,20 @@ export const authApi = {
   me: () => apiFetch<PublicUser>('/api/auth/me'),
 
   logout: () => apiFetch<void>('/api/auth/logout', { method: 'POST' }),
+
+  requestPasswordReset: (email: string) =>
+    apiFetch<void>('/api/auth/password-reset/request', {
+      method: 'POST',
+      body: { email },
+      auth: false,
+    }),
+
+  confirmPasswordReset: (input: { token: string; newPassword: string }) =>
+    apiFetch<void>('/api/auth/password-reset/confirm', {
+      method: 'POST',
+      body: input,
+      auth: false,
+    }),
 };
 
 export const chipsApi = {

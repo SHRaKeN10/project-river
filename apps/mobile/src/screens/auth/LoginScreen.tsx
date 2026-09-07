@@ -67,6 +67,11 @@ export function LoginScreen({ navigation }: Props): JSX.Element {
           <Text style={styles.error}>{fieldError ?? serverError}</Text>
         ) : null}
         <Button label="Sign in" onPress={submit} loading={submitting} />
+        <Button
+          label="Forgot password?"
+          variant="ghost"
+          onPress={() => navigation.navigate('ForgotPassword')}
+        />
       </View>
 
       <View style={styles.footer}>

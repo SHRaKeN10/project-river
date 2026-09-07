@@ -162,6 +162,23 @@ curl -s $API/api/auth/invites -H "authorization: Bearer $ADMIN"   # usage so far
 Hand out `code`. To end the alpha: `fly secrets unset INVITE_ONLY`. See
 `docs/architecture/ADR-0033-invite-codes.md`.
 
+## Password-reset email (Resend)
+
+Password reset works without email configured — the token just goes to the logs
+(`grep 'password reset'`). Before recruiting testers, wire real delivery:
+
+```bash
+fly secrets set RESEND_API_KEY="re_..."
+# optional once you've verified a domain in Resend; the default sandbox sender
+# (onboarding@resend.dev) needs no setup:
+fly secrets set MAIL_FROM="Project River <no-reply@yourdomain>"
+```
+
+Sends are best-effort: a Resend outage is logged (`event:
+password_reset_email_failed`) and the API still returns a bland `202` so it
+can't be used to probe which emails have accounts. See
+`docs/architecture/ADR-0034-password-reset-email.md`.
+
 ## Admin table control
 
 `PATCH /api/tables/:id/status` (admin) with `{ "status": "ACTIVE" | "PAUSED" | "CLOSED" }`.

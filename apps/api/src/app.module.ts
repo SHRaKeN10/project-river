@@ -8,6 +8,7 @@ import { HealthModule } from './health/health.module';
 import { CommonModule } from './common/common.module';
 import { ObservabilityModule } from './observability/observability.module';
 import { AuditModule } from './audit/audit.module';
+import { MailModule } from './mail/mail.module';
 import { AuthModule } from './auth/auth.module';
 import { ChipsModule } from './chips/chips.module';
 import { TablesModule } from './tables/tables.module';
@@ -38,6 +39,7 @@ import { OpsModule } from './ops/ops.module';
     CommonModule,
     ObservabilityModule,
     AuditModule,
+    MailModule,
     HealthModule,
     AuthModule,
     ChipsModule,
