@@ -82,6 +82,7 @@ model User {
   chipLedger           ChipLedgerEntry[]
   tournamentEntries    TournamentEntry[]
   tableDepartures      TableDeparture[]
+  seatReservations     TableSeatReservation[]
 
   @@index([status])
 }
@@ -177,11 +178,12 @@ model PokerTable {
   createdAt  DateTime         @default(now())
   updatedAt  DateTime         @updatedAt
 
-  seats      PokerTableSeat[]
-  favorites  TableFavorite[]
-  waitlist   TableWaitlistEntry[]
-  hands      PokerHand[]
-  departures TableDeparture[]
+  seats        PokerTableSeat[]
+  favorites    TableFavorite[]
+  waitlist     TableWaitlistEntry[]
+  hands        PokerHand[]
+  departures   TableDeparture[]
+  reservations TableSeatReservation[]
 
   @@index([status])
 }
@@ -268,6 +270,28 @@ model TableWaitlistEntry {
 
   @@unique([tableId, userId])
   @@index([tableId, createdAt])
+}
+
+/// A short-lived hold on one physical seat for the head of a table's waitlist
+/// (ADR-0031). While it exists and is unexpired, only `userId` may claim that
+/// seat; other joins to it are rejected. The `@@unique` on `[tableId,
+/// seatNumber]` is the concurrency guard - two waitlisted players can never be
+/// promoted onto the same seat. Consumed (deleted) inside `sitDown`'s
+/// transaction on a successful claim; otherwise swept once `expiresAt` passes.
+/// No in-memory timers, so it survives a process restart (the sweeper re-runs).
+model TableSeatReservation {
+  id         String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tableId    String     @db.Uuid
+  table      PokerTable @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  userId     String     @db.Uuid
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  seatNumber Int
+  expiresAt  DateTime
+  createdAt  DateTime   @default(now())
+
+  @@unique([tableId, seatNumber])
+  @@unique([tableId, userId])
+  @@index([expiresAt])
 }
 
 model PokerTableSeat {

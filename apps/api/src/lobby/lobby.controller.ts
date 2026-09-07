@@ -13,10 +13,14 @@ import { lobbyFilterSchema, type LobbyTableView } from '@river/shared-types';
 import { CurrentUser, RequestUser } from '../common/decorators/current-user.decorator';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 import { LobbyService } from './lobby.service';
+import { WaitlistService } from './waitlist.service';
 
 @Controller('lobby')
 export class LobbyController {
-  constructor(private readonly lobby: LobbyService) {}
+  constructor(
+    private readonly lobby: LobbyService,
+    private readonly waitlist: WaitlistService,
+  ) {}
 
   @Get()
   list(
@@ -67,6 +71,20 @@ export class LobbyController {
     @CurrentUser() user: RequestUser,
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<void> {
-    return this.lobby.leaveWaitlist(user.id, id);
+    return this.waitlist.leave(user.id, id);
+  }
+
+  /**
+   * The seat currently held for this user at a table (ADR-0031). The client
+   * takes it with a normal `table:join` on the returned `seatNumber`, which
+   * consumes the hold. 404 if there is no live hold.
+   */
+  @Post(':id/waitlist/claim')
+  @HttpCode(HttpStatus.OK)
+  claim(
+    @CurrentUser() user: RequestUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<{ seatNumber: number; expiresAt: number }> {
+    return this.waitlist.claimInfo(user.id, id);
   }
 }

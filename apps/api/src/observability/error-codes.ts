@@ -19,11 +19,13 @@ export enum ErrorCode {
   // domain-specific (thrown as AppError subclasses)
   INSUFFICIENT_CHIPS = 'INSUFFICIENT_CHIPS',
   SEAT_TAKEN = 'SEAT_TAKEN',
+  SEAT_RESERVED = 'SEAT_RESERVED',
   ALREADY_SEATED = 'ALREADY_SEATED',
   TABLE_NOT_OPEN = 'TABLE_NOT_OPEN',
   ANTI_RATHOLE_COOLDOWN = 'ANTI_RATHOLE_COOLDOWN',
   TOURNAMENT_NOT_RUNNING = 'TOURNAMENT_NOT_RUNNING',
   TOURNAMENT_REGISTRATION_CLOSED = 'TOURNAMENT_REGISTRATION_CLOSED',
+  WAITLIST_NO_RESERVATION = 'WAITLIST_NO_RESERVATION',
 }
 
 /** Maps a raw HTTP status onto a generic code for non-`AppError` exceptions. */
@@ -69,6 +71,18 @@ export class InsufficientChipsError extends AppError {
 export class SeatTakenError extends AppError {
   constructor(message = 'that seat is taken') {
     super(ErrorCode.SEAT_TAKEN, message, HttpStatus.CONFLICT);
+  }
+}
+
+export class SeatReservedError extends AppError {
+  constructor(message = 'that seat is reserved for someone on the waitlist') {
+    super(ErrorCode.SEAT_RESERVED, message, HttpStatus.CONFLICT);
+  }
+}
+
+export class WaitlistNoReservationError extends AppError {
+  constructor(message = 'you do not have a seat reserved at this table') {
+    super(ErrorCode.WAITLIST_NO_RESERVATION, message, HttpStatus.NOT_FOUND);
   }
 }
 

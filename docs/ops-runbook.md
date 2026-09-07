@@ -90,6 +90,16 @@ A disconnected seated player is stood up automatically after `TABLE_AWAY_MAX_MS`
 first. Their stack is returned to their wallet through the same idempotent
 `standUp` path as a normal leave, and a `REMOVED_INACTIVE` error is emitted.
 
+## Waitlist auto-seat
+
+When a seat frees, the head of the waitlist gets a **hold** on it
+(`TableSeatReservation`, `WAITLIST_CLAIM_WINDOW_MS`, default 25 s). A periodic
+sweeper (`WAITLIST_SWEEP_MS`, default 5 s, also on boot) expires stale holds —
+dropping the player's place — and re-promotes. All state is in Postgres and
+there are no in-memory timers, so a restart needs no special handling. If a
+seat looks stuck "reserved", check `SELECT * FROM "TableSeatReservation"` — an
+expired row is cleared within one sweep. See ADR-0031.
+
 ## Monitoring
 
 `GET /api/ops/metrics` (admin token) returns:

@@ -6,7 +6,12 @@ export type AuthStackParams = {
 export type AppStackParams = {
   Home: undefined;
   Lobby: undefined;
-  Table: { tableId: string };
+  Table: {
+    tableId: string;
+    /** A seat held for this user by the waitlist (ADR-0031) - the buy-in sheet
+     * opens straight onto it. */
+    claimSeat?: number;
+  };
   Tournaments: undefined;
   TournamentDetail: { tournamentId: string };
   TournamentTable: { tournamentId: string };

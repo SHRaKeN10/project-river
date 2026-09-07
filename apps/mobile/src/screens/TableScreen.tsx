@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -26,7 +26,7 @@ import type { AppStackParams } from '../navigation/types';
 type Props = NativeStackScreenProps<AppStackParams, 'Table'>;
 
 export function TableScreen({ navigation, route }: Props): JSX.Element {
-  const { tableId } = route.params;
+  const { tableId, claimSeat } = route.params;
   const { width, height } = useWindowDimensions();
   const chips = useChips();
   const rebuy = useRebuy();
@@ -54,6 +54,16 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
   const goBack = useCallback(() => navigation.goBack(), [navigation]);
 
   const onSit = useCallback((seatNumber: number) => setBuyInSeat(seatNumber), []);
+
+  // Arrived here from a waitlist "seat available" prompt: open the buy-in sheet
+  // straight onto the seat held for us (once, on mount).
+  const claimHandled = useRef(false);
+  useEffect(() => {
+    if (claimSeat !== undefined && !claimHandled.current) {
+      claimHandled.current = true;
+      setBuyInSeat(claimSeat);
+    }
+  }, [claimSeat]);
 
   const confirmBuyIn = useCallback(
     async (amount: number) => {

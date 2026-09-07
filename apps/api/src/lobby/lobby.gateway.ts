@@ -12,6 +12,7 @@ import { LobbyClientToServer, LobbyServerToClient, lobbyFilterSchema } from '@ri
 import { TableManager } from '../tables/table-manager';
 import { socketUser } from '../realtime/ws-auth';
 import { LobbyService } from './lobby.service';
+import { WaitlistService } from './waitlist.service';
 
 const LOBBY_ROOM = 'lobby';
 
@@ -29,10 +30,20 @@ export class LobbyGateway implements OnGatewayInit {
   constructor(
     private readonly lobby: LobbyService,
     private readonly tables: TableManager,
+    private readonly waitlist: WaitlistService,
   ) {}
 
   afterInit(server: Server): void {
     this.server = server;
+    this.waitlist.bind({
+      notify: (userId, tableId, seatNumber, expiresAt) =>
+        this.emitToUser(userId, LobbyServerToClient.WAITLIST_SEAT_AVAILABLE, {
+          tableId,
+          seatNumber,
+          expiresAt,
+        }),
+      isOnline: (userId) => this.isOnline(userId),
+    });
     this.tables.subscribe((tableId, notification) => {
       if (
         notification.kind === 'state' ||
@@ -41,9 +52,31 @@ export class LobbyGateway implements OnGatewayInit {
       ) {
         void this.pushDelta(tableId);
       }
-      if (notification.kind === 'seatVacated') void this.promoteWaitlist(tableId);
+      if (notification.kind === 'seatVacated') {
+        // The seat row is cleared by an in-flight cash-out; wait for it so the
+        // promote sees the seat as actually open (the sweeper is the backstop).
+        void this.tables
+          .settleSeatChanges(tableId)
+          .catch(() => undefined)
+          .then(() => this.waitlist.seatVacated(tableId));
+      }
     });
     this.logger.log('Lobby gateway initialised');
+  }
+
+  private isOnline(userId: string): boolean {
+    for (const socket of this.server.sockets.sockets.values()) {
+      if ((socket.data as { user?: { userId: string } }).user?.userId === userId) return true;
+    }
+    return false;
+  }
+
+  private emitToUser(userId: string, event: string, payload: unknown): void {
+    for (const socket of this.server.sockets.sockets.values()) {
+      if ((socket.data as { user?: { userId: string } }).user?.userId === userId) {
+        socket.emit(event, payload);
+      }
+    }
   }
 
   @SubscribeMessage(LobbyClientToServer.LOBBY_SUBSCRIBE)
@@ -68,16 +101,5 @@ export class LobbyGateway implements OnGatewayInit {
   private async pushDelta(tableId: string): Promise<void> {
     const delta = await this.lobby.tableDelta(tableId).catch(() => null);
     if (delta) this.server.to(LOBBY_ROOM).emit(LobbyServerToClient.LOBBY_UPDATE, delta);
-  }
-
-  private async promoteWaitlist(tableId: string): Promise<void> {
-    const head = await this.lobby.waitlistHead(tableId).catch(() => null);
-    if (!head) return;
-    const sockets = await this.server.fetchSockets();
-    for (const s of sockets) {
-      if ((s.data as { user?: { userId: string } }).user?.userId === head) {
-        s.emit(LobbyServerToClient.WAITLIST_SEAT_AVAILABLE, { tableId });
-      }
-    }
   }
 }
