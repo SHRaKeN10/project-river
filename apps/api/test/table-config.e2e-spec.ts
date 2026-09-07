@@ -55,6 +55,7 @@ describe('Table config (e2e)', () => {
 
   afterAll(async () => {
     for (const s of sockets) s.disconnect();
+    await manager.drain();
     await prisma.pokerTable.deleteMany({ where: { id: { in: tableIds } } }).catch(() => undefined);
     await prisma.user
       .deleteMany({ where: { email: { in: [admin.email, player.email] } } })

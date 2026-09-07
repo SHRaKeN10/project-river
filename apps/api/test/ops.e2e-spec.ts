@@ -6,6 +6,7 @@ import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { ChipsService } from '../src/chips/chips.service';
 import { PrismaService } from '../src/infra/prisma/prisma.service';
+import { TableManager } from '../src/tables/table-manager';
 import { TablesService } from '../src/tables/tables.service';
 
 /** Ops surface: /metrics access control + admin table lifecycle. */
@@ -62,6 +63,7 @@ describe('Ops (e2e)', () => {
 
   afterAll(async () => {
     for (const s of sockets) s.disconnect();
+    await app.get(TableManager).drain();
     await prisma.pokerHand
       .deleteMany({ where: { tableId: { in: tableIds } } })
       .catch(() => undefined);

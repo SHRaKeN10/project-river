@@ -70,6 +70,7 @@ describe('Anti-ratholing (e2e)', () => {
 
   afterAll(async () => {
     for (const s of sockets) s.disconnect();
+    await manager.drain();
     await prisma.tableDeparture
       .deleteMany({ where: { tableId: { in: tableIds } } })
       .catch(() => undefined);

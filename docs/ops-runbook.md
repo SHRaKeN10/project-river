@@ -80,6 +80,10 @@ Expected impact of a rolling restart: sockets drop and reconnect; any hand
 mid-street resumes once its acting player is back; a hand can't start with fewer
 than two connected players.
 
+On `SIGTERM` the API drains in-flight seat writes (roster snapshots, cash-outs)
+before exiting, bounded at 5 s (`TableManager.drain`, ADR-0035), so a deploy
+doesn't leave a half-written roster.
+
 If Redis is wiped, only in-flight hands are lost — completed hands, chips, and
 rosters are all in Postgres. Players are re-seated from their last-hand stacks.
 

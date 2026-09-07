@@ -3,6 +3,7 @@ import {
   ChipMovementReason,
   PokerTable,
   type PokerGameType,
+  Prisma,
   PokerTableSeat,
   type PokerTableStatus,
 } from '@prisma/client';
@@ -41,6 +42,28 @@ export interface TableConfigPatch {
 export type TableWithSeats = PokerTable & { seats: PokerTableSeat[] };
 
 export type SitDownResult = { ok: true } | { ok: false; error: string };
+
+/** A Postgres deadlock (SQLSTATE 40P01) surfaces from Prisma as P2034. */
+export function isDeadlock(err: unknown): boolean {
+  return (
+    err instanceof Prisma.PrismaClientKnownRequestError &&
+    (err.code === 'P2034' || /deadlock detected|40P01/i.test(err.message))
+  );
+}
+
+/** Retry `fn` on a deadlock only (never any other error), a few times with a
+ * short backoff. Used for `syncSeats`, which can collide with a concurrent seat
+ * write under load. */
+export async function retryOnDeadlock<T>(fn: () => Promise<T>, attempts = 4): Promise<T> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (attempt >= attempts || !isDeadlock(err)) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 20 * 2 ** (attempt - 1)));
+    }
+  }
+}
 
 @Injectable()
 export class TablesService {
@@ -177,31 +200,35 @@ export class TablesService {
     } | null,
     handsSinceLastBomb = 0,
   ): Promise<void> {
-    await this.prisma.$transaction([
-      ...seats.map((seat) =>
-        this.prisma.pokerTableSeat.update({
-          where: { tableId_seatNumber: { tableId, seatNumber: seat.seatNumber } },
+    // A roster flush touches every seat row plus the table row; under load it
+    // can deadlock with a concurrent seat write. Retry that case only.
+    await retryOnDeadlock(() =>
+      this.prisma.$transaction([
+        ...seats.map((seat) =>
+          this.prisma.pokerTableSeat.update({
+            where: { tableId_seatNumber: { tableId, seatNumber: seat.seatNumber } },
+            data: {
+              userId: seat.userId,
+              stack: seat.stack,
+              sittingOut: seat.sittingOut,
+              straddleOn: seat.straddleOn ?? false,
+              runItTwiceOn: seat.runItTwiceOn ?? false,
+              joinedAt: seat.userId ? undefined : null,
+            },
+          }),
+        ),
+        this.prisma.pokerTable.update({
+          where: { id: tableId },
           data: {
-            userId: seat.userId,
-            stack: seat.stack,
-            sittingOut: seat.sittingOut,
-            straddleOn: seat.straddleOn ?? false,
-            runItTwiceOn: seat.runItTwiceOn ?? false,
-            joinedAt: seat.userId ? undefined : null,
+            handNumber,
+            buttonSeat: previous?.buttonSeat ?? null,
+            smallBlindSeat: previous?.smallBlindSeat ?? null,
+            bigBlindSeat: previous?.bigBlindSeat ?? null,
+            handsSinceLastBomb,
           },
         }),
-      ),
-      this.prisma.pokerTable.update({
-        where: { id: tableId },
-        data: {
-          handNumber,
-          buttonSeat: previous?.buttonSeat ?? null,
-          smallBlindSeat: previous?.smallBlindSeat ?? null,
-          bigBlindSeat: previous?.bigBlindSeat ?? null,
-          handsSinceLastBomb,
-        },
-      }),
-    ]);
+      ]),
+    );
   }
 
   /**

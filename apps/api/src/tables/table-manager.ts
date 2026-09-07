@@ -82,11 +82,36 @@ export class TableManager implements OnModuleDestroy {
     private readonly orchestrationErrors: OrchestrationErrorsService,
   ) {}
 
-  onModuleDestroy(): void {
+  onModuleDestroy(): Promise<void> {
+    return this.drain();
+  }
+
+  /**
+   * Stop every runner and wait out its in-flight PokerTableSeat writes (roster
+   * snapshots, cash-outs). Called on shutdown so a rolling deploy never abandons
+   * a half-written roster; the e2e teardown also calls it before deleting the
+   * tables, so a lagging `syncSeats` can't race the cascade DELETE. Bounded so a
+   * wedged write can't hang shutdown.
+   */
+  async drain(): Promise<void> {
     for (const t of this.reapTimers.values()) clearTimeout(t);
     this.reapTimers.clear();
     for (const runner of this.runners.values()) runner.dispose();
+
+    // A disposed runner can still have one queued event that resolves and
+    // schedules a final write, so re-check the set after each wait. Bounded.
+    const deadline = Date.now() + 5_000;
+    let pending = [...this.pendingSeatWrites.values()].flatMap((set) => [...set]);
+    while (pending.length > 0 && Date.now() < deadline) {
+      await Promise.race([
+        Promise.allSettled(pending),
+        new Promise((resolve) => setTimeout(resolve, deadline - Date.now())),
+      ]);
+      pending = [...this.pendingSeatWrites.values()].flatMap((set) => [...set]);
+    }
+
     this.runners.clear();
+    this.pendingSeatWrites.clear();
   }
 
   subscribe(listener: ManagerListener): () => void {
