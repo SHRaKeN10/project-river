@@ -144,6 +144,15 @@ export class TournamentManager implements OnApplicationBootstrap, OnModuleDestro
     return snap?.phase === 'finished' ? (snap.results ?? []) : null;
   }
 
+  /** Row status for a tournament with no live runner - lets the gateway hold a
+   * pre-start watcher instead of turning it away. */
+  async statusOf(tournamentId: string): Promise<string | null> {
+    const row = await this.prisma.tournament
+      .findUnique({ where: { id: tournamentId }, select: { status: true } })
+      .catch(() => null);
+    return row?.status ?? null;
+  }
+
   // --- lifecycle -----------------------------------------------------
 
   private runnerDeps(tournamentId: string): TournamentRunnerDeps {

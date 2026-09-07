@@ -28,6 +28,11 @@ import { socketUser } from './ws-auth';
 
 const ROOM = (tournamentId: string, tableId: string): string => `t:${tournamentId}:${tableId}`;
 
+/** A socket tracked with this `tableId` is watching a tournament that has not
+ * started yet - it has no table to sit in. It gets routed to its real table
+ * (or the spectator table) the moment the coordinator stands up (ADR-0032). */
+const AWAITING_START = '';
+
 interface Tracked {
   tournamentId: string;
   tableId: string;
@@ -100,6 +105,18 @@ export class TournamentGateway implements OnGatewayInit, OnGatewayDisconnect {
         socket.emit(ServerToClient.TOURNAMENT_FINISHED, {
           tournamentId: parsed.data.tournamentId,
           results,
+        });
+        return { ok: true };
+      }
+      // Not running *yet*: a client that opened the table screen while the
+      // tournament is still in registration. Hold the watch instead of turning
+      // it away - `flushAwaitingStart` attaches it when the coordinator starts.
+      const status = await this.tournaments.statusOf(parsed.data.tournamentId);
+      if (status === 'SCHEDULED' || status === 'REGISTERING') {
+        this.tracked.set(socket.id, {
+          tournamentId: parsed.data.tournamentId,
+          tableId: AWAITING_START,
+          userId: user.userId,
         });
         return { ok: true };
       }
@@ -286,6 +303,42 @@ export class TournamentGateway implements OnGatewayInit, OnGatewayDisconnect {
       socket.emit(ServerToClient.TOURNAMENT_ASSIGNMENT, { tournamentId, tableId, seat });
       const view = this.viewFor(runner, tournamentId, tableId, userId);
       if (view) socket.emit(ServerToClient.TABLE_STATE, view);
+      if (runner.running) socket.emit(ServerToClient.TOURNAMENT_CLOCK, runner.clockSnapshot());
+    }
+
+    // Anyone who opened the table screen before the tournament started (a
+    // spectator with no seat, so no `assigned` of their own) is attached now.
+    await this.flushAwaitingStart(tournamentId);
+  }
+
+  /** Route every socket parked in `AWAITING_START` for a now-running tournament
+   * to its real table (seated) or the spectator table. Idempotent. */
+  private async flushAwaitingStart(tournamentId: string): Promise<void> {
+    const runner = this.tournaments.get(tournamentId);
+    if (!runner || !runner.running) return;
+    for (const [socketId, t] of [...this.tracked]) {
+      if (t.tournamentId !== tournamentId || t.tableId !== AWAITING_START) continue;
+      const socket = this.server.sockets.sockets.get(socketId);
+      if (!socket) {
+        this.tracked.delete(socketId);
+        continue;
+      }
+      const seatedTable = runner.tableIdOf(t.userId);
+      const dest = seatedTable ?? runner.spectatorTableId();
+      if (!dest) continue;
+      if (seatedTable) runner.setConnected(t.userId, true);
+      await this.enterRoom(socket, tournamentId, dest, t.userId);
+      const view = this.viewFor(runner, tournamentId, dest, t.userId);
+      if (view) socket.emit(ServerToClient.TABLE_STATE, view);
+      socket.emit(ServerToClient.TOURNAMENT_CLOCK, runner.clockSnapshot());
+      const seat = runner.entrantView(t.userId)?.seat ?? null;
+      if (seatedTable && seat !== null) {
+        socket.emit(ServerToClient.TOURNAMENT_ASSIGNMENT, {
+          tournamentId,
+          tableId: dest,
+          seat,
+        });
+      }
     }
   }
 
