@@ -1,58 +1,51 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { StyleSheet, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Button, Screen } from '../components';
-import { useChips } from '../features/api/queries';
-import { useAuthStore } from '../features/auth/authStore';
-import { colors, radius, spacing, typography } from '../theme/tokens';
+import { BottomTabBar } from '../components';
+import { HomeHeader } from '../features/home/HomeHeader';
+import { colors } from '../theme/tokens';
 import type { AppStackParams } from '../navigation/types';
+import { LobbyScreen } from './LobbyScreen';
+import { ProfileScreen } from './ProfileScreen';
+import { TournamentsScreen } from './TournamentsScreen';
 
 type Props = NativeStackScreenProps<AppStackParams, 'Home'>;
 
+type TabId = 'cash' | 'tournaments' | 'profile';
+
+const TABS: { id: TabId; label: string; glyph: string }[] = [
+  { id: 'cash', label: 'Cash', glyph: '♠' },
+  { id: 'tournaments', label: 'Tournaments', glyph: '♛' },
+  { id: 'profile', label: 'Profile', glyph: '☺' },
+];
+
+/** The app's front door: who you are and your chips on top, the three areas
+ * (Cash, Tournaments, Profile) one tap away along the bottom. */
 export function HomeScreen({ navigation }: Props): JSX.Element {
-  const user = useAuthStore((s) => s.user);
-  const chips = useChips();
+  const [tab, setTab] = useState<TabId>('cash');
 
   return (
-    <Screen scroll contentStyle={styles.content}>
-      <View>
-        <Text style={styles.hello}>Hey {user?.username ?? 'player'}</Text>
-        <Text style={styles.sub}>Ready to play?</Text>
+    <View style={styles.root}>
+      <SafeAreaView style={styles.top} edges={['top']}>
+        <HomeHeader onPressProfile={() => setTab('profile')} />
+      </SafeAreaView>
+      <View style={styles.content}>
+        {tab === 'cash' ? <LobbyScreen navigation={navigation} /> : null}
+        {tab === 'tournaments' ? <TournamentsScreen navigation={navigation} /> : null}
+        {tab === 'profile' ? <ProfileScreen navigation={navigation} /> : null}
       </View>
-
-      <View style={styles.balanceCard}>
-        <Text style={styles.balanceLabel}>Play chips</Text>
-        <Text style={styles.balanceValue}>
-          {chips.isLoading ? '…' : (chips.data?.playChips ?? 0).toLocaleString()}
-        </Text>
-      </View>
-
-      <View style={styles.actions}>
-        <Button label="Browse cash games" onPress={() => navigation.navigate('Lobby')} />
-        <Button label="Tournaments" onPress={() => navigation.navigate('Tournaments')} />
-        <Button
-          label="Profile"
-          variant="secondary"
-          onPress={() => navigation.navigate('Profile')}
-        />
-        <Button label="Settings" variant="ghost" onPress={() => navigation.navigate('Settings')} />
-      </View>
-    </Screen>
+      <BottomTabBar items={TABS} active={tab} onChange={setTab} />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  content: { gap: spacing.xxl },
-  hello: { ...typography.h1, color: colors.textPrimary },
-  sub: { ...typography.body, color: colors.textSecondary },
-  balanceCard: {
+  root: { flex: 1, backgroundColor: colors.bg },
+  top: {
     backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.xl,
-    gap: spacing.xs,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.goldSoft,
   },
-  balanceLabel: { ...typography.label, color: colors.textMuted, letterSpacing: 1 },
-  balanceValue: { ...typography.h1, color: colors.accent },
-  actions: { gap: spacing.md },
+  content: { flex: 1 },
 });

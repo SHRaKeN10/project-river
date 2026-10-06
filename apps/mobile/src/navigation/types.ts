@@ -1,3 +1,5 @@
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+
 export type AuthStackParams = {
   Login: undefined;
   Register: undefined;
@@ -8,17 +10,18 @@ export type AuthStackParams = {
 };
 
 export type AppStackParams = {
+  /** The tabbed front door: Cash, Tournaments, Profile. */
   Home: undefined;
-  Lobby: undefined;
   Table: {
     tableId: string;
     /** A seat held for this user by the waitlist (ADR-0031) - the buy-in sheet
      * opens straight onto it. */
     claimSeat?: number;
   };
-  Tournaments: undefined;
   TournamentDetail: { tournamentId: string };
   TournamentTable: { tournamentId: string };
-  Profile: undefined;
   Settings: undefined;
 };
+
+/** What the screens embedded in the Home tabs need from the stack navigator. */
+export type AppNavigation = Pick<NativeStackNavigationProp<AppStackParams>, 'navigate'>;

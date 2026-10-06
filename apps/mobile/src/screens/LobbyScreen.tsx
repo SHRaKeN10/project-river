@@ -1,38 +1,34 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { Alert, FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { LobbyTableView, WaitlistSeatAvailable } from '@river/shared-types';
-import { EmptyState, FilterChip } from '../components';
+import { EmptyState, FilterChip, SegmentedTabs } from '../components';
 import { useLobbyTables, useToggleFavorite, useWaitlist } from '../features/lobby/queries';
 import { useLobbyLive } from '../features/lobby/useLobbyLive';
 import { useSocketConnected } from '../features/realtime/useSocketConnected';
 import { LobbyTableCard } from '../features/lobby/LobbyTableCard';
+import {
+  filterTables,
+  GAME_TABS,
+  STAKE_TIERS,
+  type GameTabId,
+  type StakeTierId,
+} from '../features/lobby/filters';
 import { colors, spacing, typography } from '../theme/tokens';
-import type { AppStackParams } from '../navigation/types';
+import type { AppNavigation } from '../navigation/types';
 
-type Props = NativeStackScreenProps<AppStackParams, 'Lobby'>;
-
-interface StakeBucket {
-  id: string;
-  label: string;
-  match: (bigBlind: number) => boolean;
+interface Props {
+  navigation: AppNavigation;
 }
 
-const STAKE_BUCKETS: StakeBucket[] = [
-  { id: 'micro', label: 'Micro', match: (bb) => bb <= 2 },
-  { id: 'low', label: 'Low', match: (bb) => bb > 2 && bb <= 10 },
-  { id: 'mid', label: 'Mid', match: (bb) => bb > 10 && bb <= 50 },
-  { id: 'high', label: 'High', match: (bb) => bb > 50 },
-];
-
+/** The Cash tab: pick a game, optionally a stakes tier, tap a table. */
 export function LobbyScreen({ navigation }: Props): JSX.Element {
   const { data, isLoading, isError, refetch, isRefetching } = useLobbyTables();
   const online = useSocketConnected();
   const favorite = useToggleFavorite();
   const waitlist = useWaitlist();
 
-  const [bucket, setBucket] = useState<string | null>(null);
+  const [game, setGame] = useState<GameTabId>('ALL');
+  const [tier, setTier] = useState<StakeTierId | null>(null);
   const [openOnly, setOpenOnly] = useState(false);
   const [favoritesOnly, setFavoritesOnly] = useState(false);
 
@@ -67,16 +63,10 @@ export function LobbyScreen({ navigation }: Props): JSX.Element {
 
   useLobbyLive({ onSeatAvailable });
 
-  const tables = useMemo(() => {
-    if (!data) return [];
-    const selected = STAKE_BUCKETS.find((b) => b.id === bucket);
-    return data.filter((t) => {
-      if (selected && !selected.match(t.bigBlind)) return false;
-      if (openOnly && t.openSeats === 0 && !t.onWaitlist) return false;
-      if (favoritesOnly && !t.isFavorite) return false;
-      return true;
-    });
-  }, [data, bucket, openOnly, favoritesOnly]);
+  const tables = useMemo(
+    () => filterTables(data ?? [], { game, tier, openOnly, favoritesOnly }),
+    [data, game, tier, openOnly, favoritesOnly],
+  );
 
   const { mutate: mutateFavorite } = favorite;
   const { mutate: mutateWaitlist } = waitlist;
@@ -90,27 +80,28 @@ export function LobbyScreen({ navigation }: Props): JSX.Element {
   );
 
   return (
-    <SafeAreaView style={styles.safe} edges={['bottom']}>
+    <View style={styles.root}>
       {!online ? (
         <View style={styles.offlineBar}>
           <Text style={styles.offlineText}>Reconnecting… live updates paused</Text>
         </View>
       ) : null}
+
       <View style={styles.filters}>
+        <SegmentedTabs items={GAME_TABS} active={game} onChange={setGame} />
         <View style={styles.chipRow}>
-          {STAKE_BUCKETS.map((b) => (
+          {STAKE_TIERS.map((s) => (
             <FilterChip
-              key={b.id}
-              label={b.label}
-              active={bucket === b.id}
-              onPress={() => setBucket((cur) => (cur === b.id ? null : b.id))}
+              key={s.id}
+              label={s.label}
+              active={tier === s.id}
+              onPress={() => setTier((cur) => (cur === s.id ? null : s.id))}
             />
           ))}
-        </View>
-        <View style={styles.chipRow}>
-          <FilterChip label="Open seats" active={openOnly} onPress={() => setOpenOnly((v) => !v)} />
+          <View style={styles.spacer} />
+          <FilterChip label="Open" active={openOnly} onPress={() => setOpenOnly((v) => !v)} />
           <FilterChip
-            label="Favourites"
+            label="★"
             active={favoritesOnly}
             onPress={() => setFavoritesOnly((v) => !v)}
           />
@@ -149,16 +140,16 @@ export function LobbyScreen({ navigation }: Props): JSX.Element {
               onAction={refetch}
             />
           ) : (
-            <EmptyState title="No tables match" body="Clear a filter to see more games." />
+            <EmptyState title="No tables match" body="Try another game or clear a filter." />
           )
         }
       />
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.bg },
+  root: { flex: 1, backgroundColor: colors.bg },
   offlineBar: { backgroundColor: colors.surfaceAlt, paddingVertical: spacing.xs },
   offlineText: {
     ...typography.caption,
@@ -166,14 +157,15 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   filters: {
-    gap: spacing.sm,
+    gap: spacing.md,
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.sm,
+    paddingTop: spacing.md,
     paddingBottom: spacing.md,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  chipRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  spacer: { flex: 1 },
   list: { padding: spacing.lg, flexGrow: 1 },
   sep: { height: spacing.md },
   muted: {

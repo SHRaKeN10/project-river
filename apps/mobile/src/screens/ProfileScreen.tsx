@@ -3,14 +3,19 @@ import { Button, Screen } from '../components';
 import { useChips, useRebuy } from '../features/api/queries';
 import { useAuthStore } from '../features/auth/authStore';
 import { colors, radius, spacing, typography } from '../theme/tokens';
+import type { AppNavigation } from '../navigation/types';
 
-export function ProfileScreen(): JSX.Element {
+interface Props {
+  navigation: AppNavigation;
+}
+
+export function ProfileScreen({ navigation }: Props): JSX.Element {
   const user = useAuthStore((s) => s.user);
   const chips = useChips();
   const rebuy = useRebuy();
 
   return (
-    <Screen scroll contentStyle={styles.content}>
+    <Screen scroll edges={[]} contentStyle={styles.content}>
       <View style={styles.card}>
         <Row label="Username" value={user?.username ?? '—'} />
         <Row label="Email" value={user?.email ?? '—'} />
@@ -28,6 +33,7 @@ export function ProfileScreen(): JSX.Element {
         loading={rebuy.isPending}
         onPress={() => rebuy.mutate()}
       />
+      <Button label="Settings" variant="ghost" onPress={() => navigation.navigate('Settings')} />
       {rebuy.isError ? <Text style={styles.error}>Could not top up right now.</Text> : null}
     </Screen>
   );

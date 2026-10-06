@@ -1,7 +1,5 @@
 import { useCallback } from 'react';
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { TournamentView } from '@river/shared-types';
 import { Button, EmptyState, Tag } from '../components';
 import {
@@ -11,9 +9,11 @@ import {
 } from '../features/api/queries';
 import { TournamentClock } from '../features/tournament/TournamentClock';
 import { colors, radius, spacing, typography } from '../theme/tokens';
-import type { AppStackParams } from '../navigation/types';
+import type { AppNavigation } from '../navigation/types';
 
-type Props = NativeStackScreenProps<AppStackParams, 'Tournaments'>;
+interface Props {
+  navigation: AppNavigation;
+}
 
 const STATUS_LABEL: Record<string, string> = {
   SCHEDULED: 'Registering',
@@ -98,7 +98,7 @@ export function TournamentsScreen({ navigation }: Props): JSX.Element {
   );
 
   return (
-    <SafeAreaView style={styles.root} edges={['bottom']}>
+    <View style={styles.root}>
       {isError ? (
         <EmptyState title="Couldn’t load tournaments" body="Pull to retry." />
       ) : (
@@ -117,7 +117,7 @@ export function TournamentsScreen({ navigation }: Props): JSX.Element {
           }
         />
       )}
-    </SafeAreaView>
+    </View>
   );
 }
 

@@ -5,3 +5,5 @@ export { Card } from './Card';
 export { Tag } from './Tag';
 export { FilterChip } from './FilterChip';
 export { EmptyState } from './EmptyState';
+export { SegmentedTabs } from './SegmentedTabs';
+export { BottomTabBar } from './BottomTabBar';
