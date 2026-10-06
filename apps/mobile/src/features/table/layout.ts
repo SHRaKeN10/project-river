@@ -68,7 +68,7 @@ const BOARD_HALF_HEIGHT = 50;
  * height, plus its rough size. Shared with TableWatermark so they stay in step. */
 export const WATERMARK_TOP_FRACTION = 0.6;
 export const WATERMARK_HALF_WIDTH = 70;
-export const WATERMARK_HEIGHT = 60;
+export const WATERMARK_HEIGHT = 46;
 
 interface Box {
   left: number;

@@ -7,6 +7,7 @@ import logo from '../../../assets/palace-poker-logo.png';
 // White mark + wordmark on transparent (334x70). The "Grand Prairie" script line of
 // the full lockup is left off on purpose.
 const LOGO_WIDTH = 136;
+const WORDMARK_SHARE = 0.78;
 
 interface Props {
   gameType: string;
@@ -26,10 +27,12 @@ export function TableWatermark({ gameType, smallBlind, bigBlind }: Props): JSX.E
         resizeMode="contain"
         accessibilityLabel="Palace Poker"
       />
-      <Text style={styles.detail}>{game}</Text>
-      <Text style={styles.detail}>
-        Blinds {smallBlind.toLocaleString()}/{bigBlind.toLocaleString()}
-      </Text>
+      <View style={styles.detailBlock}>
+        <Text style={styles.detail}>{game}</Text>
+        <Text style={styles.detail}>
+          Blinds {smallBlind.toLocaleString()}/{bigBlind.toLocaleString()}
+        </Text>
+      </View>
     </View>
   );
 }
@@ -43,6 +46,12 @@ const styles = StyleSheet.create({
     height: WATERMARK_HEIGHT,
     alignItems: 'center',
   },
-  logo: { width: LOGO_WIDTH, height: (LOGO_WIDTH * 70) / 334, opacity: 0.7, marginBottom: 2 },
-  detail: { ...typography.caption, color: colors.textSecondary, opacity: 0.45 },
+  logo: { width: LOGO_WIDTH, height: (LOGO_WIDTH * 70) / 334, opacity: 0.7, marginBottom: -15 },
+  // Centred under the wordmark, which spans the right ~78% of the logo.
+  detailBlock: {
+    width: LOGO_WIDTH * WORDMARK_SHARE,
+    alignItems: 'center',
+    transform: [{ translateX: (LOGO_WIDTH * (1 - WORDMARK_SHARE)) / 2 }],
+  },
+  detail: { ...typography.caption, lineHeight: 14, color: colors.textSecondary, opacity: 0.5 },
 });
