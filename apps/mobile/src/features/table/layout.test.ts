@@ -1,5 +1,8 @@
 import type { TableStateView } from '@river/shared-types';
 import {
+  createEventDescriber,
+  DEALER_BUTTON_SIZE,
+  dealerButtonPosition,
   describeEvent,
   isHeroTurn,
   occupiedCount,
@@ -7,7 +10,9 @@ import {
   seatRing,
   SEAT_POD_MAX_WIDTH,
   SEAT_POD_MIN_WIDTH,
+  SEAT_WRAP_RISE,
   streetLabel,
+  type ShownHands,
 } from './layout';
 
 describe('seatRing', () => {
@@ -45,6 +50,47 @@ describe('seatRing', () => {
     const b = seatRing(6, 2, undefined);
     expect(a).toEqual(b);
     expect(a[0]!.x).toBeGreaterThanOrEqual(0.16);
+  });
+});
+
+describe('dealerButtonPosition', () => {
+  const W = 340;
+  const H = 520;
+  const podW = seatPodWidth(W);
+  const half = DEALER_BUTTON_SIZE / 2;
+
+  it('sits between the seat and the middle of the table', () => {
+    // seat at the bottom (hero): the puck goes above the pod, not below it
+    const hero = seatRing(6, 0, W, podW)[0]!;
+    const puck = dealerButtonPosition(hero, W, H, podW);
+    expect(puck.y).toBeLessThan(hero.y * H);
+    // a seat on the left: the puck goes to its right
+    const left = seatRing(6, 0, W, podW)[2]!;
+    expect(left.x).toBeLessThan(0.5);
+    expect(dealerButtonPosition(left, W, H, podW).x).toBeGreaterThan(left.x * W);
+  });
+
+  it('never overlaps its own pod', () => {
+    for (const slot of seatRing(9, 0, W, podW)) {
+      const puck = dealerButtonPosition(slot, W, H, podW);
+      const podCx = slot.x * W;
+      const podCy = slot.y * H - SEAT_WRAP_RISE + 44;
+      const clearX = Math.abs(puck.x - podCx) >= podW / 2 + half - 1;
+      const clearY = Math.abs(puck.y - podCy) >= 44 + half - 1;
+      expect(clearX || clearY).toBe(true);
+    }
+  });
+
+  it('stays fully on the felt for every seat count', () => {
+    for (const n of [2, 4, 6, 9]) {
+      for (const slot of seatRing(n, 0, W, podW)) {
+        const puck = dealerButtonPosition(slot, W, H, podW);
+        expect(puck.x - half).toBeGreaterThanOrEqual(0);
+        expect(puck.x + half).toBeLessThanOrEqual(W);
+        expect(puck.y - half).toBeGreaterThanOrEqual(0);
+        expect(puck.y + half).toBeLessThanOrEqual(H);
+      }
+    }
   });
 });
 
@@ -208,5 +254,85 @@ describe('describeEvent', () => {
 
   it('returns null for events with no feed line', () => {
     expect(describeEvent({ type: 'SHOWDOWN_STARTED' }, name)).toBeNull();
+  });
+
+  it('says what the winning hand was when it was shown', () => {
+    const shown: ShownHands = new Map([[1, { hi: 'Full House, Kings over Sevens' }]]);
+    expect(
+      describeEvent({ type: 'POT_AWARDED', winners: [{ seat: 1, amount: 300 }] }, name, shown),
+    ).toBe('P1 wins 300 with Full House, Kings over Sevens');
+  });
+
+  it('keeps the plain pot line when nobody showed (a fold-out win)', () => {
+    expect(
+      describeEvent({ type: 'POT_AWARDED', winners: [{ seat: 1, amount: 300 }] }, name, new Map()),
+    ).toBe('Pot to P1 300');
+  });
+
+  it('names the high hand for the high pot and the low hand for the low pot', () => {
+    const shown: ShownHands = new Map([
+      [0, { hi: 'Flush, Ace high' }],
+      [2, { hi: 'Pair of Fours', lo: '7-5-4-3-A low' }],
+    ]);
+    expect(
+      describeEvent(
+        { type: 'POT_AWARDED', portion: 'HIGH', winners: [{ seat: 0, amount: 150 }] },
+        name,
+        shown,
+      ),
+    ).toBe('High pot: P0 wins 150 with Flush, Ace high');
+    expect(
+      describeEvent(
+        { type: 'POT_AWARDED', portion: 'LOW', winners: [{ seat: 2, amount: 150 }] },
+        name,
+        shown,
+      ),
+    ).toBe('Low pot: P2 wins 150 with 7-5-4-3-A low');
+  });
+
+  it('lists every winner of a split pot, naming each hand that was shown', () => {
+    const shown: ShownHands = new Map([
+      [0, { hi: 'Straight, Nine high' }],
+      [3, { hi: 'Straight, Nine high' }],
+    ]);
+    expect(
+      describeEvent(
+        {
+          type: 'POT_AWARDED',
+          winners: [
+            { seat: 0, amount: 100 },
+            { seat: 3, amount: 100 },
+          ],
+        },
+        name,
+        shown,
+      ),
+    ).toBe('P0 wins 100 with Straight, Nine high; P3 wins 100 with Straight, Nine high');
+  });
+});
+
+describe('createEventDescriber', () => {
+  const name = (seat: number): string => `P${seat}`;
+
+  it('remembers revealed hands so the pot line can name the winner', () => {
+    const describe = createEventDescriber(name);
+    describe({ type: 'HAND_STARTED', handNumber: 7 });
+    describe({
+      type: 'HAND_REVEALED',
+      seat: 2,
+      hand: { description: 'Two Pair, Jacks and Sevens' },
+    });
+    expect(describe({ type: 'POT_AWARDED', winners: [{ seat: 2, amount: 60 }] })).toBe(
+      'P2 wins 60 with Two Pair, Jacks and Sevens',
+    );
+  });
+
+  it("does not carry one hand's reveals into the next", () => {
+    const describe = createEventDescriber(name);
+    describe({ type: 'HAND_REVEALED', seat: 2, hand: { description: 'Flush, King high' } });
+    describe({ type: 'HAND_STARTED', handNumber: 8 });
+    expect(describe({ type: 'POT_AWARDED', winners: [{ seat: 2, amount: 60 }] })).toBe(
+      'Pot to P2 60',
+    );
   });
 });

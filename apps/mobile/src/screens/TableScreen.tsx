@@ -7,6 +7,7 @@ import {
   ActionBar,
   BuyInSheet,
   CommunityBoard,
+  DealerButton,
   GameDetailsSheet,
   SeatPod,
   TableMenuSheet,
@@ -195,7 +196,6 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
                 seat={seat}
                 isHero={seat.seatNumber === view.youAreSeat}
                 isActing={seat.seatNumber === view.actingSeat}
-                isButton={seat.seatNumber === view.buttonSeat}
                 actionDeadline={view.actionDeadline}
                 width={podW}
                 holeCardCount={holeCardCount}
@@ -204,6 +204,18 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
             </View>
           );
         })}
+        {slots.map((slot) =>
+          slot.index === view.buttonSeat &&
+          view.seats.some((s) => s.seatNumber === slot.index && s.userId) ? (
+            <DealerButton
+              key="dealer-button"
+              slot={slot}
+              feltWidth={feltW}
+              feltHeight={feltH}
+              podWidth={podW}
+            />
+          ) : null,
+        )}
       </View>
 
       <View style={styles.bottom}>

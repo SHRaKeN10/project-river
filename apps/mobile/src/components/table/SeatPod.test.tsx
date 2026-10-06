@@ -29,7 +29,6 @@ describe('SeatPod', () => {
         seat={seat({ userId: null, username: null, seatNumber: 3 })}
         isHero={false}
         isActing={false}
-        isButton={false}
         actionDeadline={null}
         onSit={onSit}
       />,
@@ -39,15 +38,7 @@ describe('SeatPod', () => {
   });
 
   it('shows the occupant name and stack', () => {
-    render(
-      <SeatPod
-        seat={seat({ stack: 1234 })}
-        isHero
-        isActing={false}
-        isButton={false}
-        actionDeadline={null}
-      />,
-    );
+    render(<SeatPod seat={seat({ stack: 1234 })} isHero isActing={false} actionDeadline={null} />);
     expect(screen.getByText('Alice')).toBeTruthy();
     expect(screen.getByText('1,234')).toBeTruthy();
   });
@@ -58,7 +49,6 @@ describe('SeatPod', () => {
         seat={seat({ holeCards: ['As', 'Kd'] })}
         isHero
         isActing={false}
-        isButton={false}
         actionDeadline={null}
       />,
     );
@@ -68,23 +58,11 @@ describe('SeatPod', () => {
 
   it('shows a STR chip for the straddle seat, and not otherwise', () => {
     const { rerender } = render(
-      <SeatPod
-        seat={seat({ isStraddle: true })}
-        isHero
-        isActing={false}
-        isButton={false}
-        actionDeadline={null}
-      />,
+      <SeatPod seat={seat({ isStraddle: true })} isHero isActing={false} actionDeadline={null} />,
     );
     expect(screen.getByText('STR')).toBeTruthy();
     rerender(
-      <SeatPod
-        seat={seat({ isStraddle: false })}
-        isHero
-        isActing={false}
-        isButton={false}
-        actionDeadline={null}
-      />,
+      <SeatPod seat={seat({ isStraddle: false })} isHero isActing={false} actionDeadline={null} />,
     );
     expect(screen.queryByText('STR')).toBeNull();
   });
@@ -95,7 +73,6 @@ describe('SeatPod', () => {
         seat={seat({ holeCards: ['As', 'Kd', 'Qh', 'Jc'] })}
         isHero
         isActing={false}
-        isButton={false}
         actionDeadline={null}
         holeCardCount={4}
       />,
@@ -111,7 +88,6 @@ describe('SeatPod', () => {
         seat={seat({ holeCards: null, status: 'ACTIVE' })}
         isHero={false}
         isActing={false}
-        isButton={false}
         actionDeadline={null}
         holeCardCount={4}
       />,
@@ -125,7 +101,6 @@ describe('SeatPod', () => {
         seat={seat({ holeCards: null, status: 'ACTIVE' })}
         isHero={false}
         isActing={false}
-        isButton={false}
         actionDeadline={null}
         holeCardCount={5}
       />,
@@ -139,7 +114,6 @@ describe('SeatPod', () => {
         seat={seat({ status: 'FOLDED' })}
         isHero={false}
         isActing={false}
-        isButton={false}
         actionDeadline={null}
       />,
     );

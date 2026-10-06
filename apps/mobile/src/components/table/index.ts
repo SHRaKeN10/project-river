@@ -6,3 +6,4 @@ export { BuyInSheet } from './BuyInSheet';
 export { TurnTimer } from './TurnTimer';
 export { GameDetailsSheet } from './GameDetailsSheet';
 export { TableMenuSheet } from './TableMenuSheet';
+export { DealerButton } from './DealerButton';

@@ -53,6 +53,46 @@ export function seatRing(
   return slots;
 }
 
+export const DEALER_BUTTON_SIZE = 26;
+/** Rough rendered height of a seat pod (name row + cards + bet chip). */
+const SEAT_POD_HEIGHT_ESTIMATE = 88;
+/** Cash tables nudge each seat wrapper up by this much so the pod centres on its slot. */
+export const SEAT_WRAP_RISE = 30;
+
+/**
+ * Where to draw the dealer button for a seat: on the felt just in front of the
+ * pod, towards the middle of the table - like a real puck. Returns the button's
+ * centre in px relative to the felt, kept fully on the felt.
+ */
+export function dealerButtonPosition(
+  slot: Pick<SeatSlot, 'x' | 'y'>,
+  feltWidth: number,
+  feltHeight: number,
+  podWidth: number = SEAT_POD_MAX_WIDTH,
+  seatRise: number = SEAT_WRAP_RISE,
+): { x: number; y: number } {
+  const podCx = slot.x * feltWidth;
+  const podCy = slot.y * feltHeight - seatRise + SEAT_POD_HEIGHT_ESTIMATE / 2;
+  const dx = feltWidth / 2 - podCx;
+  const dy = feltHeight / 2 - podCy;
+  const len = Math.hypot(dx, dy);
+  const r = DEALER_BUTTON_SIZE / 2;
+  // A seat sitting dead-centre has no "in front"; park the puck just above it.
+  const ux = len < 1 ? 0 : dx / len;
+  const uy = len < 1 ? -1 : dy / len;
+  // Walk out from the pod centre along that direction until the puck clears the
+  // pod box grown by the puck's radius plus a gap (slightly conservative at corners).
+  const margin = r + 2;
+  const reach = Math.min(
+    ux === 0 ? Infinity : (podWidth / 2 + margin) / Math.abs(ux),
+    uy === 0 ? Infinity : (SEAT_POD_HEIGHT_ESTIMATE / 2 + margin) / Math.abs(uy),
+  );
+  return {
+    x: Math.max(r, Math.min(feltWidth - r, podCx + ux * reach)),
+    y: Math.max(r, Math.min(feltHeight - r, podCy + uy * reach)),
+  };
+}
+
 function clamp01(n: number, lo = 0, hi = 1): number {
   return Math.max(lo, Math.min(hi, n));
 }
@@ -89,10 +129,32 @@ export function streetLabel(street: string): string {
   return STREET_LABEL[street] ?? street;
 }
 
+/** What each seat showed at showdown this hand (high and, for hi-lo, low), so the
+ * pot line can say what actually won. */
+export type ShownHands = Map<number, { hi?: string; lo?: string }>;
+
+const descriptionOf = (x: unknown): string | undefined =>
+  (x as { description?: string } | undefined)?.description;
+
+/** `describeEvent` plus a per-hand memory of revealed hands, for the live feed. */
+export function createEventDescriber(
+  nameForSeat: (seat: number) => string,
+): (ev: HandUpdateEvent) => string | null {
+  const shown: ShownHands = new Map();
+  return (ev) => {
+    if (ev.type === 'HAND_STARTED') shown.clear();
+    else if (ev.type === 'HAND_REVEALED' && typeof ev.seat === 'number') {
+      shown.set(ev.seat, { hi: descriptionOf(ev.hand), lo: descriptionOf(ev.low) });
+    }
+    return describeEvent(ev, nameForSeat, shown);
+  };
+}
+
 /** Turn a stripped `hand:update` event into one short feed line, or null to skip. */
 export function describeEvent(
   ev: HandUpdateEvent,
   nameForSeat: (seat: number) => string,
+  shown?: ShownHands,
 ): string | null {
   const seat = typeof ev.seat === 'number' ? ev.seat : null;
   const who = seat !== null ? nameForSeat(seat) : '';
@@ -142,11 +204,25 @@ export function describeEvent(
       return `${who} mucks`;
     case 'POT_AWARDED': {
       const winners = (ev.winners as { seat: number; amount: number }[] | undefined) ?? [];
-      const label = winners.map((w) => `${nameForSeat(w.seat)} ${w.amount}`).join(', ');
-      if (!label) return null;
+      if (winners.length === 0) return null;
       const portion = ev.portion === 'HIGH' ? 'High pot' : ev.portion === 'LOW' ? 'Low pot' : 'Pot';
       const board = ev.board === 1 ? ' (board 1)' : ev.board === 2 ? ' (board 2)' : '';
-      return `${portion} to ${label}${board}`;
+      // The hand each winner showed for this side of the pot. Nobody shows
+      // down on a fold-out win, so those keep the plain "Pot to ..." line.
+      const hands = winners.map((w) => {
+        const h = shown?.get(w.seat);
+        return ev.portion === 'LOW' ? h?.lo : h?.hi;
+      });
+      if (hands.every((h) => !h)) {
+        const label = winners.map((w) => `${nameForSeat(w.seat)} ${w.amount}`).join(', ');
+        return `${portion} to ${label}${board}`;
+      }
+      const label = winners
+        .map(
+          (w, i) => `${nameForSeat(w.seat)} wins ${w.amount}${hands[i] ? ` with ${hands[i]}` : ''}`,
+        )
+        .join('; ');
+      return `${ev.portion ? `${portion}: ` : ''}${label}${board}`;
     }
     default:
       return null;

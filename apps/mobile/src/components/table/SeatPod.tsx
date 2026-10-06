@@ -9,7 +9,6 @@ interface Props {
   seat: PublicSeatView;
   isHero: boolean;
   isActing: boolean;
-  isButton: boolean;
   actionDeadline: number | null;
   /** Pod width in px (narrow screens shrink it). Defaults to the full size. */
   width?: number;
@@ -36,7 +35,6 @@ function SeatPodBase({
   seat,
   isHero,
   isActing,
-  isButton,
   actionDeadline,
   width,
   holeCardCount = 2,
@@ -79,11 +77,6 @@ function SeatPodBase({
         {seat.isStraddle ? (
           <View style={styles.straddle}>
             <Text style={styles.straddleText}>STR</Text>
-          </View>
-        ) : null}
-        {isButton ? (
-          <View style={styles.button}>
-            <Text style={styles.buttonText}>D</Text>
           </View>
         ) : null}
       </View>
@@ -157,15 +150,6 @@ const styles = StyleSheet.create({
   info: { flex: 1, minWidth: 0 },
   name: { ...typography.caption, color: colors.textPrimary, fontWeight: '600' },
   stack: { ...typography.caption, color: colors.accent },
-  button: {
-    width: 18,
-    height: 18,
-    borderRadius: radius.pill,
-    backgroundColor: colors.textPrimary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  buttonText: { fontSize: 10, fontWeight: '800', color: colors.bg },
   straddle: {
     borderRadius: radius.pill,
     backgroundColor: colors.warning,

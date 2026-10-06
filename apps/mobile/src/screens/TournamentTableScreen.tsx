@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-na
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { GAME_HOLE_CARDS, GameType, POT_LIMIT_GAME_TYPES } from '@river/shared-types';
-import { ActionBar, CommunityBoard, SeatPod } from '../components/table';
+import { ActionBar, CommunityBoard, DealerButton, SeatPod } from '../components/table';
 import {
   heroSeat,
   isHeroTurn,
@@ -164,7 +164,6 @@ export function TournamentTableScreen({ navigation, route }: Props): JSX.Element
                 seat={seat}
                 isHero={seat.seatNumber === view.youAreSeat}
                 isActing={seat.seatNumber === view.actingSeat}
-                isButton={seat.seatNumber === view.buttonSeat}
                 actionDeadline={view.actionDeadline}
                 width={podW}
                 holeCardCount={holeCardCount}
@@ -172,6 +171,19 @@ export function TournamentTableScreen({ navigation, route }: Props): JSX.Element
             </View>
           );
         })}
+        {slots.map((slot) =>
+          slot.index === view.buttonSeat &&
+          view.seats.some((s) => s.seatNumber === slot.index && s.userId) ? (
+            <DealerButton
+              key="dealer-button"
+              slot={slot}
+              feltWidth={feltW}
+              feltHeight={feltH}
+              podWidth={podW}
+              seatRise={0}
+            />
+          ) : null,
+        )}
       </View>
 
       <View style={styles.bottom}>
