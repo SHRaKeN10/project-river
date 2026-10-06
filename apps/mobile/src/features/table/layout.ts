@@ -59,10 +59,28 @@ const SEAT_POD_HEIGHT_ESTIMATE = 88;
 /** Cash tables nudge each seat wrapper up by this much so the pod centres on its slot. */
 export const SEAT_WRAP_RISE = 30;
 
+/** Rough half-extent of the community board + pot pill, centred on the felt. */
+const BOARD_HALF_WIDTH = 112;
+const BOARD_HALF_HEIGHT = 50;
+
+interface Box {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+const overlaps = (a: Box, b: Box): boolean =>
+  a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+
 /**
- * Where to draw the dealer button for a seat: on the felt just in front of the
- * pod, towards the middle of the table - like a real puck. Returns the button's
- * centre in px relative to the felt, kept fully on the felt.
+ * Where to draw the dealer button for a seat: on the felt right next to the
+ * pod, like a real puck. It prefers the side facing the middle of the table but
+ * steps aside (above / below the pod, then outside it) when that spot would
+ * cover the board or another seat. Returns the button's centre in px relative
+ * to the felt, kept fully on the felt.
+ *
+ * `slots` is every seat on the table (so other pods can be avoided).
  */
 export function dealerButtonPosition(
   slot: Pick<SeatSlot, 'x' | 'y'>,
@@ -70,26 +88,73 @@ export function dealerButtonPosition(
   feltHeight: number,
   podWidth: number = SEAT_POD_MAX_WIDTH,
   seatRise: number = SEAT_WRAP_RISE,
+  slots: Pick<SeatSlot, 'x' | 'y'>[] = [],
 ): { x: number; y: number } {
-  const podCx = slot.x * feltWidth;
-  const podCy = slot.y * feltHeight - seatRise + SEAT_POD_HEIGHT_ESTIMATE / 2;
+  const r = DEALER_BUTTON_SIZE / 2;
+  const gap = 2;
+  const podBox = (s: Pick<SeatSlot, 'x' | 'y'>): Box => {
+    const cx = s.x * feltWidth;
+    const top = s.y * feltHeight - seatRise;
+    return {
+      left: cx - podWidth / 2,
+      right: cx + podWidth / 2,
+      top,
+      bottom: top + SEAT_POD_HEIGHT_ESTIMATE,
+    };
+  };
+  const mine = podBox(slot);
+  const podCx = (mine.left + mine.right) / 2;
+  const podCy = (mine.top + mine.bottom) / 2;
   const dx = feltWidth / 2 - podCx;
   const dy = feltHeight / 2 - podCy;
   const len = Math.hypot(dx, dy);
-  const r = DEALER_BUTTON_SIZE / 2;
-  // A seat sitting dead-centre has no "in front"; park the puck just above it.
+  // A seat sitting dead-centre has no "in front"; treat it as facing up.
   const ux = len < 1 ? 0 : dx / len;
   const uy = len < 1 ? -1 : dy / len;
-  // Walk out from the pod centre along that direction until the puck clears the
-  // pod box grown by the puck's radius plus a gap (slightly conservative at corners).
-  const margin = r + 2;
+  const inward = dx >= 0 ? 1 : -1; // horizontal side facing the table centre
+
+  // Walk out from the pod centre along the facing direction until the puck
+  // clears the pod box grown by the puck radius plus a gap.
+  const margin = r + gap;
   const reach = Math.min(
     ux === 0 ? Infinity : (podWidth / 2 + margin) / Math.abs(ux),
     uy === 0 ? Infinity : (SEAT_POD_HEIGHT_ESTIMATE / 2 + margin) / Math.abs(uy),
   );
+  const innerX = podCx + inward * (podWidth / 2 - r);
+  const candidates = [
+    { x: podCx + ux * reach, y: podCy + uy * reach }, // in front, towards the centre
+    { x: innerX, y: mine.top - margin }, // above the pod, inner corner
+    { x: innerX, y: mine.bottom + margin }, // below the pod, inner corner
+    { x: podCx - inward * (podWidth / 2 - r), y: mine.top - margin }, // above, outer corner
+    { x: podCx - inward * (podWidth / 2 - r), y: mine.bottom + margin }, // below, outer corner
+    { x: podCx + inward * (podWidth / 2 + margin), y: podCy }, // beside, inner
+    { x: podCx - inward * (podWidth / 2 + margin), y: podCy }, // beside, outer
+  ];
+
+  const blockers: Box[] = [
+    {
+      left: feltWidth / 2 - BOARD_HALF_WIDTH,
+      right: feltWidth / 2 + BOARD_HALF_WIDTH,
+      top: feltHeight / 2 - BOARD_HALF_HEIGHT,
+      bottom: feltHeight / 2 + BOARD_HALF_HEIGHT,
+    },
+    ...slots.filter((s) => s.x !== slot.x || s.y !== slot.y).map(podBox),
+  ];
+  const clearOf = (c: { x: number; y: number }, avoid: Box[]): boolean => {
+    const box: Box = { left: c.x - r, right: c.x + r, top: c.y - r, bottom: c.y + r };
+    const onFelt =
+      box.left >= 0 && box.top >= 0 && box.right <= feltWidth && box.bottom <= feltHeight;
+    return onFelt && !avoid.some((b) => overlaps(box, b));
+  };
+  // Best: clear of the board and every pod. On a very cramped felt settle for
+  // just keeping the cards uncovered.
+  const pick =
+    candidates.find((c) => clearOf(c, [...blockers, mine])) ??
+    candidates.find((c) => clearOf(c, [blockers[0]!])) ??
+    candidates[0]!;
   return {
-    x: Math.max(r, Math.min(feltWidth - r, podCx + ux * reach)),
-    y: Math.max(r, Math.min(feltHeight - r, podCy + uy * reach)),
+    x: Math.max(r, Math.min(feltWidth - r, pick.x)),
+    y: Math.max(r, Math.min(feltHeight - r, pick.y)),
   };
 }
 

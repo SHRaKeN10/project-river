@@ -210,6 +210,7 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
             <DealerButton
               key="dealer-button"
               slot={slot}
+              slots={slots}
               feltWidth={feltW}
               feltHeight={feltH}
               podWidth={podW}

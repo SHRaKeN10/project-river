@@ -54,41 +54,61 @@ describe('seatRing', () => {
 });
 
 describe('dealerButtonPosition', () => {
-  const W = 340;
-  const H = 520;
-  const podW = seatPodWidth(W);
   const half = DEALER_BUTTON_SIZE / 2;
+  const sizes = [
+    { W: 340, H: 520 },
+    { W: 272, H: 440 },
+    { W: 400, H: 600 },
+  ];
+  const puckBox = (p: { x: number; y: number }) => ({
+    left: p.x - half,
+    right: p.x + half,
+    top: p.y - half,
+    bottom: p.y + half,
+  });
+  const hits = (
+    a: { left: number; right: number; top: number; bottom: number },
+    b: { left: number; right: number; top: number; bottom: number },
+  ) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
 
-  it('sits between the seat and the middle of the table', () => {
-    // seat at the bottom (hero): the puck goes above the pod, not below it
-    const hero = seatRing(6, 0, W, podW)[0]!;
-    const puck = dealerButtonPosition(hero, W, H, podW);
-    expect(puck.y).toBeLessThan(hero.y * H);
-    // a seat on the left: the puck goes to its right
-    const left = seatRing(6, 0, W, podW)[2]!;
-    expect(left.x).toBeLessThan(0.5);
-    expect(dealerButtonPosition(left, W, H, podW).x).toBeGreaterThan(left.x * W);
+  it('sits in front of the hero, between the seat and the middle', () => {
+    const { W, H } = sizes[0]!;
+    const podW = seatPodWidth(W);
+    const ring = seatRing(6, 0, W, podW);
+    const puck = dealerButtonPosition(ring[0]!, W, H, podW, SEAT_WRAP_RISE, ring);
+    expect(puck.y).toBeLessThan(ring[0]!.y * H);
   });
 
-  it('never overlaps its own pod', () => {
-    for (const slot of seatRing(9, 0, W, podW)) {
-      const puck = dealerButtonPosition(slot, W, H, podW);
-      const podCx = slot.x * W;
-      const podCy = slot.y * H - SEAT_WRAP_RISE + 44;
-      const clearX = Math.abs(puck.x - podCx) >= podW / 2 + half - 1;
-      const clearY = Math.abs(puck.y - podCy) >= 44 + half - 1;
-      expect(clearX || clearY).toBe(true);
-    }
-  });
-
-  it('stays fully on the felt for every seat count', () => {
-    for (const n of [2, 4, 6, 9]) {
-      for (const slot of seatRing(n, 0, W, podW)) {
-        const puck = dealerButtonPosition(slot, W, H, podW);
-        expect(puck.x - half).toBeGreaterThanOrEqual(0);
-        expect(puck.x + half).toBeLessThanOrEqual(W);
-        expect(puck.y - half).toBeGreaterThanOrEqual(0);
-        expect(puck.y + half).toBeLessThanOrEqual(H);
+  it('never covers the board, another seat, or leaves the felt - for every dealer seat', () => {
+    for (const { W, H } of sizes) {
+      const podW = seatPodWidth(W);
+      for (const n of [2, 3, 4, 6, 8, 9]) {
+        const ring = seatRing(n, 0, W, podW);
+        for (const slot of ring) {
+          const puck = puckBox(dealerButtonPosition(slot, W, H, podW, SEAT_WRAP_RISE, ring));
+          expect(puck.left).toBeGreaterThanOrEqual(0);
+          expect(puck.right).toBeLessThanOrEqual(W);
+          expect(puck.top).toBeGreaterThanOrEqual(0);
+          expect(puck.bottom).toBeLessThanOrEqual(H);
+          // the board: roughly 224 x 100 px dead centre
+          expect(
+            hits(puck, {
+              left: W / 2 - 112,
+              right: W / 2 + 112,
+              top: H / 2 - 50,
+              bottom: H / 2 + 50,
+            }),
+          ).toBe(false);
+          // A very cramped felt (narrow phone, 9 seats) has no free spot, so there
+          // the puck only has to keep the cards clear.
+          for (const other of W >= 340 ? ring : []) {
+            const cx = other.x * W;
+            const top = other.y * H - SEAT_WRAP_RISE;
+            expect(
+              hits(puck, { left: cx - podW / 2, right: cx + podW / 2, top, bottom: top + 88 }),
+            ).toBe(false);
+          }
+        }
       }
     }
   });

@@ -14,12 +14,21 @@ interface Props {
   podWidth: number;
   /** How far the seat wrapper is shifted up (see SEAT_WRAP_RISE); 0 if unshifted. */
   seatRise?: number;
+  /** Every seat on the table, so the puck can avoid the other pods. */
+  slots: SeatSlot[];
 }
 
 /** The dealer puck, drawn on the felt in front of the button seat. Must be
  * rendered inside the (position: relative) felt view. */
-function DealerButtonBase({ slot, feltWidth, feltHeight, podWidth, seatRise }: Props): JSX.Element {
-  const { x, y } = dealerButtonPosition(slot, feltWidth, feltHeight, podWidth, seatRise);
+function DealerButtonBase({
+  slot,
+  feltWidth,
+  feltHeight,
+  podWidth,
+  seatRise,
+  slots,
+}: Props): JSX.Element {
+  const { x, y } = dealerButtonPosition(slot, feltWidth, feltHeight, podWidth, seatRise, slots);
   return (
     <View
       pointerEvents="none"
