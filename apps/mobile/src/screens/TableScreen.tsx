@@ -49,6 +49,7 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
   } = useTable(tableId);
 
   const [buyInSeat, setBuyInSeat] = useState<number | null>(null);
+  const [buyInError, setBuyInError] = useState<string | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -57,7 +58,10 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
   // (this button, hardware back, a nav reset) behaves the same.
   const goBack = useCallback(() => navigation.goBack(), [navigation]);
 
-  const onSit = useCallback((seatNumber: number) => setBuyInSeat(seatNumber), []);
+  const onSit = useCallback((seatNumber: number) => {
+    setBuyInError(null);
+    setBuyInSeat(seatNumber);
+  }, []);
 
   // Arrived here from a waitlist "seat available" prompt: open the buy-in sheet
   // straight onto the seat held for us (once, on mount).
@@ -73,9 +77,13 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
     async (amount: number) => {
       if (buyInSeat === null) return;
       setBusy(true);
+      setBuyInError(null);
       const err = await takeSeat(buyInSeat, amount);
       setBusy(false);
-      if (!err) {
+      if (err) {
+        // Keep the sheet open and say why (it used to fail silently).
+        setBuyInError(err);
+      } else {
         setBuyInSeat(null);
         void chips.refetch();
       }
@@ -257,6 +265,7 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
         busy={busy}
         rebuying={rebuy.isPending}
         onRebuy={onRebuy}
+        error={buyInError}
         onConfirm={confirmBuyIn}
         onClose={() => setBuyInSeat(null)}
       />

@@ -66,9 +66,9 @@ const BOARD_HALF_WIDTH = 112;
 const BOARD_HALF_HEIGHT = 50;
 /** The felt watermark (brand / game / blinds): top edge as a fraction of the felt
  * height, plus its rough size. Shared with TableWatermark so they stay in step. */
-export const WATERMARK_TOP_FRACTION = 0.63;
-export const WATERMARK_HALF_WIDTH = 104;
-export const WATERMARK_HEIGHT = 56;
+export const WATERMARK_TOP_FRACTION = 0.2;
+export const WATERMARK_HALF_WIDTH = 72;
+export const WATERMARK_HEIGHT = 48;
 
 interface Box {
   left: number;
@@ -150,11 +150,8 @@ export function dealerButtonPosition(
     top: feltHeight * WATERMARK_TOP_FRACTION,
     bottom: feltHeight * WATERMARK_TOP_FRACTION + WATERMARK_HEIGHT,
   };
-  const blockers: Box[] = [
-    board,
-    watermark,
-    ...slots.filter((s) => s.index !== slot.index).map(podBox),
-  ];
+  const pods = slots.filter((s) => s.index !== slot.index).map(podBox);
+  const blockers: Box[] = [board, watermark, ...pods];
   const clearOf = (c: { x: number; y: number }, avoid: Box[]): boolean => {
     const box: Box = { left: c.x - r, right: c.x + r, top: c.y - r, bottom: c.y + r };
     const onFelt =
@@ -162,9 +159,10 @@ export function dealerButtonPosition(
     return onFelt && !avoid.some((b) => overlaps(box, b));
   };
   // Best: clear of the board, the watermark and every pod. On a very cramped
-  // felt settle for keeping the cards, then the cards and watermark, uncovered.
+  // felt give up the (purely decorative) watermark first, then the pods.
   const pick =
     candidates.find((c) => clearOf(c, [...blockers, mine])) ??
+    candidates.find((c) => clearOf(c, [board, ...pods, mine])) ??
     candidates.find((c) => clearOf(c, [board, watermark])) ??
     candidates.find((c) => clearOf(c, [board])) ??
     candidates[0]!;

@@ -19,6 +19,17 @@ describe('BuyInSheet', () => {
     expect(onConfirm).toHaveBeenCalledWith(2000); // 100 BB, capped by ceiling
   });
 
+  it('shows why a buy-in was refused', () => {
+    render(
+      <BuyInSheet
+        {...base}
+        chipBalance={5000}
+        error="you left this table with 1980 - come back with at least 1980, or wait 12 more minutes"
+      />,
+    );
+    expect(screen.getByText(/come back with at least 1980/)).toBeTruthy();
+  });
+
   it('offers a rebuy instead of the amount picker when the player is broke', () => {
     const onRebuy = jest.fn();
     render(<BuyInSheet {...base} chipBalance={50} onRebuy={onRebuy} />);

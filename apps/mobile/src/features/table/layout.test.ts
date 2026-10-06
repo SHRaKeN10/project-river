@@ -103,7 +103,7 @@ describe('dealerButtonPosition', () => {
             }),
           ).toBe(false);
           // the watermark: just just below the board
-          if (W >= 340) {
+          if (W >= 340 && n <= 6) {
             expect(
               hits(puck, {
                 left: W / 2 - WATERMARK_HALF_WIDTH,
