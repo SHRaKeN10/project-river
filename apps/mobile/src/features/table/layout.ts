@@ -66,9 +66,9 @@ const BOARD_HALF_WIDTH = 112;
 const BOARD_HALF_HEIGHT = 50;
 /** The felt watermark (brand / game / blinds): top edge as a fraction of the felt
  * height, plus its rough size. Shared with TableWatermark so they stay in step. */
-export const WATERMARK_TOP_FRACTION = 0.2;
-export const WATERMARK_HALF_WIDTH = 72;
-export const WATERMARK_HEIGHT = 48;
+export const WATERMARK_TOP_FRACTION = 0.6;
+export const WATERMARK_HALF_WIDTH = 70;
+export const WATERMARK_HEIGHT = 60;
 
 interface Box {
   left: number;

@@ -137,11 +137,6 @@ export function TournamentTableScreen({ navigation, route }: Props): JSX.Element
       ) : null}
 
       <View style={[styles.felt, { height: feltH, width: feltW }]}>
-        <TableWatermark
-          gameType={view.gameType}
-          smallBlind={view.smallBlind}
-          bigBlind={view.bigBlind}
-        />
         <View style={styles.center}>
           <CommunityBoard
             cards={view.communityCards}
@@ -188,6 +183,12 @@ export function TournamentTableScreen({ navigation, route }: Props): JSX.Element
             </View>
           );
         })}
+        {/* Over the seats, which are see-through, so the branding reads across them. */}
+        <TableWatermark
+          gameType={view.gameType}
+          smallBlind={view.smallBlind}
+          bigBlind={view.bigBlind}
+        />
         {buttonSlot && buttonSeatOccupied ? (
           <DealerButton
             slot={buttonSlot}

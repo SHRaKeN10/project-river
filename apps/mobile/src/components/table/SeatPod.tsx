@@ -126,10 +126,13 @@ function SeatPodBase({
 
 export const SeatPod = memo(SeatPodBase);
 
+/** See-through so the felt branding shows across the pods. */
+const POD_BACKGROUND = '#1a1917a6';
+
 const styles = StyleSheet.create({
   pod: {
     width: 104,
-    backgroundColor: colors.surface,
+    backgroundColor: POD_BACKGROUND,
     borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.border,

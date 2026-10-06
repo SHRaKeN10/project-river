@@ -4,7 +4,7 @@ import { TableWatermark } from './TableWatermark';
 describe('TableWatermark', () => {
   it('prints the house, the game and the blinds', () => {
     render(<TableWatermark gameType="OMAHA5_HILO" smallBlind={10} bigBlind={20} />);
-    expect(screen.getByText('PALACE POKER')).toBeTruthy();
+    expect(screen.getByLabelText('Palace Poker')).toBeTruthy();
     expect(screen.queryByText('Grand Prairie')).toBeNull();
     expect(screen.getByText('Big O (Hi-Lo)')).toBeTruthy();
     expect(screen.getByText('Blinds 10/20')).toBeTruthy();
