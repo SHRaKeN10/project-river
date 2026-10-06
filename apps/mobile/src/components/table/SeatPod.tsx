@@ -68,7 +68,9 @@ function SeatPodBase({
     >
       <View style={styles.row}>
         <View style={[styles.avatar, isHero ? styles.avatarHero : null]}>
-          <Text style={styles.avatarText}>{initials(seat.username)}</Text>
+          <Text style={[styles.avatarText, isHero ? styles.avatarTextHero : null]}>
+            {initials(seat.username)}
+          </Text>
         </View>
         <View style={styles.info}>
           <Text style={styles.name} numberOfLines={1}>
@@ -127,7 +129,7 @@ function SeatPodBase({
 export const SeatPod = memo(SeatPodBase);
 
 /** See-through so the felt branding shows across the pods. */
-const POD_BACKGROUND = '#1a1917a6';
+const POD_BACKGROUND = '#14110fb0';
 
 const styles = StyleSheet.create({
   pod: {
@@ -135,7 +137,7 @@ const styles = StyleSheet.create({
     backgroundColor: POD_BACKGROUND,
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: colors.goldSoft,
     padding: spacing.sm,
     gap: spacing.xs,
   },
@@ -148,19 +150,28 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff0d',
   },
   emptyText: { ...typography.label, color: colors.textSecondary },
-  acting: { borderColor: colors.accent },
+  acting: {
+    borderColor: colors.accent,
+    shadowColor: colors.accent,
+    shadowOpacity: 0.7,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 0 },
+  },
   faded: { opacity: 0.45 },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   avatar: {
     width: 30,
     height: 30,
     borderRadius: radius.pill,
-    backgroundColor: colors.surfaceAlt,
+    backgroundColor: '#2a2418',
+    borderWidth: 1.5,
+    borderColor: colors.accent,
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatarHero: { backgroundColor: colors.accent },
-  avatarText: { ...typography.caption, fontWeight: '700', color: colors.textPrimary },
+  avatarText: { ...typography.caption, fontWeight: '700', color: colors.accent },
+  avatarTextHero: { color: colors.accentText },
   info: { flex: 1, minWidth: 0 },
   name: { ...typography.caption, color: colors.textPrimary, fontWeight: '600' },
   stack: { ...typography.caption, color: colors.accent },
@@ -176,7 +187,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: spacing.sm,
     bottom: -8,
-    backgroundColor: '#000000aa',
+    backgroundColor: '#000000cc',
+    borderWidth: 1,
+    borderColor: colors.goldSoft,
     borderRadius: radius.pill,
     paddingHorizontal: spacing.sm,
     paddingVertical: 2,

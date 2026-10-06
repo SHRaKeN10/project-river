@@ -8,6 +8,7 @@ import {
   BuyInSheet,
   CommunityBoard,
   DealerButton,
+  Felt,
   GameDetailsSheet,
   HeroTray,
   heroCardSize,
@@ -169,7 +170,7 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
         </Pressable>
       ) : null}
 
-      <View style={[styles.felt, { height: feltH, width: feltW }]}>
+      <Felt width={feltW} height={feltH}>
         <View style={styles.center}>
           <CommunityBoard
             cards={view.communityCards}
@@ -224,7 +225,7 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
             podWidth={podW}
           />
         ) : null}
-      </View>
+      </Felt>
 
       <View style={styles.bottom}>
         <HeroTray
@@ -319,15 +320,6 @@ const styles = StyleSheet.create({
     padding: spacing.sm,
   },
   errorText: { ...typography.caption, color: '#fff', textAlign: 'center' },
-  felt: {
-    alignSelf: 'center',
-    marginTop: spacing.sm,
-    backgroundColor: colors.felt,
-    borderRadius: 999,
-    borderWidth: 6,
-    borderColor: colors.feltRail,
-    position: 'relative',
-  },
   center: {
     position: 'absolute',
     left: 0,

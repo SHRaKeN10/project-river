@@ -20,11 +20,12 @@ export function PlayingCard({ card, size = 'md' }: Props): JSX.Element {
   const d = DIMENSIONS[size];
 
   if (!card) {
+    const diamond = Math.round(d.w * 0.34);
     return (
-      <View
-        style={[styles.back, { width: d.w, height: d.h }]}
-        accessibilityLabel="Face-down card"
-      />
+      <View style={[styles.back, { width: d.w, height: d.h }]} accessibilityLabel="Face-down card">
+        <View style={styles.backFrame} />
+        <View style={[styles.backDiamond, { width: diamond, height: diamond }]} />
+      </View>
     );
   }
 
@@ -42,22 +43,34 @@ export function PlayingCard({ card, size = 'md' }: Props): JSX.Element {
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#f7f4ec',
+    backgroundColor: colors.cardFace,
     borderRadius: radius.sm,
     borderWidth: 1,
-    borderColor: '#0006',
+    borderColor: colors.cardEdge,
     alignItems: 'center',
     justifyContent: 'center',
   },
   back: {
-    backgroundColor: colors.info,
+    backgroundColor: colors.cardBack,
     borderRadius: radius.sm,
-    borderWidth: 2,
-    borderColor: '#0b1220',
-    opacity: 0.9,
+    borderWidth: 1.5,
+    borderColor: colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
+  backFrame: {
+    position: 'absolute',
+    top: 2,
+    left: 2,
+    right: 2,
+    bottom: 2,
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: '#c2a15288',
+  },
+  backDiamond: { backgroundColor: colors.accent, transform: [{ rotate: '45deg' }], opacity: 0.9 },
   rank: { fontWeight: '800', lineHeight: undefined },
   suit: { fontWeight: '700', marginTop: -2 },
-  red: { color: '#c0392b' },
-  black: { color: '#1a1a1a' },
+  red: { color: colors.suitRed },
+  black: { color: colors.suitBlack },
 });

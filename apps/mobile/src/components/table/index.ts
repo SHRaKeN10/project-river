@@ -9,3 +9,4 @@ export { TableMenuSheet } from './TableMenuSheet';
 export { DealerButton } from './DealerButton';
 export { HeroTray, heroCardSize } from './HeroTray';
 export { TableWatermark } from './TableWatermark';
+export { Felt } from './Felt';

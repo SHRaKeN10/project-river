@@ -13,8 +13,17 @@ export const colors = {
   surface: '#1a1917',
   surfaceAlt: '#242320',
   border: '#332e22',
-  felt: '#12120f',
+  felt: '#0e0c0b', // warm black baize
   feltRail: '#c2a152', // brand gold rail, in place of a felt-green edge
+  feltRailInner: '#7d6a30', // darker gold bevel just inside the rail
+
+  // Cards in the house colours: ivory faces, black and casino-red suits, red backs.
+  cardFace: '#f7f2e4',
+  cardEdge: '#c2a15299',
+  suitRed: '#a3141d',
+  suitBlack: '#15130f',
+  cardBack: '#8b0000', // Palace Poker red
+  goldSoft: '#c2a15244',
 
   textPrimary: '#f5f1e8',
   textSecondary: '#b8b0a0',

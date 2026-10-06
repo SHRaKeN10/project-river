@@ -48,9 +48,9 @@ const styles = StyleSheet.create({
     width: DEALER_BUTTON_SIZE,
     height: DEALER_BUTTON_SIZE,
     borderRadius: DEALER_BUTTON_SIZE / 2,
-    backgroundColor: colors.textPrimary,
+    backgroundColor: colors.accent,
     borderWidth: 2,
-    borderColor: colors.accent,
+    borderColor: '#f1e2b0',
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',
@@ -59,5 +59,5 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 4,
   },
-  label: { fontSize: 13, fontWeight: '800', color: colors.bg },
+  label: { fontSize: 13, fontWeight: '800', color: colors.accentText },
 });
