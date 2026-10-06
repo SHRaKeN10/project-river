@@ -12,6 +12,8 @@ import {
   SEAT_POD_MIN_WIDTH,
   SEAT_WRAP_RISE,
   streetLabel,
+  WATERMARK_HALF_WIDTH,
+  WATERMARK_HEIGHT,
   WATERMARK_TOP_FRACTION,
   type ShownHands,
 } from './layout';
@@ -100,14 +102,14 @@ describe('dealerButtonPosition', () => {
               bottom: H / 2 + 50,
             }),
           ).toBe(false);
-          // the watermark: ~200 x 54 px just below the board
+          // the watermark: just just below the board
           if (W >= 340) {
             expect(
               hits(puck, {
-                left: W / 2 - 100,
-                right: W / 2 + 100,
+                left: W / 2 - WATERMARK_HALF_WIDTH,
+                right: W / 2 + WATERMARK_HALF_WIDTH,
                 top: H * WATERMARK_TOP_FRACTION,
-                bottom: H * WATERMARK_TOP_FRACTION + 54,
+                bottom: H * WATERMARK_TOP_FRACTION + WATERMARK_HEIGHT,
               }),
             ).toBe(false);
           }
