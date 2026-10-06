@@ -1,5 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { GAME_TYPE_LABEL, GameType } from '@river/shared-types';
+import { WATERMARK_TOP_FRACTION } from '../../features/table/layout';
 import { colors, typography } from '../../theme/tokens';
 
 interface Props {
@@ -24,7 +25,13 @@ export function TableWatermark({ gameType, smallBlind, bigBlind }: Props): JSX.E
 }
 
 const styles = StyleSheet.create({
-  wrap: { position: 'absolute', left: 0, right: 0, top: '63%', alignItems: 'center' },
+  wrap: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: `${WATERMARK_TOP_FRACTION * 100}%`,
+    alignItems: 'center',
+  },
   brand: {
     ...typography.label,
     color: colors.accent,

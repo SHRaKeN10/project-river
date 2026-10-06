@@ -12,6 +12,7 @@ import {
   SEAT_POD_MIN_WIDTH,
   SEAT_WRAP_RISE,
   streetLabel,
+  WATERMARK_TOP_FRACTION,
   type ShownHands,
 } from './layout';
 
@@ -99,6 +100,17 @@ describe('dealerButtonPosition', () => {
               bottom: H / 2 + 50,
             }),
           ).toBe(false);
+          // the watermark: ~200 x 54 px just below the board
+          if (W >= 340) {
+            expect(
+              hits(puck, {
+                left: W / 2 - 100,
+                right: W / 2 + 100,
+                top: H * WATERMARK_TOP_FRACTION,
+                bottom: H * WATERMARK_TOP_FRACTION + 54,
+              }),
+            ).toBe(false);
+          }
           // A very cramped felt (narrow phone, 9 seats) has no free spot, so there
           // the puck only has to keep the cards clear.
           for (const other of W >= 340 ? ring : []) {

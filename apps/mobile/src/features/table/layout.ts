@@ -64,6 +64,11 @@ export const SEAT_WRAP_RISE = 30;
 const TAG_HANG = 8;
 const BOARD_HALF_WIDTH = 112;
 const BOARD_HALF_HEIGHT = 50;
+/** The felt watermark (brand / game / blinds): top edge as a fraction of the felt
+ * height, plus its rough size. Shared with TableWatermark so they stay in step. */
+export const WATERMARK_TOP_FRACTION = 0.63;
+const WATERMARK_HALF_WIDTH = 100;
+const WATERMARK_HEIGHT = 54;
 
 interface Box {
   left: number;
@@ -133,13 +138,21 @@ export function dealerButtonPosition(
     { x: podCx - inward * (podWidth / 2 + margin), y: podCy }, // beside, outer
   ];
 
+  const board: Box = {
+    left: feltWidth / 2 - BOARD_HALF_WIDTH,
+    right: feltWidth / 2 + BOARD_HALF_WIDTH,
+    top: feltHeight / 2 - BOARD_HALF_HEIGHT,
+    bottom: feltHeight / 2 + BOARD_HALF_HEIGHT,
+  };
+  const watermark: Box = {
+    left: feltWidth / 2 - WATERMARK_HALF_WIDTH,
+    right: feltWidth / 2 + WATERMARK_HALF_WIDTH,
+    top: feltHeight * WATERMARK_TOP_FRACTION,
+    bottom: feltHeight * WATERMARK_TOP_FRACTION + WATERMARK_HEIGHT,
+  };
   const blockers: Box[] = [
-    {
-      left: feltWidth / 2 - BOARD_HALF_WIDTH,
-      right: feltWidth / 2 + BOARD_HALF_WIDTH,
-      top: feltHeight / 2 - BOARD_HALF_HEIGHT,
-      bottom: feltHeight / 2 + BOARD_HALF_HEIGHT,
-    },
+    board,
+    watermark,
     ...slots.filter((s) => s.index !== slot.index).map(podBox),
   ];
   const clearOf = (c: { x: number; y: number }, avoid: Box[]): boolean => {
@@ -148,11 +161,12 @@ export function dealerButtonPosition(
       box.left >= 0 && box.top >= 0 && box.right <= feltWidth && box.bottom <= feltHeight;
     return onFelt && !avoid.some((b) => overlaps(box, b));
   };
-  // Best: clear of the board and every pod. On a very cramped felt settle for
-  // just keeping the cards uncovered.
+  // Best: clear of the board, the watermark and every pod. On a very cramped
+  // felt settle for keeping the cards, then the cards and watermark, uncovered.
   const pick =
     candidates.find((c) => clearOf(c, [...blockers, mine])) ??
-    candidates.find((c) => clearOf(c, [blockers[0]!])) ??
+    candidates.find((c) => clearOf(c, [board, watermark])) ??
+    candidates.find((c) => clearOf(c, [board])) ??
     candidates[0]!;
   return {
     x: Math.max(r, Math.min(feltWidth - r, pick.x)),
