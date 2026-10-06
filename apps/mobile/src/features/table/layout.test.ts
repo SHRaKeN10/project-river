@@ -310,6 +310,17 @@ describe('describeEvent', () => {
     ).toBe('Low pot: P2 wins 150 with 7-5-4-3-A low');
   });
 
+  it('does not name a hand for the second board (reveals describe board 1)', () => {
+    const shown: ShownHands = new Map([[1, { hi: 'Pair of Kings' }]]);
+    expect(
+      describeEvent(
+        { type: 'POT_AWARDED', board: 2, winners: [{ seat: 1, amount: 100 }] },
+        name,
+        shown,
+      ),
+    ).toBe('Pot to P1 100 (board 2)');
+  });
+
   it('lists every winner of a split pot, naming each hand that was shown', () => {
     const shown: ShownHands = new Map([
       [0, { hi: 'Straight, Nine high' }],

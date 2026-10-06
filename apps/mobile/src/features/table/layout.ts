@@ -275,7 +275,9 @@ export function describeEvent(
       // The hand each winner showed for this side of the pot. Nobody shows
       // down on a fold-out win, so those keep the plain "Pot to ..." line.
       const hands = winners.map((w) => {
-        const h = shown?.get(w.seat);
+        // Reveals are summarised against the first board, so a hand named for
+        // board 2 would be wrong.
+        const h = ev.board === 2 ? undefined : shown?.get(w.seat);
         return ev.portion === 'LOW' ? h?.lo : h?.hi;
       });
       if (hands.every((h) => !h)) {
