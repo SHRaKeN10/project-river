@@ -17,6 +17,8 @@ interface Props {
   holeCardCount?: number;
   /** Don't draw this seat's hole cards (the hero's are shown larger in the tray). */
   hideCards?: boolean;
+  /** Which way a shown hand may spill past the pod: towards the table centre. */
+  revealSide?: 'left' | 'right' | 'center';
   /** Called when an empty seat is tapped. */
   onSit?: (seatNumber: number) => void;
 }
@@ -41,6 +43,7 @@ function SeatPodBase({
   width,
   holeCardCount = 2,
   hideCards = false,
+  revealSide = 'center',
   onSit,
 }: Props): JSX.Element {
   const sizeStyle = width ? { width } : null;
@@ -90,13 +93,27 @@ function SeatPodBase({
       {isActing && actionDeadline ? <TurnTimer deadline={actionDeadline} /> : null}
 
       {hideCards ? null : showCards ? (
-        <View style={styles.cards}>
-          {seat.holeCards?.map((c, i) => (
-            <View key={i} style={tuckStyle(i, seat.holeCards?.length ?? 0)}>
-              <PlayingCard card={c} size="sm" />
+        <>
+          {/* Keeps the pod the same height as a face-down hand; the shown cards
+              themselves are drawn over it, un-overlapped, spilling towards the
+              table centre so none is covered. */}
+          <View style={styles.revealSpacer} />
+          <View
+            style={[
+              styles.revealRow,
+              revealSide === 'right' ? styles.revealRight : null,
+              revealSide === 'left' ? styles.revealLeft : null,
+              revealSide === 'center' ? styles.revealCenter : null,
+            ]}
+            pointerEvents="none"
+          >
+            <View style={styles.revealCards}>
+              {seat.holeCards?.map((c, i) => (
+                <PlayingCard key={i} card={c} size="reveal" />
+              ))}
             </View>
-          ))}
-        </View>
+          </View>
+        </>
       ) : faceDown ? (
         <View style={styles.cards}>
           {Array.from({ length: holeCardCount }, (_, i) => (
@@ -109,11 +126,7 @@ function SeatPodBase({
 
       {/* Overlaid on the pod's bottom edge so a bet or status never makes the pod
           taller (a tall pod runs into the community cards). */}
-      {seat.currentBet > 0 ? (
-        <View style={styles.tag} pointerEvents="none">
-          <Text style={styles.betText}>{seat.currentBet.toLocaleString()}</Text>
-        </View>
-      ) : folded ? (
+      {folded ? (
         <View style={styles.tag} pointerEvents="none">
           <Text style={styles.tagText}>folded</Text>
         </View>
@@ -183,6 +196,22 @@ const styles = StyleSheet.create({
   },
   straddleText: { fontSize: 9, fontWeight: '800', color: colors.bg, letterSpacing: 0.5 },
   cards: { flexDirection: 'row', gap: 3 },
+  revealSpacer: { height: 36 },
+  revealRow: {
+    position: 'absolute',
+    bottom: spacing.sm,
+    flexDirection: 'row',
+  },
+  revealRight: { left: spacing.sm },
+  revealLeft: { right: spacing.sm, justifyContent: 'flex-end' },
+  revealCenter: { left: 0, right: 0, justifyContent: 'center' },
+  revealCards: {
+    flexDirection: 'row',
+    gap: 3,
+    backgroundColor: '#000000cc',
+    borderRadius: radius.sm,
+    paddingHorizontal: 3,
+  },
   tag: {
     position: 'absolute',
     left: spacing.sm,
@@ -194,6 +223,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     paddingVertical: 2,
   },
-  betText: { ...typography.caption, color: colors.textPrimary },
   tagText: { ...typography.caption, color: colors.textSecondary },
 });

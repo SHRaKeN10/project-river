@@ -2,7 +2,12 @@ import type { TableStateView } from '@river/shared-types';
 import {
   createEventDescriber,
   DEALER_BUTTON_SIZE,
+  BET_CHIP_HEIGHT,
+  betChipWidth,
   dealerButtonPosition,
+  feltMarkers,
+  potPoint,
+  seatCentre,
   describeEvent,
   isHeroTurn,
   occupiedCount,
@@ -125,6 +130,99 @@ describe('dealerButtonPosition', () => {
         }
       }
     }
+  });
+});
+
+describe('feltMarkers', () => {
+  const W = 340;
+  const H = 520;
+  const podW = seatPodWidth(W);
+  const box = (m: { x: number; y: number; width: number }) => ({
+    left: m.x - m.width / 2,
+    right: m.x + m.width / 2,
+    top: m.y - BET_CHIP_HEIGHT / 2,
+    bottom: m.y + BET_CHIP_HEIGHT / 2,
+  });
+  const hit = (
+    a: { left: number; right: number; top: number; bottom: number },
+    b: { left: number; right: number; top: number; bottom: number },
+  ) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+
+  it('puts a bet chip on the felt in front of its seat, towards the middle', () => {
+    const ring = seatRing(6, 0, W, podW);
+    const m = feltMarkers({
+      slots: ring,
+      buttonSeat: null,
+      bets: [{ seat: 0, amount: 50 }],
+      feltWidth: W,
+      feltHeight: H,
+      podWidth: podW,
+    });
+    expect(m.puck).toBeNull();
+    expect(m.bets).toHaveLength(1);
+    // the hero sits at the bottom: the chip is above the pod, nearer the middle
+    expect(m.bets[0]!.y).toBeLessThan(ring[0]!.y * H);
+    expect(m.bets[0]!.width).toBe(betChipWidth(50));
+  });
+
+  it('keeps every bet chip off the puck and off each other', () => {
+    for (const n of [2, 4, 6, 9]) {
+      const ring = seatRing(n, 0, W, podW);
+      const m = feltMarkers({
+        slots: ring,
+        buttonSeat: 0,
+        bets: ring.map((s, i) => ({ seat: s.index, amount: 100 * (i + 1) })),
+        feltWidth: W,
+        feltHeight: H,
+        podWidth: podW,
+      });
+      expect(m.puck).not.toBeNull();
+      expect(m.bets).toHaveLength(n);
+      const puckBox = {
+        left: m.puck!.x - 13,
+        right: m.puck!.x + 13,
+        top: m.puck!.y - 13,
+        bottom: m.puck!.y + 13,
+      };
+      if (n <= 6) {
+        m.bets.forEach((b, i) => {
+          expect(hit(box(b), puckBox)).toBe(false);
+          m.bets.slice(i + 1).forEach((o) => expect(hit(box(b), box(o))).toBe(false));
+        });
+      }
+      // always fully on the felt
+      for (const b of m.bets) {
+        expect(box(b).left).toBeGreaterThanOrEqual(0);
+        expect(box(b).right).toBeLessThanOrEqual(W);
+        expect(box(b).top).toBeGreaterThanOrEqual(0);
+        expect(box(b).bottom).toBeLessThanOrEqual(H);
+      }
+    }
+  });
+
+  it('skips seats with nothing in front of them', () => {
+    const ring = seatRing(6, 0, W, podW);
+    const m = feltMarkers({
+      slots: ring,
+      buttonSeat: null,
+      bets: [
+        { seat: 1, amount: 0 },
+        { seat: 99, amount: 10 },
+      ],
+      feltWidth: W,
+      feltHeight: H,
+      podWidth: podW,
+    });
+    expect(m.bets).toEqual([]);
+  });
+});
+
+describe('seatCentre / potPoint', () => {
+  it('centres on the pod and puts the pot under the board', () => {
+    const c = seatCentre({ x: 0.5, y: 0.5 }, 300, 500, 30);
+    expect(c.x).toBe(150);
+    expect(c.y).toBe(250 - 30 + 44);
+    expect(potPoint(300, 500)).toEqual({ x: 150, y: 284 });
   });
 });
 

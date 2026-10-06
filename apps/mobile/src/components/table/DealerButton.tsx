@@ -1,34 +1,18 @@
 import { memo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { colors } from '../../theme/tokens';
-import {
-  DEALER_BUTTON_SIZE,
-  dealerButtonPosition,
-  type SeatSlot,
-} from '../../features/table/layout';
+import { DEALER_BUTTON_SIZE } from '../../features/table/layout';
 
 interface Props {
-  slot: SeatSlot;
-  feltWidth: number;
-  feltHeight: number;
-  podWidth: number;
-  /** How far the seat wrapper is shifted up (see SEAT_WRAP_RISE); 0 if unshifted. */
-  seatRise?: number;
-  /** Every seat on the table, so the puck can avoid the other pods. */
-  slots: SeatSlot[];
+  /** Centre of the puck, px relative to the felt. */
+  x: number;
+  y: number;
 }
 
-/** The dealer puck, drawn on the felt in front of the button seat. Must be
+/** The dealer puck, drawn on the felt in front of the button seat (see
+ * `feltMarkers` for where). Must be
  * rendered inside the (position: relative) felt view. */
-function DealerButtonBase({
-  slot,
-  feltWidth,
-  feltHeight,
-  podWidth,
-  seatRise,
-  slots,
-}: Props): JSX.Element {
-  const { x, y } = dealerButtonPosition(slot, feltWidth, feltHeight, podWidth, seatRise, slots);
+function DealerButtonBase({ x, y }: Props): JSX.Element {
   return (
     <View
       pointerEvents="none"

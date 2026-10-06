@@ -7,6 +7,8 @@ import {
   ActionBar,
   BuyInSheet,
   CommunityBoard,
+  BetChip,
+  ChipFlights,
   DealerButton,
   Felt,
   GameDetailsSheet,
@@ -18,12 +20,14 @@ import {
 } from '../components/table';
 import { useChips, useRebuy } from '../features/api/queries';
 import {
+  feltMarkers,
   heroSeat,
   isHeroTurn,
   seatPodWidth,
   seatRing,
   streetLabel,
 } from '../features/table/layout';
+import { useChipFlights } from '../features/table/useChipFlights';
 import { useTable } from '../features/table/useTable';
 import { colors, radius, spacing, typography } from '../theme/tokens';
 import type { AppStackParams } from '../navigation/types';
@@ -48,6 +52,7 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
     toggleStraddle,
     toggleRunItTwice,
   } = useTable(tableId);
+  const { flights, done: flightDone } = useChipFlights(view);
 
   const [buyInSeat, setBuyInSeat] = useState<number | null>(null);
   const [buyInError, setBuyInError] = useState<string | null>(null);
@@ -133,8 +138,20 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
   const feltW = width - spacing.lg * 2;
   const podW = seatPodWidth(feltW);
   const slots = seatRing(view.maxSeats, heroIndex, feltW, podW);
-  const buttonSlot = slots.find((s) => s.index === view.buttonSeat);
-  const buttonSeatOccupied = view.seats.some((s) => s.seatNumber === view.buttonSeat && s.userId);
+  const markers = feltMarkers({
+    slots,
+    buttonSeat: view.seats.some((s) => s.seatNumber === view.buttonSeat && s.userId)
+      ? view.buttonSeat
+      : null,
+    bets: view.seats
+      .filter((s) => s.userId && s.currentBet > 0)
+      .map((s) => ({ seat: s.seatNumber, amount: s.currentBet })),
+    feltWidth: feltW,
+    feltHeight: feltH,
+    podWidth: podW,
+    seatRise: 30,
+  });
+  const betSpots = new Map(markers.bets.map((b) => [b.seat, { x: b.x, y: b.y }]));
 
   return (
     <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
@@ -205,6 +222,7 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
                 width={podW}
                 holeCardCount={holeCardCount}
                 hideCards={heroCards.length > 0 && seat.seatNumber === view.youAreSeat}
+                revealSide={slot.x < 0.4 ? 'right' : slot.x > 0.6 ? 'left' : 'center'}
                 onSit={onSit}
               />
             </View>
@@ -216,15 +234,20 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
           smallBlind={view.smallBlind}
           bigBlind={view.bigBlind}
         />
-        {buttonSlot && buttonSeatOccupied ? (
-          <DealerButton
-            slot={buttonSlot}
-            slots={slots}
-            feltWidth={feltW}
-            feltHeight={feltH}
-            podWidth={podW}
-          />
-        ) : null}
+        {markers.puck ? <DealerButton x={markers.puck.x} y={markers.puck.y} /> : null}
+        {markers.bets.map((b) => (
+          <BetChip key={`bet-${b.seat}`} amount={b.amount} x={b.x} y={b.y} width={b.width} />
+        ))}
+        <ChipFlights
+          flights={flights}
+          slots={slots}
+          betSpots={betSpots}
+          feltWidth={feltW}
+          feltHeight={feltH}
+          podWidth={podW}
+          seatRise={30}
+          onDone={flightDone}
+        />
       </Felt>
 
       <View style={styles.bottom}>

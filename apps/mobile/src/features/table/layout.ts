@@ -54,14 +54,15 @@ export function seatRing(
 }
 
 export const DEALER_BUTTON_SIZE = 26;
-/** Rough rendered height of a seat pod (name row + cards + bet chip). */
+export const BET_CHIP_HEIGHT = 22;
+/** Rough rendered height of a seat pod (name row + cards). */
 const SEAT_POD_HEIGHT_ESTIMATE = 88;
 /** Cash tables nudge each seat wrapper up by this much so the pod centres on its slot. */
 export const SEAT_WRAP_RISE = 30;
+/** How far a seat's status tag hangs below its pod. */
+const TAG_HANG = 8;
 
 /** Rough half-extent of the community board + pot pill, centred on the felt. */
-/** How far a seat's bet/status tag hangs below its pod. */
-const TAG_HANG = 8;
 const BOARD_HALF_WIDTH = 112;
 const BOARD_HALF_HEIGHT = 50;
 /** The felt watermark (brand / game / blinds): top edge as a fraction of the felt
@@ -70,34 +71,74 @@ export const WATERMARK_TOP_FRACTION = 0.6;
 export const WATERMARK_HALF_WIDTH = 70;
 export const WATERMARK_HEIGHT = 46;
 
-interface Box {
+export interface Box {
   left: number;
   top: number;
   right: number;
   bottom: number;
 }
 
+export interface Point {
+  x: number;
+  y: number;
+}
+
 const overlaps = (a: Box, b: Box): boolean =>
   a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
 
+const boxAround = (c: Point, w: number, h: number): Box => ({
+  left: c.x - w / 2,
+  right: c.x + w / 2,
+  top: c.y - h / 2,
+  bottom: c.y + h / 2,
+});
+
+/** Centre of a seat's pod in felt px. */
+export function seatCentre(
+  slot: Pick<SeatSlot, 'x' | 'y'>,
+  feltWidth: number,
+  feltHeight: number,
+  seatRise: number = SEAT_WRAP_RISE,
+): Point {
+  return {
+    x: slot.x * feltWidth,
+    y: slot.y * feltHeight - seatRise + SEAT_POD_HEIGHT_ESTIMATE / 2,
+  };
+}
+
+/** Where the pot sits (just under the board), in felt px. */
+export function potPoint(feltWidth: number, feltHeight: number): Point {
+  return { x: feltWidth / 2, y: feltHeight / 2 + 34 };
+}
+
+interface PlaceOptions {
+  /** Size of the thing being placed, px. */
+  size: { w: number; h: number };
+  /** Extra boxes to keep clear of (other markers already placed). */
+  extraBlockers?: Box[];
+}
+
 /**
- * Where to draw the dealer button for a seat: on the felt right next to the
- * pod, like a real puck. It prefers the side facing the middle of the table but
- * steps aside (above / below the pod, then outside it) when that spot would
- * cover the board or another seat. Returns the button's centre in px relative
- * to the felt, kept fully on the felt.
+ * Finds a spot on the felt right next to a seat's pod for a small marker (the
+ * dealer puck, a bet chip). It prefers the side facing the middle of the table
+ * - "in front of the player" - but steps aside (above / below the pod, then
+ * outside it) when that spot would cover the board, the watermark, another pod
+ * or `extraBlockers`. Returns the marker's centre in px relative to the felt,
+ * kept fully on the felt.
  *
  * `slots` is every seat on the table (so other pods can be avoided).
  */
-export function dealerButtonPosition(
+export function placeNearSeat(
   slot: SeatSlot,
   feltWidth: number,
   feltHeight: number,
-  podWidth: number = SEAT_POD_MAX_WIDTH,
-  seatRise: number = SEAT_WRAP_RISE,
-  slots: SeatSlot[] = [],
-): { x: number; y: number } {
-  const r = DEALER_BUTTON_SIZE / 2;
+  podWidth: number,
+  seatRise: number,
+  slots: SeatSlot[],
+  { size, extraBlockers = [] }: PlaceOptions,
+): Point {
+  const hw = size.w / 2;
+  const hh = size.h / 2;
   const gap = 2;
   const podBox = (s: Pick<SeatSlot, 'x' | 'y'>): Box => {
     const cx = s.x * feltWidth;
@@ -120,22 +161,24 @@ export function dealerButtonPosition(
   const uy = len < 1 ? -1 : dy / len;
   const inward = dx >= 0 ? 1 : -1; // horizontal side facing the table centre
 
-  // Walk out from the pod centre along the facing direction until the puck
-  // clears the pod box grown by the puck radius plus a gap.
-  const margin = r + gap;
+  // Walk out from the pod centre along the facing direction until the marker
+  // clears the pod box grown by the marker's half-size plus a gap.
   const reach = Math.min(
-    ux === 0 ? Infinity : (podWidth / 2 + margin) / Math.abs(ux),
-    uy === 0 ? Infinity : (SEAT_POD_HEIGHT_ESTIMATE / 2 + margin) / Math.abs(uy),
+    ux === 0 ? Infinity : (podWidth / 2 + hw + gap) / Math.abs(ux),
+    uy === 0 ? Infinity : (SEAT_POD_HEIGHT_ESTIMATE / 2 + hh + gap) / Math.abs(uy),
   );
-  const innerX = podCx + inward * (podWidth / 2 - r);
-  const candidates = [
+  const innerX = podCx + inward * Math.max(0, podWidth / 2 - hw);
+  const outerX = podCx - inward * Math.max(0, podWidth / 2 - hw);
+  const above = mine.top - hh - gap;
+  const below = mine.bottom + TAG_HANG + hh + gap;
+  const candidates: Point[] = [
     { x: podCx + ux * reach, y: podCy + uy * reach }, // in front, towards the centre
-    { x: innerX, y: mine.top - margin }, // above the pod, inner corner
-    { x: innerX, y: mine.bottom + margin + TAG_HANG }, // below the pod, inner corner
-    { x: podCx - inward * (podWidth / 2 - r), y: mine.top - margin }, // above, outer corner
-    { x: podCx - inward * (podWidth / 2 - r), y: mine.bottom + margin + TAG_HANG }, // below, outer corner
-    { x: podCx + inward * (podWidth / 2 + margin), y: podCy }, // beside, inner
-    { x: podCx - inward * (podWidth / 2 + margin), y: podCy }, // beside, outer
+    { x: innerX, y: above }, // above the pod, inner corner
+    { x: innerX, y: below }, // below the pod, inner corner
+    { x: outerX, y: above }, // above, outer corner
+    { x: outerX, y: below }, // below, outer corner
+    { x: podCx + inward * (podWidth / 2 + hw + gap), y: podCy }, // beside, inner
+    { x: podCx - inward * (podWidth / 2 + hw + gap), y: podCy }, // beside, outer
   ];
 
   const board: Box = {
@@ -151,25 +194,97 @@ export function dealerButtonPosition(
     bottom: feltHeight * WATERMARK_TOP_FRACTION + WATERMARK_HEIGHT,
   };
   const pods = slots.filter((s) => s.index !== slot.index).map(podBox);
-  const blockers: Box[] = [board, watermark, ...pods];
-  const clearOf = (c: { x: number; y: number }, avoid: Box[]): boolean => {
-    const box: Box = { left: c.x - r, right: c.x + r, top: c.y - r, bottom: c.y + r };
+  const clearOf = (c: Point, avoid: Box[]): boolean => {
+    const box = boxAround(c, size.w, size.h);
     const onFelt =
       box.left >= 0 && box.top >= 0 && box.right <= feltWidth && box.bottom <= feltHeight;
     return onFelt && !avoid.some((b) => overlaps(box, b));
   };
-  // Best: clear of the board, the watermark and every pod. On a very cramped
-  // felt give up the (purely decorative) watermark first, then the pods.
+  // Best: clear of the board, the watermark, every pod and the other markers.
+  // On a very cramped felt give up the other markers, then the (purely
+  // decorative) watermark, then the pods.
   const pick =
-    candidates.find((c) => clearOf(c, [...blockers, mine])) ??
+    candidates.find((c) => clearOf(c, [board, watermark, ...pods, mine, ...extraBlockers])) ??
+    candidates.find((c) => clearOf(c, [board, watermark, ...pods, mine])) ??
     candidates.find((c) => clearOf(c, [board, ...pods, mine])) ??
     candidates.find((c) => clearOf(c, [board, watermark])) ??
     candidates.find((c) => clearOf(c, [board])) ??
     candidates[0]!;
   return {
-    x: Math.max(r, Math.min(feltWidth - r, pick.x)),
-    y: Math.max(r, Math.min(feltHeight - r, pick.y)),
+    x: Math.max(hw, Math.min(feltWidth - hw, pick.x)),
+    y: Math.max(hh, Math.min(feltHeight - hh, pick.y)),
   };
+}
+
+/** The dealer puck's centre for a seat (see `placeNearSeat`). */
+export function dealerButtonPosition(
+  slot: SeatSlot,
+  feltWidth: number,
+  feltHeight: number,
+  podWidth: number = SEAT_POD_MAX_WIDTH,
+  seatRise: number = SEAT_WRAP_RISE,
+  slots: SeatSlot[] = [],
+): Point {
+  return placeNearSeat(slot, feltWidth, feltHeight, podWidth, seatRise, slots, {
+    size: { w: DEALER_BUTTON_SIZE, h: DEALER_BUTTON_SIZE },
+  });
+}
+
+/** Width of a bet chip showing `amount` (coin + digits + padding). */
+export function betChipWidth(amount: number): number {
+  return 30 + amount.toLocaleString().length * 7;
+}
+
+export interface BetMarker {
+  seat: number;
+  amount: number;
+  x: number;
+  y: number;
+  width: number;
+}
+
+export interface FeltMarkers {
+  /** Dealer puck centre, or null when there is no button seat to mark. */
+  puck: Point | null;
+  /** One chip per seat with chips in front of it, in front of that seat. */
+  bets: BetMarker[];
+}
+
+/** Lays out every marker that sits on the felt in front of the seats: the dealer
+ * puck first, then each bet chip, each avoiding the ones already placed. */
+export function feltMarkers(args: {
+  slots: SeatSlot[];
+  buttonSeat: number | null;
+  bets: { seat: number; amount: number }[];
+  feltWidth: number;
+  feltHeight: number;
+  podWidth: number;
+  seatRise?: number;
+}): FeltMarkers {
+  const { slots, buttonSeat, bets, feltWidth, feltHeight, podWidth } = args;
+  const seatRise = args.seatRise ?? SEAT_WRAP_RISE;
+  const taken: Box[] = [];
+
+  const buttonSlot = buttonSeat === null ? undefined : slots.find((s) => s.index === buttonSeat);
+  let puck: Point | null = null;
+  if (buttonSlot) {
+    puck = dealerButtonPosition(buttonSlot, feltWidth, feltHeight, podWidth, seatRise, slots);
+    taken.push(boxAround(puck, DEALER_BUTTON_SIZE, DEALER_BUTTON_SIZE));
+  }
+
+  const placed: BetMarker[] = [];
+  for (const bet of bets) {
+    const slot = slots.find((s) => s.index === bet.seat);
+    if (!slot || bet.amount <= 0) continue;
+    const width = betChipWidth(bet.amount);
+    const at = placeNearSeat(slot, feltWidth, feltHeight, podWidth, seatRise, slots, {
+      size: { w: width, h: BET_CHIP_HEIGHT },
+      extraBlockers: taken,
+    });
+    taken.push(boxAround(at, width, BET_CHIP_HEIGHT));
+    placed.push({ seat: bet.seat, amount: bet.amount, x: at.x, y: at.y, width });
+  }
+  return { puck, bets: placed };
 }
 
 function clamp01(n: number, lo = 0, hi = 1): number {

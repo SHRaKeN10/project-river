@@ -134,17 +134,8 @@ describe('SeatPod', () => {
     expect(screen.queryByLabelText('Face-down card')).toBeNull();
   });
 
-  it('shows a bet, a status and a fold as a tag', () => {
+  it('shows a status and a fold as a tag on the pod', () => {
     const { rerender } = render(
-      <SeatPod
-        seat={seat({ currentBet: 50 })}
-        isHero={false}
-        isActing={false}
-        actionDeadline={null}
-      />,
-    );
-    expect(screen.getByText('50')).toBeTruthy();
-    rerender(
       <SeatPod
         seat={seat({ lastAction: 'CHECK' })}
         isHero={false}
@@ -162,5 +153,32 @@ describe('SeatPod', () => {
       />,
     );
     expect(screen.getByText('folded')).toBeTruthy();
+  });
+
+  it('leaves the bet to the chip on the felt', () => {
+    render(
+      <SeatPod
+        seat={seat({ currentBet: 50 })}
+        isHero={false}
+        isActing={false}
+        actionDeadline={null}
+      />,
+    );
+    expect(screen.queryByText('50')).toBeNull();
+  });
+
+  it('shows an opponent hand with every card readable, none overlapped', () => {
+    render(
+      <SeatPod
+        seat={seat({ holeCards: ['As', 'Kd', '7h', '7c', '2s'] })}
+        isHero={false}
+        isActing={false}
+        actionDeadline={null}
+        revealSide="right"
+      />,
+    );
+    for (const rank of ['A', 'K', '7', '2'])
+      expect(screen.getAllByText(rank).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('7')).toHaveLength(2);
   });
 });

@@ -4,7 +4,7 @@ import { colors, radius } from '../../theme/tokens';
 interface Props {
   /** Wire form: "As", "Td", "9h". Omit / null for a face-down card. */
   card?: string | null;
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'sm' | 'reveal' | 'md' | 'lg';
 }
 
 const SUIT_GLYPH: Record<string, string> = { s: '♠', h: '♥', d: '♦', c: '♣' };
@@ -12,6 +12,9 @@ const RED = new Set(['h', 'd']);
 
 export const DIMENSIONS = {
   sm: { w: 26, h: 36, rank: 13, suit: 11 },
+  // Same height as sm so a pod does not grow when a hand is shown, but wider and
+  // with larger type so every card reads without overlapping its neighbour.
+  reveal: { w: 30, h: 36, rank: 15, suit: 12 },
   md: { w: 40, h: 56, rank: 18, suit: 16 },
   lg: { w: 52, h: 72, rank: 24, suit: 20 },
 } as const;
