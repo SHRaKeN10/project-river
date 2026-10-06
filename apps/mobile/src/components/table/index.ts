@@ -7,3 +7,4 @@ export { TurnTimer } from './TurnTimer';
 export { GameDetailsSheet } from './GameDetailsSheet';
 export { TableMenuSheet } from './TableMenuSheet';
 export { DealerButton } from './DealerButton';
+export { HeroTray, heroCardSize } from './HeroTray';

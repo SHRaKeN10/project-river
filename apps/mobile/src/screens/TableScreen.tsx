@@ -9,6 +9,8 @@ import {
   CommunityBoard,
   DealerButton,
   GameDetailsSheet,
+  HeroTray,
+  heroCardSize,
   SeatPod,
   TableMenuSheet,
 } from '../components/table';
@@ -115,6 +117,7 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
   const gameType = view.gameType as GameType;
   const holeCardCount = GAME_HOLE_CARDS[gameType] ?? 2;
   const potLimit = POT_LIMIT_GAME_TYPES.has(gameType);
+  const heroCards = hero?.holeCards ?? [];
 
   const feltH = Math.min(height * 0.62, height - 220);
   const feltW = width - spacing.lg * 2;
@@ -166,16 +169,6 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
           />
         </View>
 
-        {feed.length > 0 ? (
-          <View style={styles.feed} pointerEvents="none">
-            <View style={styles.feedPill}>
-              <Text style={styles.feedText} numberOfLines={1}>
-                {feed[feed.length - 1]?.text}
-              </Text>
-            </View>
-          </View>
-        ) : null}
-
         {slots.map((slot) => {
           const seat = view.seats.find((s) => s.seatNumber === slot.index);
           if (!seat) return null;
@@ -199,6 +192,7 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
                 actionDeadline={view.actionDeadline}
                 width={podW}
                 holeCardCount={holeCardCount}
+                hideCards={heroCards.length > 0 && seat.seatNumber === view.youAreSeat}
                 onSit={onSit}
               />
             </View>
@@ -220,6 +214,12 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
       </View>
 
       <View style={styles.bottom}>
+        <HeroTray
+          cards={heroCards}
+          folded={hero?.status === 'FOLDED'}
+          feedText={feed.length > 0 ? feed[feed.length - 1]?.text : null}
+          size={heroCardSize(heroCards.length || holeCardCount, width, height)}
+        />
         {myTurn && view.legalActions ? (
           <ActionBar
             options={view.legalActions}
@@ -323,21 +323,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  feed: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: spacing.md,
-    alignItems: 'center',
-  },
-  feedPill: {
-    maxWidth: '80%',
-    backgroundColor: '#00000077',
-    borderRadius: radius.pill,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 4,
-  },
-  feedText: { ...typography.caption, color: '#ffffffe0' },
   seatWrap: { position: 'absolute', marginTop: -30 },
   bottom: { flex: 1, justifyContent: 'flex-end' },
   statusLine: {

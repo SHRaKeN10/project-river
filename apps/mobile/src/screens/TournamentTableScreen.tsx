@@ -3,7 +3,14 @@ import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-na
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { GAME_HOLE_CARDS, GameType, POT_LIMIT_GAME_TYPES } from '@river/shared-types';
-import { ActionBar, CommunityBoard, DealerButton, SeatPod } from '../components/table';
+import {
+  ActionBar,
+  CommunityBoard,
+  DealerButton,
+  HeroTray,
+  heroCardSize,
+  SeatPod,
+} from '../components/table';
 import {
   heroSeat,
   isHeroTurn,
@@ -86,6 +93,7 @@ export function TournamentTableScreen({ navigation, route }: Props): JSX.Element
   const gameType = view.gameType as GameType;
   const holeCardCount = GAME_HOLE_CARDS[gameType] ?? 2;
   const potLimit = POT_LIMIT_GAME_TYPES.has(gameType);
+  const heroCards = hero?.holeCards ?? [];
 
   const feltH = Math.min(height * 0.62, height - 220);
   const feltW = width - spacing.lg * 2;
@@ -167,6 +175,7 @@ export function TournamentTableScreen({ navigation, route }: Props): JSX.Element
                 actionDeadline={view.actionDeadline}
                 width={podW}
                 holeCardCount={holeCardCount}
+                hideCards={heroCards.length > 0 && seat.seatNumber === view.youAreSeat}
               />
             </View>
           );
@@ -188,6 +197,11 @@ export function TournamentTableScreen({ navigation, route }: Props): JSX.Element
       </View>
 
       <View style={styles.bottom}>
+        <HeroTray
+          cards={heroCards}
+          folded={hero?.status === 'FOLDED'}
+          size={heroCardSize(heroCards.length || holeCardCount, width, height)}
+        />
         {myTurn && view.legalActions ? (
           <ActionBar
             options={view.legalActions}

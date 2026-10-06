@@ -15,6 +15,8 @@ interface Props {
   /** Face-down cards to draw for a seat still in the hand: 2 for Hold'em
    * (default), 4 for Omaha. */
   holeCardCount?: number;
+  /** Don't draw this seat's hole cards (the hero's are shown larger in the tray). */
+  hideCards?: boolean;
   /** Called when an empty seat is tapped. */
   onSit?: (seatNumber: number) => void;
 }
@@ -38,6 +40,7 @@ function SeatPodBase({
   actionDeadline,
   width,
   holeCardCount = 2,
+  hideCards = false,
   onSit,
 }: Props): JSX.Element {
   const sizeStyle = width ? { width } : null;
@@ -57,6 +60,7 @@ function SeatPodBase({
   const folded = seat.status === 'FOLDED';
   const sittingOut = seat.status === 'SITTING_OUT';
   const showCards = (seat.holeCards?.length ?? 0) > 0;
+  const faceDown = !hideCards && (seat.status === 'ACTIVE' || seat.status === 'ALL_IN');
 
   return (
     <View
@@ -83,7 +87,7 @@ function SeatPodBase({
 
       {isActing && actionDeadline ? <TurnTimer deadline={actionDeadline} /> : null}
 
-      {showCards ? (
+      {hideCards ? null : showCards ? (
         <View style={styles.cards}>
           {seat.holeCards?.map((c, i) => (
             <View key={i} style={tuckStyle(i, seat.holeCards?.length ?? 0)}>
@@ -91,7 +95,7 @@ function SeatPodBase({
             </View>
           ))}
         </View>
-      ) : seat.status === 'ACTIVE' || seat.status === 'ALL_IN' ? (
+      ) : faceDown ? (
         <View style={styles.cards}>
           {Array.from({ length: holeCardCount }, (_, i) => (
             <View key={i} style={tuckStyle(i, holeCardCount)}>
@@ -101,14 +105,21 @@ function SeatPodBase({
         </View>
       ) : null}
 
+      {/* Overlaid on the pod's bottom edge so a bet or status never makes the pod
+          taller (a tall pod runs into the community cards). */}
       {seat.currentBet > 0 ? (
-        <View style={styles.bet}>
+        <View style={styles.tag} pointerEvents="none">
           <Text style={styles.betText}>{seat.currentBet.toLocaleString()}</Text>
         </View>
-      ) : seat.lastAction && !folded ? (
-        <Text style={styles.lastAction}>{seat.lastAction.replace(/_/g, ' ').toLowerCase()}</Text>
+      ) : folded ? (
+        <View style={styles.tag} pointerEvents="none">
+          <Text style={styles.tagText}>folded</Text>
+        </View>
+      ) : seat.lastAction ? (
+        <View style={styles.tag} pointerEvents="none">
+          <Text style={styles.tagText}>{seat.lastAction.replace(/_/g, ' ').toLowerCase()}</Text>
+        </View>
       ) : null}
-      {folded ? <Text style={styles.lastAction}>folded</Text> : null}
     </View>
   );
 }
@@ -158,13 +169,15 @@ const styles = StyleSheet.create({
   },
   straddleText: { fontSize: 9, fontWeight: '800', color: colors.bg, letterSpacing: 0.5 },
   cards: { flexDirection: 'row', gap: 3 },
-  bet: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#00000055',
+  tag: {
+    position: 'absolute',
+    left: spacing.sm,
+    bottom: -8,
+    backgroundColor: '#000000aa',
     borderRadius: radius.pill,
     paddingHorizontal: spacing.sm,
     paddingVertical: 2,
   },
   betText: { ...typography.caption, color: colors.textPrimary },
-  lastAction: { ...typography.caption, color: colors.textMuted },
+  tagText: { ...typography.caption, color: colors.textSecondary },
 });

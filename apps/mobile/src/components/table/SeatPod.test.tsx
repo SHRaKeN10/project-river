@@ -119,4 +119,48 @@ describe('SeatPod', () => {
     );
     expect(screen.getByText('folded')).toBeTruthy();
   });
+
+  it('hides the hole cards when asked (the hero sees them in the tray)', () => {
+    render(
+      <SeatPod
+        seat={seat({ holeCards: ['As', 'Kd'] })}
+        isHero
+        isActing={false}
+        actionDeadline={null}
+        hideCards
+      />,
+    );
+    expect(screen.queryByText('A')).toBeNull();
+    expect(screen.queryByLabelText('Face-down card')).toBeNull();
+  });
+
+  it('shows a bet, a status and a fold as a tag', () => {
+    const { rerender } = render(
+      <SeatPod
+        seat={seat({ currentBet: 50 })}
+        isHero={false}
+        isActing={false}
+        actionDeadline={null}
+      />,
+    );
+    expect(screen.getByText('50')).toBeTruthy();
+    rerender(
+      <SeatPod
+        seat={seat({ lastAction: 'CHECK' })}
+        isHero={false}
+        isActing={false}
+        actionDeadline={null}
+      />,
+    );
+    expect(screen.getByText('check')).toBeTruthy();
+    rerender(
+      <SeatPod
+        seat={seat({ status: 'FOLDED' })}
+        isHero={false}
+        isActing={false}
+        actionDeadline={null}
+      />,
+    );
+    expect(screen.getByText('folded')).toBeTruthy();
+  });
 });
