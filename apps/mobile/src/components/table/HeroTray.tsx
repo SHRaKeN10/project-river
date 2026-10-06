@@ -1,6 +1,8 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { colors, radius, spacing, typography } from '../../theme/tokens';
-import { PlayingCard } from './PlayingCard';
+import { DIMENSIONS, PlayingCard } from './PlayingCard';
+
+const CARD_GAP = 6;
 
 interface Props {
   /** The viewer's hole cards in wire form ("As", "Td"). Empty hides the cards. */
@@ -45,15 +47,13 @@ export function heroCardSize(
   screenWidth: number,
   screenHeight: number,
 ): 'md' | 'lg' {
-  const LG_WIDTH = 52;
-  const GAP = 6;
-  const needed = cardCount * LG_WIDTH + Math.max(0, cardCount - 1) * GAP;
+  const needed = cardCount * DIMENSIONS.lg.w + Math.max(0, cardCount - 1) * CARD_GAP;
   return needed <= screenWidth - spacing.lg * 2 && screenHeight >= 720 ? 'lg' : 'md';
 }
 
 const styles = StyleSheet.create({
   tray: { alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.sm },
-  cards: { flexDirection: 'row', gap: 6 },
+  cards: { flexDirection: 'row', gap: CARD_GAP },
   folded: { opacity: 0.4 },
   feedPill: {
     maxWidth: '90%',

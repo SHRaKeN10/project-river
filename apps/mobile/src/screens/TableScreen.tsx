@@ -123,6 +123,8 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
   const feltW = width - spacing.lg * 2;
   const podW = seatPodWidth(feltW);
   const slots = seatRing(view.maxSeats, heroIndex, feltW, podW);
+  const buttonSlot = slots.find((s) => s.index === view.buttonSeat);
+  const buttonSeatOccupied = view.seats.some((s) => s.seatNumber === view.buttonSeat && s.userId);
 
   return (
     <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
@@ -198,19 +200,15 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
             </View>
           );
         })}
-        {slots.map((slot) =>
-          slot.index === view.buttonSeat &&
-          view.seats.some((s) => s.seatNumber === slot.index && s.userId) ? (
-            <DealerButton
-              key="dealer-button"
-              slot={slot}
-              slots={slots}
-              feltWidth={feltW}
-              feltHeight={feltH}
-              podWidth={podW}
-            />
-          ) : null,
-        )}
+        {buttonSlot && buttonSeatOccupied ? (
+          <DealerButton
+            slot={buttonSlot}
+            slots={slots}
+            feltWidth={feltW}
+            feltHeight={feltH}
+            podWidth={podW}
+          />
+        ) : null}
       </View>
 
       <View style={styles.bottom}>

@@ -10,7 +10,7 @@ interface Props {
 const SUIT_GLYPH: Record<string, string> = { s: '♠', h: '♥', d: '♦', c: '♣' };
 const RED = new Set(['h', 'd']);
 
-const DIMENSIONS = {
+export const DIMENSIONS = {
   sm: { w: 26, h: 36, rank: 13, suit: 11 },
   md: { w: 40, h: 56, rank: 18, suit: 16 },
   lg: { w: 52, h: 72, rank: 24, suit: 20 },

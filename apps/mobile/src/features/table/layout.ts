@@ -60,6 +60,8 @@ const SEAT_POD_HEIGHT_ESTIMATE = 88;
 export const SEAT_WRAP_RISE = 30;
 
 /** Rough half-extent of the community board + pot pill, centred on the felt. */
+/** How far a seat's bet/status tag hangs below its pod. */
+const TAG_HANG = 8;
 const BOARD_HALF_WIDTH = 112;
 const BOARD_HALF_HEIGHT = 50;
 
@@ -83,12 +85,12 @@ const overlaps = (a: Box, b: Box): boolean =>
  * `slots` is every seat on the table (so other pods can be avoided).
  */
 export function dealerButtonPosition(
-  slot: Pick<SeatSlot, 'x' | 'y'>,
+  slot: SeatSlot,
   feltWidth: number,
   feltHeight: number,
   podWidth: number = SEAT_POD_MAX_WIDTH,
   seatRise: number = SEAT_WRAP_RISE,
-  slots: Pick<SeatSlot, 'x' | 'y'>[] = [],
+  slots: SeatSlot[] = [],
 ): { x: number; y: number } {
   const r = DEALER_BUTTON_SIZE / 2;
   const gap = 2;
@@ -124,9 +126,9 @@ export function dealerButtonPosition(
   const candidates = [
     { x: podCx + ux * reach, y: podCy + uy * reach }, // in front, towards the centre
     { x: innerX, y: mine.top - margin }, // above the pod, inner corner
-    { x: innerX, y: mine.bottom + margin }, // below the pod, inner corner
+    { x: innerX, y: mine.bottom + margin + TAG_HANG }, // below the pod, inner corner
     { x: podCx - inward * (podWidth / 2 - r), y: mine.top - margin }, // above, outer corner
-    { x: podCx - inward * (podWidth / 2 - r), y: mine.bottom + margin }, // below, outer corner
+    { x: podCx - inward * (podWidth / 2 - r), y: mine.bottom + margin + TAG_HANG }, // below, outer corner
     { x: podCx + inward * (podWidth / 2 + margin), y: podCy }, // beside, inner
     { x: podCx - inward * (podWidth / 2 + margin), y: podCy }, // beside, outer
   ];
@@ -138,7 +140,7 @@ export function dealerButtonPosition(
       top: feltHeight / 2 - BOARD_HALF_HEIGHT,
       bottom: feltHeight / 2 + BOARD_HALF_HEIGHT,
     },
-    ...slots.filter((s) => s.x !== slot.x || s.y !== slot.y).map(podBox),
+    ...slots.filter((s) => s.index !== slot.index).map(podBox),
   ];
   const clearOf = (c: { x: number; y: number }, avoid: Box[]): boolean => {
     const box: Box = { left: c.x - r, right: c.x + r, top: c.y - r, bottom: c.y + r };
