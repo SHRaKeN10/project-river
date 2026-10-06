@@ -12,6 +12,7 @@ import {
   HeroTray,
   heroCardSize,
   SeatPod,
+  TableWatermark,
   TableMenuSheet,
 } from '../components/table';
 import { useChips, useRebuy } from '../features/api/queries';
@@ -161,6 +162,11 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
       ) : null}
 
       <View style={[styles.felt, { height: feltH, width: feltW }]}>
+        <TableWatermark
+          gameType={view.gameType}
+          smallBlind={view.smallBlind}
+          bigBlind={view.bigBlind}
+        />
         <View style={styles.center}>
           <CommunityBoard
             cards={view.communityCards}

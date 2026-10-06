@@ -10,6 +10,7 @@ import {
   HeroTray,
   heroCardSize,
   SeatPod,
+  TableWatermark,
 } from '../components/table';
 import {
   heroSeat,
@@ -136,6 +137,11 @@ export function TournamentTableScreen({ navigation, route }: Props): JSX.Element
       ) : null}
 
       <View style={[styles.felt, { height: feltH, width: feltW }]}>
+        <TableWatermark
+          gameType={view.gameType}
+          smallBlind={view.smallBlind}
+          bigBlind={view.bigBlind}
+        />
         <View style={styles.center}>
           <CommunityBoard
             cards={view.communityCards}
