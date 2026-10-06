@@ -6,3 +6,7 @@ export { BuyInSheet } from './BuyInSheet';
 export { TurnTimer } from './TurnTimer';
 export { GameDetailsSheet } from './GameDetailsSheet';
 export { TableMenuSheet } from './TableMenuSheet';
+export { DealerButton } from './DealerButton';
+export { HeroTray, heroCardSize } from './HeroTray';
+export { TableWatermark } from './TableWatermark';
+export { Felt } from './Felt';

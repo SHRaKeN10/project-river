@@ -13,6 +13,8 @@ interface Props {
   busy?: boolean;
   rebuying?: boolean;
   onRebuy?: () => void;
+  /** Why the last attempt to sit failed (e.g. the anti-ratholing floor). */
+  error?: string | null;
   onConfirm: (amount: number) => void;
   onClose: () => void;
 }
@@ -31,6 +33,7 @@ export function BuyInSheet({
   busy,
   rebuying,
   onRebuy,
+  error,
   onConfirm,
   onClose,
 }: Props): JSX.Element {
@@ -99,6 +102,8 @@ export function BuyInSheet({
               </Pressable>
             </View>
 
+            {error ? <Text style={styles.error}>{error}</Text> : null}
+
             <Button
               label={`Sit down for ${amount.toLocaleString()}`}
               loading={busy}
@@ -137,6 +142,7 @@ const styles = StyleSheet.create({
   },
   title: { ...typography.h2, color: colors.textPrimary },
   amount: { ...typography.h1, color: colors.accent },
+  error: { ...typography.label, color: colors.danger },
   hint: { ...typography.caption, color: colors.textSecondary },
   presetRow: { flexDirection: 'row', gap: spacing.sm },
   chip: {

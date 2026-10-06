@@ -3,7 +3,15 @@ import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-na
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { GAME_HOLE_CARDS, GameType, POT_LIMIT_GAME_TYPES } from '@river/shared-types';
-import { ActionBar, CommunityBoard, SeatPod } from '../components/table';
+import {
+  ActionBar,
+  CommunityBoard,
+  DealerButton,
+  HeroTray,
+  heroCardSize,
+  SeatPod,
+  TableWatermark,
+} from '../components/table';
 import {
   heroSeat,
   isHeroTurn,
@@ -86,11 +94,14 @@ export function TournamentTableScreen({ navigation, route }: Props): JSX.Element
   const gameType = view.gameType as GameType;
   const holeCardCount = GAME_HOLE_CARDS[gameType] ?? 2;
   const potLimit = POT_LIMIT_GAME_TYPES.has(gameType);
+  const heroCards = hero?.holeCards ?? [];
 
   const feltH = Math.min(height * 0.62, height - 220);
   const feltW = width - spacing.lg * 2;
   const podW = seatPodWidth(feltW);
   const slots = seatRing(view.maxSeats, heroIndex, feltW, podW);
+  const buttonSlot = slots.find((s) => s.index === view.buttonSeat);
+  const buttonSeatOccupied = view.seats.some((s) => s.seatNumber === view.buttonSeat && s.userId);
 
   return (
     <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
@@ -164,17 +175,38 @@ export function TournamentTableScreen({ navigation, route }: Props): JSX.Element
                 seat={seat}
                 isHero={seat.seatNumber === view.youAreSeat}
                 isActing={seat.seatNumber === view.actingSeat}
-                isButton={seat.seatNumber === view.buttonSeat}
                 actionDeadline={view.actionDeadline}
                 width={podW}
                 holeCardCount={holeCardCount}
+                hideCards={heroCards.length > 0 && seat.seatNumber === view.youAreSeat}
               />
             </View>
           );
         })}
+        {/* Over the seats, which are see-through, so the branding reads across them. */}
+        <TableWatermark
+          gameType={view.gameType}
+          smallBlind={view.smallBlind}
+          bigBlind={view.bigBlind}
+        />
+        {buttonSlot && buttonSeatOccupied ? (
+          <DealerButton
+            slot={buttonSlot}
+            slots={slots}
+            feltWidth={feltW}
+            feltHeight={feltH}
+            podWidth={podW}
+            seatRise={0}
+          />
+        ) : null}
       </View>
 
       <View style={styles.bottom}>
+        <HeroTray
+          cards={heroCards}
+          folded={hero?.status === 'FOLDED'}
+          size={heroCardSize(heroCards.length || holeCardCount, width, height)}
+        />
         {myTurn && view.legalActions ? (
           <ActionBar
             options={view.legalActions}

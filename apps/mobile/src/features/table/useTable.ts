@@ -14,7 +14,7 @@ import {
   type WsError,
 } from '@river/shared-types';
 import { getSocket } from '../realtime/socket';
-import { describeEvent } from './layout';
+import { createEventDescriber } from './layout';
 import { tableSocket } from './socket';
 
 export interface FeedLine {
@@ -95,8 +95,9 @@ export function useTable(id: string, opts: UseTableOptions = {}): UseTable {
     const onState = (next: TableStateView): void => {
       if (mine(next)) setView(next);
     };
+    const describe = createEventDescriber(nameForSeat);
     const onUpdate = (ev: HandUpdateEvent): void => {
-      const line = describeEvent(ev, nameForSeat);
+      const line = describe(ev);
       if (line) pushFeed(line);
     };
     const onChat = (msg: TableChatMessage): void => {

@@ -9,13 +9,14 @@ interface Props {
   seat: PublicSeatView;
   isHero: boolean;
   isActing: boolean;
-  isButton: boolean;
   actionDeadline: number | null;
   /** Pod width in px (narrow screens shrink it). Defaults to the full size. */
   width?: number;
   /** Face-down cards to draw for a seat still in the hand: 2 for Hold'em
    * (default), 4 for Omaha. */
   holeCardCount?: number;
+  /** Don't draw this seat's hole cards (the hero's are shown larger in the tray). */
+  hideCards?: boolean;
   /** Called when an empty seat is tapped. */
   onSit?: (seatNumber: number) => void;
 }
@@ -36,10 +37,10 @@ function SeatPodBase({
   seat,
   isHero,
   isActing,
-  isButton,
   actionDeadline,
   width,
   holeCardCount = 2,
+  hideCards = false,
   onSit,
 }: Props): JSX.Element {
   const sizeStyle = width ? { width } : null;
@@ -59,6 +60,7 @@ function SeatPodBase({
   const folded = seat.status === 'FOLDED';
   const sittingOut = seat.status === 'SITTING_OUT';
   const showCards = (seat.holeCards?.length ?? 0) > 0;
+  const faceDown = !hideCards && (seat.status === 'ACTIVE' || seat.status === 'ALL_IN');
 
   return (
     <View
@@ -66,7 +68,9 @@ function SeatPodBase({
     >
       <View style={styles.row}>
         <View style={[styles.avatar, isHero ? styles.avatarHero : null]}>
-          <Text style={styles.avatarText}>{initials(seat.username)}</Text>
+          <Text style={[styles.avatarText, isHero ? styles.avatarTextHero : null]}>
+            {initials(seat.username)}
+          </Text>
         </View>
         <View style={styles.info}>
           <Text style={styles.name} numberOfLines={1}>
@@ -81,16 +85,11 @@ function SeatPodBase({
             <Text style={styles.straddleText}>STR</Text>
           </View>
         ) : null}
-        {isButton ? (
-          <View style={styles.button}>
-            <Text style={styles.buttonText}>D</Text>
-          </View>
-        ) : null}
       </View>
 
       {isActing && actionDeadline ? <TurnTimer deadline={actionDeadline} /> : null}
 
-      {showCards ? (
+      {hideCards ? null : showCards ? (
         <View style={styles.cards}>
           {seat.holeCards?.map((c, i) => (
             <View key={i} style={tuckStyle(i, seat.holeCards?.length ?? 0)}>
@@ -98,7 +97,7 @@ function SeatPodBase({
             </View>
           ))}
         </View>
-      ) : seat.status === 'ACTIVE' || seat.status === 'ALL_IN' ? (
+      ) : faceDown ? (
         <View style={styles.cards}>
           {Array.from({ length: holeCardCount }, (_, i) => (
             <View key={i} style={tuckStyle(i, holeCardCount)}>
@@ -108,27 +107,37 @@ function SeatPodBase({
         </View>
       ) : null}
 
+      {/* Overlaid on the pod's bottom edge so a bet or status never makes the pod
+          taller (a tall pod runs into the community cards). */}
       {seat.currentBet > 0 ? (
-        <View style={styles.bet}>
+        <View style={styles.tag} pointerEvents="none">
           <Text style={styles.betText}>{seat.currentBet.toLocaleString()}</Text>
         </View>
-      ) : seat.lastAction && !folded ? (
-        <Text style={styles.lastAction}>{seat.lastAction.replace(/_/g, ' ').toLowerCase()}</Text>
+      ) : folded ? (
+        <View style={styles.tag} pointerEvents="none">
+          <Text style={styles.tagText}>folded</Text>
+        </View>
+      ) : seat.lastAction ? (
+        <View style={styles.tag} pointerEvents="none">
+          <Text style={styles.tagText}>{seat.lastAction.replace(/_/g, ' ').toLowerCase()}</Text>
+        </View>
       ) : null}
-      {folded ? <Text style={styles.lastAction}>folded</Text> : null}
     </View>
   );
 }
 
 export const SeatPod = memo(SeatPodBase);
 
+/** See-through so the felt branding shows across the pods. */
+const POD_BACKGROUND = '#14110fb0';
+
 const styles = StyleSheet.create({
   pod: {
     width: 104,
-    backgroundColor: colors.surface,
+    backgroundColor: POD_BACKGROUND,
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: colors.goldSoft,
     padding: spacing.sm,
     gap: spacing.xs,
   },
@@ -141,31 +150,31 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff0d',
   },
   emptyText: { ...typography.label, color: colors.textSecondary },
-  acting: { borderColor: colors.accent },
+  acting: {
+    borderColor: colors.accent,
+    shadowColor: colors.accent,
+    shadowOpacity: 0.7,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 0 },
+  },
   faded: { opacity: 0.45 },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   avatar: {
     width: 30,
     height: 30,
     borderRadius: radius.pill,
-    backgroundColor: colors.surfaceAlt,
+    backgroundColor: '#2a2418',
+    borderWidth: 1.5,
+    borderColor: colors.accent,
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatarHero: { backgroundColor: colors.accent },
-  avatarText: { ...typography.caption, fontWeight: '700', color: colors.textPrimary },
+  avatarText: { ...typography.caption, fontWeight: '700', color: colors.accent },
+  avatarTextHero: { color: colors.accentText },
   info: { flex: 1, minWidth: 0 },
   name: { ...typography.caption, color: colors.textPrimary, fontWeight: '600' },
   stack: { ...typography.caption, color: colors.accent },
-  button: {
-    width: 18,
-    height: 18,
-    borderRadius: radius.pill,
-    backgroundColor: colors.textPrimary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  buttonText: { fontSize: 10, fontWeight: '800', color: colors.bg },
   straddle: {
     borderRadius: radius.pill,
     backgroundColor: colors.warning,
@@ -174,13 +183,17 @@ const styles = StyleSheet.create({
   },
   straddleText: { fontSize: 9, fontWeight: '800', color: colors.bg, letterSpacing: 0.5 },
   cards: { flexDirection: 'row', gap: 3 },
-  bet: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#00000055',
+  tag: {
+    position: 'absolute',
+    left: spacing.sm,
+    bottom: -8,
+    backgroundColor: '#000000cc',
+    borderWidth: 1,
+    borderColor: colors.goldSoft,
     borderRadius: radius.pill,
     paddingHorizontal: spacing.sm,
     paddingVertical: 2,
   },
   betText: { ...typography.caption, color: colors.textPrimary },
-  lastAction: { ...typography.caption, color: colors.textMuted },
+  tagText: { ...typography.caption, color: colors.textSecondary },
 });

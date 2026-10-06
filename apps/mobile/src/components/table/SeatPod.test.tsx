@@ -29,7 +29,6 @@ describe('SeatPod', () => {
         seat={seat({ userId: null, username: null, seatNumber: 3 })}
         isHero={false}
         isActing={false}
-        isButton={false}
         actionDeadline={null}
         onSit={onSit}
       />,
@@ -39,15 +38,7 @@ describe('SeatPod', () => {
   });
 
   it('shows the occupant name and stack', () => {
-    render(
-      <SeatPod
-        seat={seat({ stack: 1234 })}
-        isHero
-        isActing={false}
-        isButton={false}
-        actionDeadline={null}
-      />,
-    );
+    render(<SeatPod seat={seat({ stack: 1234 })} isHero isActing={false} actionDeadline={null} />);
     expect(screen.getByText('Alice')).toBeTruthy();
     expect(screen.getByText('1,234')).toBeTruthy();
   });
@@ -58,7 +49,6 @@ describe('SeatPod', () => {
         seat={seat({ holeCards: ['As', 'Kd'] })}
         isHero
         isActing={false}
-        isButton={false}
         actionDeadline={null}
       />,
     );
@@ -68,23 +58,11 @@ describe('SeatPod', () => {
 
   it('shows a STR chip for the straddle seat, and not otherwise', () => {
     const { rerender } = render(
-      <SeatPod
-        seat={seat({ isStraddle: true })}
-        isHero
-        isActing={false}
-        isButton={false}
-        actionDeadline={null}
-      />,
+      <SeatPod seat={seat({ isStraddle: true })} isHero isActing={false} actionDeadline={null} />,
     );
     expect(screen.getByText('STR')).toBeTruthy();
     rerender(
-      <SeatPod
-        seat={seat({ isStraddle: false })}
-        isHero
-        isActing={false}
-        isButton={false}
-        actionDeadline={null}
-      />,
+      <SeatPod seat={seat({ isStraddle: false })} isHero isActing={false} actionDeadline={null} />,
     );
     expect(screen.queryByText('STR')).toBeNull();
   });
@@ -95,7 +73,6 @@ describe('SeatPod', () => {
         seat={seat({ holeCards: ['As', 'Kd', 'Qh', 'Jc'] })}
         isHero
         isActing={false}
-        isButton={false}
         actionDeadline={null}
         holeCardCount={4}
       />,
@@ -111,7 +88,6 @@ describe('SeatPod', () => {
         seat={seat({ holeCards: null, status: 'ACTIVE' })}
         isHero={false}
         isActing={false}
-        isButton={false}
         actionDeadline={null}
         holeCardCount={4}
       />,
@@ -125,7 +101,6 @@ describe('SeatPod', () => {
         seat={seat({ holeCards: null, status: 'ACTIVE' })}
         isHero={false}
         isActing={false}
-        isButton={false}
         actionDeadline={null}
         holeCardCount={5}
       />,
@@ -139,7 +114,50 @@ describe('SeatPod', () => {
         seat={seat({ status: 'FOLDED' })}
         isHero={false}
         isActing={false}
-        isButton={false}
+        actionDeadline={null}
+      />,
+    );
+    expect(screen.getByText('folded')).toBeTruthy();
+  });
+
+  it('hides the hole cards when asked (the hero sees them in the tray)', () => {
+    render(
+      <SeatPod
+        seat={seat({ holeCards: ['As', 'Kd'] })}
+        isHero
+        isActing={false}
+        actionDeadline={null}
+        hideCards
+      />,
+    );
+    expect(screen.queryByText('A')).toBeNull();
+    expect(screen.queryByLabelText('Face-down card')).toBeNull();
+  });
+
+  it('shows a bet, a status and a fold as a tag', () => {
+    const { rerender } = render(
+      <SeatPod
+        seat={seat({ currentBet: 50 })}
+        isHero={false}
+        isActing={false}
+        actionDeadline={null}
+      />,
+    );
+    expect(screen.getByText('50')).toBeTruthy();
+    rerender(
+      <SeatPod
+        seat={seat({ lastAction: 'CHECK' })}
+        isHero={false}
+        isActing={false}
+        actionDeadline={null}
+      />,
+    );
+    expect(screen.getByText('check')).toBeTruthy();
+    rerender(
+      <SeatPod
+        seat={seat({ status: 'FOLDED' })}
+        isHero={false}
+        isActing={false}
         actionDeadline={null}
       />,
     );

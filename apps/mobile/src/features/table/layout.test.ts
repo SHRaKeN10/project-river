@@ -1,5 +1,8 @@
 import type { TableStateView } from '@river/shared-types';
 import {
+  createEventDescriber,
+  DEALER_BUTTON_SIZE,
+  dealerButtonPosition,
   describeEvent,
   isHeroTurn,
   occupiedCount,
@@ -7,7 +10,12 @@ import {
   seatRing,
   SEAT_POD_MAX_WIDTH,
   SEAT_POD_MIN_WIDTH,
+  SEAT_WRAP_RISE,
   streetLabel,
+  WATERMARK_HALF_WIDTH,
+  WATERMARK_HEIGHT,
+  WATERMARK_TOP_FRACTION,
+  type ShownHands,
 } from './layout';
 
 describe('seatRing', () => {
@@ -45,6 +53,78 @@ describe('seatRing', () => {
     const b = seatRing(6, 2, undefined);
     expect(a).toEqual(b);
     expect(a[0]!.x).toBeGreaterThanOrEqual(0.16);
+  });
+});
+
+describe('dealerButtonPosition', () => {
+  const half = DEALER_BUTTON_SIZE / 2;
+  const sizes = [
+    { W: 340, H: 520 },
+    { W: 272, H: 440 },
+    { W: 400, H: 600 },
+  ];
+  const puckBox = (p: { x: number; y: number }) => ({
+    left: p.x - half,
+    right: p.x + half,
+    top: p.y - half,
+    bottom: p.y + half,
+  });
+  const hits = (
+    a: { left: number; right: number; top: number; bottom: number },
+    b: { left: number; right: number; top: number; bottom: number },
+  ) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+
+  it('sits in front of the hero, between the seat and the middle', () => {
+    const { W, H } = sizes[0]!;
+    const podW = seatPodWidth(W);
+    const ring = seatRing(6, 0, W, podW);
+    const puck = dealerButtonPosition(ring[0]!, W, H, podW, SEAT_WRAP_RISE, ring);
+    expect(puck.y).toBeLessThan(ring[0]!.y * H);
+  });
+
+  it('never covers the board, another seat, or leaves the felt - for every dealer seat', () => {
+    for (const { W, H } of sizes) {
+      const podW = seatPodWidth(W);
+      for (const n of [2, 3, 4, 6, 8, 9]) {
+        const ring = seatRing(n, 0, W, podW);
+        for (const slot of ring) {
+          const puck = puckBox(dealerButtonPosition(slot, W, H, podW, SEAT_WRAP_RISE, ring));
+          expect(puck.left).toBeGreaterThanOrEqual(0);
+          expect(puck.right).toBeLessThanOrEqual(W);
+          expect(puck.top).toBeGreaterThanOrEqual(0);
+          expect(puck.bottom).toBeLessThanOrEqual(H);
+          // the board: roughly 224 x 100 px dead centre
+          expect(
+            hits(puck, {
+              left: W / 2 - 112,
+              right: W / 2 + 112,
+              top: H / 2 - 50,
+              bottom: H / 2 + 50,
+            }),
+          ).toBe(false);
+          // the watermark: just just below the board
+          if (W >= 340 && n <= 6) {
+            expect(
+              hits(puck, {
+                left: W / 2 - WATERMARK_HALF_WIDTH,
+                right: W / 2 + WATERMARK_HALF_WIDTH,
+                top: H * WATERMARK_TOP_FRACTION,
+                bottom: H * WATERMARK_TOP_FRACTION + WATERMARK_HEIGHT,
+              }),
+            ).toBe(false);
+          }
+          // A very cramped felt (narrow phone, 9 seats) has no free spot, so there
+          // the puck only has to keep the cards clear.
+          for (const other of W >= 340 ? ring : []) {
+            const cx = other.x * W;
+            const top = other.y * H - SEAT_WRAP_RISE;
+            expect(
+              hits(puck, { left: cx - podW / 2, right: cx + podW / 2, top, bottom: top + 88 }),
+            ).toBe(false);
+          }
+        }
+      }
+    }
   });
 });
 
@@ -208,5 +288,96 @@ describe('describeEvent', () => {
 
   it('returns null for events with no feed line', () => {
     expect(describeEvent({ type: 'SHOWDOWN_STARTED' }, name)).toBeNull();
+  });
+
+  it('says what the winning hand was when it was shown', () => {
+    const shown: ShownHands = new Map([[1, { hi: 'Full House, Kings over Sevens' }]]);
+    expect(
+      describeEvent({ type: 'POT_AWARDED', winners: [{ seat: 1, amount: 300 }] }, name, shown),
+    ).toBe('P1 wins 300 with Full House, Kings over Sevens');
+  });
+
+  it('keeps the plain pot line when nobody showed (a fold-out win)', () => {
+    expect(
+      describeEvent({ type: 'POT_AWARDED', winners: [{ seat: 1, amount: 300 }] }, name, new Map()),
+    ).toBe('Pot to P1 300');
+  });
+
+  it('names the high hand for the high pot and the low hand for the low pot', () => {
+    const shown: ShownHands = new Map([
+      [0, { hi: 'Flush, Ace high' }],
+      [2, { hi: 'Pair of Fours', lo: '7-5-4-3-A low' }],
+    ]);
+    expect(
+      describeEvent(
+        { type: 'POT_AWARDED', portion: 'HIGH', winners: [{ seat: 0, amount: 150 }] },
+        name,
+        shown,
+      ),
+    ).toBe('High pot: P0 wins 150 with Flush, Ace high');
+    expect(
+      describeEvent(
+        { type: 'POT_AWARDED', portion: 'LOW', winners: [{ seat: 2, amount: 150 }] },
+        name,
+        shown,
+      ),
+    ).toBe('Low pot: P2 wins 150 with 7-5-4-3-A low');
+  });
+
+  it('does not name a hand for the second board (reveals describe board 1)', () => {
+    const shown: ShownHands = new Map([[1, { hi: 'Pair of Kings' }]]);
+    expect(
+      describeEvent(
+        { type: 'POT_AWARDED', board: 2, winners: [{ seat: 1, amount: 100 }] },
+        name,
+        shown,
+      ),
+    ).toBe('Pot to P1 100 (board 2)');
+  });
+
+  it('lists every winner of a split pot, naming each hand that was shown', () => {
+    const shown: ShownHands = new Map([
+      [0, { hi: 'Straight, Nine high' }],
+      [3, { hi: 'Straight, Nine high' }],
+    ]);
+    expect(
+      describeEvent(
+        {
+          type: 'POT_AWARDED',
+          winners: [
+            { seat: 0, amount: 100 },
+            { seat: 3, amount: 100 },
+          ],
+        },
+        name,
+        shown,
+      ),
+    ).toBe('P0 wins 100 with Straight, Nine high; P3 wins 100 with Straight, Nine high');
+  });
+});
+
+describe('createEventDescriber', () => {
+  const name = (seat: number): string => `P${seat}`;
+
+  it('remembers revealed hands so the pot line can name the winner', () => {
+    const describe = createEventDescriber(name);
+    describe({ type: 'HAND_STARTED', handNumber: 7 });
+    describe({
+      type: 'HAND_REVEALED',
+      seat: 2,
+      hand: { description: 'Two Pair, Jacks and Sevens' },
+    });
+    expect(describe({ type: 'POT_AWARDED', winners: [{ seat: 2, amount: 60 }] })).toBe(
+      'P2 wins 60 with Two Pair, Jacks and Sevens',
+    );
+  });
+
+  it("does not carry one hand's reveals into the next", () => {
+    const describe = createEventDescriber(name);
+    describe({ type: 'HAND_REVEALED', seat: 2, hand: { description: 'Flush, King high' } });
+    describe({ type: 'HAND_STARTED', handNumber: 8 });
+    expect(describe({ type: 'POT_AWARDED', winners: [{ seat: 2, amount: 60 }] })).toBe(
+      'Pot to P2 60',
+    );
   });
 });

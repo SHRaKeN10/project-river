@@ -7,8 +7,13 @@ import {
   ActionBar,
   BuyInSheet,
   CommunityBoard,
+  DealerButton,
+  Felt,
   GameDetailsSheet,
+  HeroTray,
+  heroCardSize,
   SeatPod,
+  TableWatermark,
   TableMenuSheet,
 } from '../components/table';
 import { useChips, useRebuy } from '../features/api/queries';
@@ -45,6 +50,7 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
   } = useTable(tableId);
 
   const [buyInSeat, setBuyInSeat] = useState<number | null>(null);
+  const [buyInError, setBuyInError] = useState<string | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -53,7 +59,10 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
   // (this button, hardware back, a nav reset) behaves the same.
   const goBack = useCallback(() => navigation.goBack(), [navigation]);
 
-  const onSit = useCallback((seatNumber: number) => setBuyInSeat(seatNumber), []);
+  const onSit = useCallback((seatNumber: number) => {
+    setBuyInError(null);
+    setBuyInSeat(seatNumber);
+  }, []);
 
   // Arrived here from a waitlist "seat available" prompt: open the buy-in sheet
   // straight onto the seat held for us (once, on mount).
@@ -69,9 +78,13 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
     async (amount: number) => {
       if (buyInSeat === null) return;
       setBusy(true);
+      setBuyInError(null);
       const err = await takeSeat(buyInSeat, amount);
       setBusy(false);
-      if (!err) {
+      if (err) {
+        // Keep the sheet open and say why (it used to fail silently).
+        setBuyInError(err);
+      } else {
         setBuyInSeat(null);
         void chips.refetch();
       }
@@ -114,11 +127,14 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
   const gameType = view.gameType as GameType;
   const holeCardCount = GAME_HOLE_CARDS[gameType] ?? 2;
   const potLimit = POT_LIMIT_GAME_TYPES.has(gameType);
+  const heroCards = hero?.holeCards ?? [];
 
   const feltH = Math.min(height * 0.62, height - 220);
   const feltW = width - spacing.lg * 2;
   const podW = seatPodWidth(feltW);
   const slots = seatRing(view.maxSeats, heroIndex, feltW, podW);
+  const buttonSlot = slots.find((s) => s.index === view.buttonSeat);
+  const buttonSeatOccupied = view.seats.some((s) => s.seatNumber === view.buttonSeat && s.userId);
 
   return (
     <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
@@ -154,7 +170,7 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
         </Pressable>
       ) : null}
 
-      <View style={[styles.felt, { height: feltH, width: feltW }]}>
+      <Felt width={feltW} height={feltH}>
         <View style={styles.center}>
           <CommunityBoard
             cards={view.communityCards}
@@ -164,16 +180,6 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
             bombPot={view.bombPot}
           />
         </View>
-
-        {feed.length > 0 ? (
-          <View style={styles.feed} pointerEvents="none">
-            <View style={styles.feedPill}>
-              <Text style={styles.feedText} numberOfLines={1}>
-                {feed[feed.length - 1]?.text}
-              </Text>
-            </View>
-          </View>
-        ) : null}
 
         {slots.map((slot) => {
           const seat = view.seats.find((s) => s.seatNumber === slot.index);
@@ -195,18 +201,39 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
                 seat={seat}
                 isHero={seat.seatNumber === view.youAreSeat}
                 isActing={seat.seatNumber === view.actingSeat}
-                isButton={seat.seatNumber === view.buttonSeat}
                 actionDeadline={view.actionDeadline}
                 width={podW}
                 holeCardCount={holeCardCount}
+                hideCards={heroCards.length > 0 && seat.seatNumber === view.youAreSeat}
                 onSit={onSit}
               />
             </View>
           );
         })}
-      </View>
+        {/* Over the seats, which are see-through, so the branding reads across them. */}
+        <TableWatermark
+          gameType={view.gameType}
+          smallBlind={view.smallBlind}
+          bigBlind={view.bigBlind}
+        />
+        {buttonSlot && buttonSeatOccupied ? (
+          <DealerButton
+            slot={buttonSlot}
+            slots={slots}
+            feltWidth={feltW}
+            feltHeight={feltH}
+            podWidth={podW}
+          />
+        ) : null}
+      </Felt>
 
       <View style={styles.bottom}>
+        <HeroTray
+          cards={heroCards}
+          folded={hero?.status === 'FOLDED'}
+          feedText={feed.length > 0 ? feed[feed.length - 1]?.text : null}
+          size={heroCardSize(heroCards.length || holeCardCount, width, height)}
+        />
         {myTurn && view.legalActions ? (
           <ActionBar
             options={view.legalActions}
@@ -240,6 +267,7 @@ export function TableScreen({ navigation, route }: Props): JSX.Element {
         busy={busy}
         rebuying={rebuy.isPending}
         onRebuy={onRebuy}
+        error={buyInError}
         onConfirm={confirmBuyIn}
         onClose={() => setBuyInSeat(null)}
       />
@@ -292,15 +320,6 @@ const styles = StyleSheet.create({
     padding: spacing.sm,
   },
   errorText: { ...typography.caption, color: '#fff', textAlign: 'center' },
-  felt: {
-    alignSelf: 'center',
-    marginTop: spacing.sm,
-    backgroundColor: colors.felt,
-    borderRadius: 999,
-    borderWidth: 6,
-    borderColor: colors.feltRail,
-    position: 'relative',
-  },
   center: {
     position: 'absolute',
     left: 0,
@@ -310,21 +329,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  feed: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: spacing.md,
-    alignItems: 'center',
-  },
-  feedPill: {
-    maxWidth: '80%',
-    backgroundColor: '#00000077',
-    borderRadius: radius.pill,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 4,
-  },
-  feedText: { ...typography.caption, color: '#ffffffe0' },
   seatWrap: { position: 'absolute', marginTop: -30 },
   bottom: { flex: 1, justifyContent: 'flex-end' },
   statusLine: {
